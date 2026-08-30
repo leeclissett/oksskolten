@@ -175,6 +175,21 @@ describe('fetchAndParseRss', () => {
     expect(items[1].title).toBe('Second Post')
   })
 
+  it('allows private-network URLs when refreshing a saved feed', async () => {
+    const rssUrl = 'http://192.168.1.109:3100/api/feeds/supra-insider'
+    mockSafeFetch.mockResolvedValue(mockResponse(RSS_XML))
+
+    await fetchAndParseRss({
+      id: 1, name: 'Supra Insider', url: rssUrl, rss_url: rssUrl,
+    } as any)
+
+    expect(mockSafeFetch).toHaveBeenCalledWith(
+      rssUrl,
+      expect.any(Object),
+      { allowPrivateNetwork: true },
+    )
+  })
+
   it('parses Atom feed', async () => {
     mockSafeFetch.mockResolvedValue(mockResponse(ATOM_XML))
 
@@ -334,6 +349,7 @@ describe('fetchAndParseRss', () => {
     expect(mockSafeFetch).toHaveBeenCalledWith(
       'https://bridge.example.com/rss',
       expect.any(Object),
+      { allowPrivateNetwork: true },
     )
   })
 
@@ -432,6 +448,7 @@ describe('fetchAndParseRss', () => {
           'If-Modified-Since': 'Mon, 01 Jan 2024 00:00:00 GMT',
         }),
       }),
+      { allowPrivateNetwork: true },
     )
   })
 
@@ -560,6 +577,23 @@ describe('discoverRssUrl', () => {
 
     expect(result.rssUrl).toBe('https://example.com/feed.xml')
     expect(result.title).toBe('Test Blog')
+  })
+
+  it('detects a directly entered private-network feed URL', async () => {
+    const rssUrl = 'http://192.168.1.109:3100/api/feeds/supra-insider'
+    mockSafeFetch
+      .mockResolvedValueOnce(mockResponse(RSS_XML))
+      .mockResolvedValueOnce(mockResponse(RSS_XML))
+
+    const result = await discoverRssUrl(rssUrl)
+
+    expect(result).toMatchObject({ rssUrl, title: 'Test Blog' })
+    expect(mockSafeFetch).toHaveBeenNthCalledWith(
+      1,
+      rssUrl,
+      expect.any(Object),
+      { allowPrivateNetwork: true },
+    )
   })
 
   it('discovers Atom link from HTML page', async () => {

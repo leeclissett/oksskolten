@@ -134,6 +134,27 @@ describe('safeFetch', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
+  it('fetches an explicitly allowed private-network URL', async () => {
+    mockFetch.mockResolvedValue(new Response('ok', { status: 200 }))
+
+    const res = await safeFetch(
+      'http://192.168.1.109:3100/api/feeds/supra-insider',
+      undefined,
+      { allowPrivateNetwork: true },
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['http://127.0.0.1', 'http://169.254.169.254/latest/meta-data'])(
+    'does not allow sensitive local target %s through the private-network exception',
+    async (url) => {
+      await expect(safeFetch(url, undefined, { allowPrivateNetwork: true })).rejects.toThrow('private IP')
+      expect(mockFetch).not.toHaveBeenCalled()
+    },
+  )
+
   it('follows safe redirects', async () => {
     mockFetch
       .mockResolvedValueOnce(
@@ -159,6 +180,45 @@ describe('safeFetch', () => {
       new Response(null, { status: 302, headers: { location: 'http://localhost/secret' } }),
     )
     await expect(safeFetch('http://example.com')).rejects.toThrow('private hostname')
+  })
+
+  it('does not allow a public URL to redirect into the private network when opt-in is set', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { location: 'http://192.168.1.109/feed' } }),
+    )
+
+    await expect(
+      safeFetch('http://example.com', undefined, { allowPrivateNetwork: true }),
+    ).rejects.toThrow('private IP')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks redirects from an allowed private host to a different private host', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { location: 'http://192.168.1.110/feed' } }),
+    )
+
+    await expect(
+      safeFetch('http://192.168.1.109/feed', undefined, { allowPrivateNetwork: true }),
+    ).rejects.toThrow('private IP')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('follows redirects on the same explicitly allowed private host', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: '/canonical-feed' } }),
+      )
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    const res = await safeFetch(
+      'http://192.168.1.109/feed',
+      undefined,
+      { allowPrivateNetwork: true },
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
   it('throws on redirect without Location header', async () => {
