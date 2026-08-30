@@ -1,0 +1,88 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { hashSync } from 'bcryptjs'
+import type { FastifyInstance } from 'fastify'
+import { setupTestDb } from '../__tests__/helpers/testDb.js'
+import { buildApp } from '../__tests__/helpers/buildApp.js'
+import { createFeed, getDb } from '../db.js'
+
+let app: FastifyInstance
+let savedAuthDisabled: string | undefined
+
+function seedUser(email = 'test@example.com', password = 'password123') {
+  const hash = hashSync(password, 4)
+  getDb().prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(email, hash)
+}
+
+async function freshRssLogin(email = 'test@example.com', password = 'password123') {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/greader.php/accounts/ClientLogin',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    payload: `Email=${encodeURIComponent(email)}&Passwd=${encodeURIComponent(password)}`,
+  })
+  const auth = res.body.match(/Auth=(.+)/)?.[1]?.trim()
+  return { res, auth: auth ?? null }
+}
+
+beforeEach(async () => {
+  setupTestDb()
+  app = await buildApp()
+  savedAuthDisabled = process.env.AUTH_DISABLED
+  delete process.env.AUTH_DISABLED
+})
+
+afterEach(async () => {
+  await app.close()
+  if (savedAuthDisabled !== undefined) {
+    process.env.AUTH_DISABLED = savedAuthDisabled
+  } else {
+    delete process.env.AUTH_DISABLED
+  }
+})
+
+describe('FreshRSS-compatible GReader prefix', () => {
+  it('accepts ClientLogin under /api/greader.php', async () => {
+    seedUser()
+
+    const { res, auth } = await freshRssLogin()
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toMatch(/text\/plain/)
+    expect(auth).toBeTruthy()
+    expect(res.body).toContain('SID=')
+    expect(res.body).toContain('Auth=')
+  })
+
+  it('protects prefixed reader endpoints', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/user-info',
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(res.body).toContain('Error=NeedsBrowser')
+  })
+
+  it('serves authenticated reader endpoints under the FreshRSS base URL', async () => {
+    seedUser()
+    createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
+    const { auth } = await freshRssLogin()
+
+    const userInfo = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/user-info',
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+    expect(userInfo.statusCode).toBe(200)
+    expect(userInfo.json().userEmail).toBe('test@example.com')
+
+    const subscriptions = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/subscription/list?output=json',
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+    expect(subscriptions.statusCode).toBe(200)
+    expect(subscriptions.json().subscriptions).toHaveLength(1)
+    expect(subscriptions.json().subscriptions[0].id).toBe('feed/https://example.com/rss')
+  })
+})
