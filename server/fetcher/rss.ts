@@ -232,7 +232,7 @@ export async function fetchAndParseRss(feed: Feed, opts?: { skipCache?: boolean 
   // Parse XML and collect items — wrapped in try/catch for Fallback C
   let items: RssItem[]
   try {
-    items = await parseRssXml(xml)
+    items = await parseRssXml(xml, rssUrl)
   } catch (err) {
     // Fallback C: CssSelectorBridge parse failure → FlareSolverr direct scrape
     if (isCssBridge) {
@@ -261,7 +261,30 @@ function cleanItems(items: RssItem[]): RssItem[] {
     .map(item => ({ ...item, url: cleanUrl(item.url) }))
 }
 
-async function parseRssXml(xml: string): Promise<RssItem[]> {
+/**
+ * Build a stable HTTP URL for a feed entry that has inline content but no
+ * canonical link. The fragment makes each entry unique and tells the article
+ * pipeline to use the inline feed content instead of fetching the feed itself.
+ */
+function buildSyntheticEntryUrl(
+  feedUrl: string | undefined,
+  entryId: string | undefined,
+  inlineContent: string | undefined,
+): string | undefined {
+  const normalizedId = entryId?.trim()
+  if (!feedUrl || !normalizedId || !inlineContent?.trim()) return undefined
+
+  try {
+    const url = new URL(feedUrl)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
+    url.hash = encodeURIComponent(normalizedId)
+    return url.toString()
+  } catch {
+    return undefined
+  }
+}
+
+async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
   // Try feedsmith first
   try {
     const { parseFeed } = await import('feedsmith')
@@ -270,16 +293,7 @@ async function parseRssXml(xml: string): Promise<RssItem[]> {
     const items = (parsed.items ?? parsed.entries ?? feed?.items ?? feed?.entries) as Record<string, unknown>[] | undefined
     if (items && items.length > 0) {
       return items
-        .filter((item: Record<string, unknown>) => {
-          if (item.url || item.link) return true
-          // feedsmith puts Atom <link> elements in a links[] array
-          const links = item.links as { href?: string; rel?: string }[] | undefined
-          if (links?.length) return true
-          // Only use id as URL when it looks like an HTTP URL
-          const id = item.id as string | undefined
-          return id ? /^https?:\/\//i.test(id) : false
-        })
-        .map((item: Record<string, unknown>) => {
+        .map((item: Record<string, unknown>): RssItem | null => {
           let url = (item.url || item.link) as string | undefined
           if (!url) {
             // Extract URL from feedsmith links[] array (prefer rel=alternate)
@@ -291,15 +305,24 @@ async function parseRssXml(xml: string): Promise<RssItem[]> {
           }
           const rawExcerpt = item.content_encoded || item['content:encoded'] || item.content || item.description || item.summary
           const excerpt = typeof rawExcerpt === 'string' ? rawExcerpt : (rawExcerpt && typeof rawExcerpt === 'object' && 'value' in rawExcerpt ? String((rawExcerpt as Record<string, unknown>).value) : undefined)
+          const id = typeof item.id === 'string' ? item.id : undefined
+          const effectiveUrl =
+            url ||
+            (id && /^https?:\/\//i.test(id) ? id : undefined) ||
+            buildSyntheticEntryUrl(feedUrl, id, excerpt)
+
+          if (!effectiveUrl) return null
+
           return {
             title: (item.title as string) || 'Untitled',
-            url: (url || item.id) as string,
+            url: effectiveUrl,
             published_at: normalizeDate(
               (item.published || item.updated || item.date || item.pubDate || (item.dc as Record<string, unknown>)?.date) as string | undefined,
             ),
             ...(excerpt ? { excerpt } : {}),
           }
         })
+        .filter((item): item is RssItem => item !== null)
     }
   } catch {
     // feedsmith failed, fall through to fast-xml-parser
@@ -344,9 +367,13 @@ async function parseRssXml(xml: string): Promise<RssItem[]> {
           ? (entry.link as Record<string, string>[]).find(l => l['@_rel'] === 'alternate')?.['@_href'] ||
             (entry.link as Record<string, string>[])[0]?.['@_href']
           : (entry.link as Record<string, string>)?.['@_href'] || (entry.link as string)
-        const id = entry.id as string | undefined
-        const effectiveUrl = link || (id && /^https?:\/\//i.test(id) ? id : '') || ''
+        const id = textOf(entry.id) || undefined
         const excerpt = textOf(entry.content) || textOf(entry.summary)
+        const effectiveUrl =
+          link ||
+          (id && /^https?:\/\//i.test(id) ? id : '') ||
+          buildSyntheticEntryUrl(feedUrl, id, excerpt) ||
+          ''
         return {
           title: textOf(entry.title) || 'Untitled',
           url: effectiveUrl,
@@ -536,7 +563,7 @@ export async function discoverRssUrl(blogUrl: string, callbacks?: DiscoverCallba
             break
           }
           // Try parsing body as RSS (works if extractXmlFromBrowserViewer succeeded)
-          const items = await parseRssXml(flare.body)
+          const items = await parseRssXml(flare.body, candidateUrl)
           if (items.length > 0) {
             rssUrl = candidateUrl
             break
@@ -545,7 +572,7 @@ export async function discoverRssUrl(blogUrl: string, callbacks?: DiscoverCallba
           if (flare.body.includes('&lt;rss') || flare.body.includes('&lt;feed')) {
             const decoded = flare.body
               .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-            const decodedItems = await parseRssXml(decoded)
+            const decodedItems = await parseRssXml(decoded, candidateUrl)
             if (decodedItems.length > 0) {
               rssUrl = candidateUrl
               break
