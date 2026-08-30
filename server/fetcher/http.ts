@@ -79,6 +79,7 @@ export async function decodeResponse(res: Response): Promise<string> {
 export async function fetchHtml(url: string, opts?: {
   timeout?: number
   useFlareSolverr?: boolean
+  allowPrivateNetwork?: boolean
 }): Promise<FetchHtmlResult> {
   const timeout = opts?.timeout ?? DEFAULT_TIMEOUT
 
@@ -91,10 +92,13 @@ export async function fetchHtml(url: string, opts?: {
 
   let res: Response
   try {
-    res = await safeFetch(url, {
+    const init = {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(timeout),
-    })
+    }
+    res = opts?.allowPrivateNetwork
+      ? await safeFetch(url, init, { allowPrivateNetwork: true })
+      : await safeFetch(url, init)
   } catch {
     // Network-level failure (ECONNRESET, DNS, timeout, etc.) — try FlareSolverr
     const flare = await fetchViaFlareSolverr(url)

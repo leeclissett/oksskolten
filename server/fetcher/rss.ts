@@ -186,7 +186,7 @@ export async function fetchAndParseRss(feed: Feed, opts?: { skipCache?: boolean 
         const res = await safeFetch(rssUrl, {
           headers,
           signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
-        })
+        }, { allowPrivateNetwork: true })
 
         if (res.status === 304) {
           return { items: [], notModified: true, etag: feed.etag, lastModified: feed.last_modified, contentHash: feed.last_content_hash, httpCacheSeconds: null, rssTtlSeconds: null }
@@ -403,9 +403,12 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
   throw new Error('Could not parse RSS/Atom feed')
 }
 
-async function fetchFeedTitle(rssUrl: string): Promise<string | null> {
+async function fetchFeedTitle(rssUrl: string, allowPrivateNetwork = false): Promise<string | null> {
   try {
-    const { html: xml } = await fetchHtml(rssUrl, { timeout: DISCOVERY_TIMEOUT })
+    const { html: xml } = await fetchHtml(rssUrl, {
+      timeout: DISCOVERY_TIMEOUT,
+      allowPrivateNetwork,
+    })
 
     // Try feedsmith
     try {
@@ -446,7 +449,10 @@ export async function discoverRssUrl(blogUrl: string, callbacks?: DiscoverCallba
 
   // Step 1: Fetch page, check if it's a direct feed, otherwise look for <link rel="alternate">
   try {
-    const result = await fetchHtml(blogUrl, { timeout: DISCOVERY_TIMEOUT })
+    const result = await fetchHtml(blogUrl, {
+      timeout: DISCOVERY_TIMEOUT,
+      allowPrivateNetwork: true,
+    })
     usedFlareSolverr = result.usedFlareSolverr
     if (result.usedFlareSolverr) callbacks?.onFlareSolverr?.('running')
 
@@ -454,7 +460,7 @@ export async function discoverRssUrl(blogUrl: string, callbacks?: DiscoverCallba
     const ct = result.contentType
     if (ct.includes('xml') || ct.includes('atom') || ct.includes('rss')) {
       if (result.usedFlareSolverr) callbacks?.onFlareSolverr?.('done', true)
-      const feedTitle = await fetchFeedTitle(blogUrl)
+      const feedTitle = await fetchFeedTitle(blogUrl, true)
       return { rssUrl: blogUrl, title: feedTitle, usedFlareSolverr }
     }
 
@@ -588,6 +594,7 @@ export async function discoverRssUrl(blogUrl: string, callbacks?: DiscoverCallba
   if (!rssUrl) return { rssUrl: null, title: pageTitle, usedFlareSolverr }
 
   // Step 3: Fetch the feed itself to get the canonical feed title
-  const feedTitle = await fetchFeedTitle(rssUrl)
+  const sameHostAsRequestedUrl = new URL(rssUrl).hostname === new URL(blogUrl).hostname
+  const feedTitle = await fetchFeedTitle(rssUrl, sameHostAsRequestedUrl)
   return { rssUrl, title: feedTitle || pageTitle, usedFlareSolverr }
 }

@@ -72,6 +72,23 @@ describe('fetchHtml', () => {
     )
   })
 
+  it('passes the private-network opt-in to safeFetch', async () => {
+    mockSafeFetch.mockResolvedValue({
+      ok: true,
+      text: async () => '',
+      arrayBuffer: async () => new TextEncoder().encode('').buffer,
+      headers: new Headers(),
+    })
+
+    await fetchHtml('http://192.168.1.109/feed', { allowPrivateNetwork: true })
+
+    expect(mockSafeFetch).toHaveBeenCalledWith(
+      'http://192.168.1.109/feed',
+      expect.any(Object),
+      { allowPrivateNetwork: true },
+    )
+  })
+
   it('falls back to FlareSolverr on HTTP error', async () => {
     mockSafeFetch.mockResolvedValue({ ok: false, status: 403 })
     mockFetchViaFlareSolverr.mockResolvedValue({
