@@ -19,7 +19,7 @@ vi.mock('feedsmith', async (importOriginal) => {
 })
 
 const FEED_URL = 'https://letterfeed.example/feeds/newsletter'
-const SYNTHETIC_URL = `${FEED_URL}#urn%3Aletterfeed%3Aentry%3A123`
+const SYNTHETIC_URL = `${FEED_URL}#urn:letterfeed:entry:123`
 
 const LETTERFEED_ATOM_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -134,7 +134,7 @@ describe('LetterFeed-compatible Atom entries', () => {
     const { items } = await parse(LETTERFEED_ATOM_XML, `${FEED_URL}?token=test`)
 
     expect(items[0].url).toBe(
-      `${FEED_URL}?token=test#urn%3Aletterfeed%3Aentry%3A123`,
+      `${FEED_URL}?token=test#urn:letterfeed:entry:123`,
     )
   })
 })

@@ -24,6 +24,7 @@ import { HintBanner } from './components/ui/hint-banner'
 import { Toaster } from 'sonner'
 import { FetchProgressProvider } from './contexts/fetch-progress-context'
 import { TooltipProvider } from './components/ui/tooltip'
+import { articlePathToUrl } from './lib/url'
 
 export interface AppLayoutContext {
   settings: Settings
@@ -224,10 +225,7 @@ function ArticleDetailPage() {
   // Reconstruct the article URL, preserving the original protocol.
   // http:// articles are routed as /http/<host>/<path> so this page can
   // reconstruct the exact stored URL without hardcoding https://.
-  const rawSplat = splat.endsWith('.md') ? splat.slice(0, -3) : splat
-  const articleUrl = rawSplat.startsWith('http/')
-    ? `http://${decodeURIComponent(rawSplat.slice(5))}`
-    : `https://${decodeURIComponent(rawSplat)}`
+  const articleUrl = articlePathToUrl(splat)
 
   if (splat.endsWith('.md')) {
     return <ArticleRawPage articleUrl={articleUrl} />

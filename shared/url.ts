@@ -12,3 +12,14 @@ export function articleUrlToPath(url: string): string {
   // the original protocol without hardcoding https://.
   return isHttp ? '/http/' + path : '/' + path
 }
+
+/**
+ * Reconstruct an article's external URL from the wildcard app route.
+ * Kept alongside articleUrlToPath so their round-trip behavior can be tested.
+ */
+export function articlePathToUrl(splat: string): string {
+  const rawSplat = splat.endsWith('.md') ? splat.slice(0, -3) : splat
+  return rawSplat.startsWith('http/')
+    ? `http://${decodeURIComponent(rawSplat.slice(5))}`
+    : `https://${decodeURIComponent(rawSplat)}`
+}

@@ -277,7 +277,11 @@ function buildSyntheticEntryUrl(
   try {
     const url = new URL(feedUrl)
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
-    url.hash = encodeURIComponent(normalizedId)
+    // Keep the LetterFeed URN readable in the fragment. Pre-encoding it here
+    // turns ':' into '%3A', but the article route decodes path parameters
+    // before looking the URL up in SQLite. That makes the detail request differ
+    // from the stored URL and produces "Article not found".
+    url.hash = normalizedId
     return url.toString()
   } catch {
     return undefined

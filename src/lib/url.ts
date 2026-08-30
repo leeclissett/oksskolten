@@ -1,4 +1,4 @@
-export { articleUrlToPath } from '../../shared/url'
+export { articlePathToUrl, articleUrlToPath } from '../../shared/url'
 
 export function extractDomain(url: string): string | null {
   try {

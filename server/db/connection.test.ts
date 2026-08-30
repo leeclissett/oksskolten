@@ -94,6 +94,25 @@ describe('runMigrations', () => {
     const applied = getDb().prepare('SELECT name FROM _migrations').all() as { name: string }[]
     expect(applied.length).toBeGreaterThan(0)
   })
+
+  it('normalizes legacy LetterFeed synthetic article URLs', () => {
+    const db = getDb()
+    const feedId = db.prepare(
+      "INSERT INTO feeds (name, url) VALUES ('LetterFeed', 'http://192.168.1.109:3100')",
+    ).run().lastInsertRowid
+    db.prepare(`
+      INSERT INTO articles (feed_id, title, url)
+      VALUES (?, 'Newsletter', 'http://192.168.1.109:3100/feeds/test#urn%3Aletterfeed%3Aentry%3A123')
+    `).run(feedId)
+    db.prepare("DELETE FROM _migrations WHERE name = '0009_letterfeed_synthetic_urls.sql'").run()
+
+    runMigrations()
+
+    const article = db.prepare("SELECT url FROM articles WHERE title = 'Newsletter'").get() as { url: string }
+    expect(article.url).toBe(
+      'http://192.168.1.109:3100/feeds/test#urn:letterfeed:entry:123',
+    )
+  })
 })
 
 // --- WAL and foreign keys ---
