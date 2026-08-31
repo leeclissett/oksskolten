@@ -104,7 +104,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
       url: 'https://example.com',
       rss_url: 'https://example.com/rss',
     })
-    insertArticle({
+    const articleId = insertArticle({
       feed_id: feed.id,
       title: 'Visible article',
       url: 'https://example.com/article',
@@ -154,5 +154,28 @@ describe('FreshRSS-compatible GReader prefix', () => {
       summary: { content: '<p>Article body</p>\n' },
       origin: { streamId: 'feed/https://example.com/rss' },
     })
+
+    const token = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/token',
+      headers,
+    })
+    expect(token.statusCode).toBe(200)
+
+    const markRead = await app.inject({
+      method: 'POST',
+      url: '/api/greader.php/reader/api/0/edit-tag',
+      headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `i=${articleId}&a=${encodeURIComponent('user/-/state/com.google/read')}&T=${encodeURIComponent(token.body)}`,
+    })
+    expect(markRead.statusCode).toBe(200)
+    expect(markRead.body).toBe('OK')
+
+    const row = getDb().prepare('SELECT seen_at, read_at FROM articles WHERE id = ?').get(articleId) as {
+      seen_at: string | null
+      read_at: string | null
+    }
+    expect(row.seen_at).not.toBeNull()
+    expect(row.read_at).not.toBeNull()
   })
 })
