@@ -25,7 +25,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { getDb, getSetting } from '../db.js'
 import { getFeeds } from '../db/feeds.js'
 import { getCategories, markAllSeenByCategory } from '../db/categories.js'
-import { getArticles, markArticleSeen, markArticleLiked, markAllSeenByFeed } from '../db/articles.js'
+import { getArticles, markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead } from '../db/articles.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { logger } from '../logger.js'
 
@@ -563,7 +563,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
     for (const id of articleIds) {
       if (addTag.includes('com.google/read') || removeTag.includes('com.google/kept-unread')) {
-        markArticleSeen(id, true)
+        recordArticleRead(id)
       } else if (removeTag.includes('com.google/read') || addTag.includes('com.google/kept-unread')) {
         markArticleSeen(id, false)
       }

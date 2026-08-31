@@ -242,9 +242,41 @@ describe('POST /reader/api/0/edit-tag', () => {
     expect(res.statusCode).toBe(200)
     expect(res.body).toBe('OK')
 
-    // Verify article is now marked seen in DB
-    const row = getDb().prepare('SELECT seen_at FROM articles WHERE id = ?').get(articleId) as { seen_at: string | null }
+    // An explicit GReader read action represents an actual read, not merely
+    // awareness from scrolling past an article.
+    const row = getDb().prepare('SELECT seen_at, read_at FROM articles WHERE id = ?').get(articleId) as {
+      seen_at: string | null
+      read_at: string | null
+    }
     expect(row.seen_at).not.toBeNull()
+    expect(row.read_at).not.toBeNull()
+  })
+
+  it('marks a read article as unread', async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Test Feed', url: 'https://example.com' })
+    const articleId = insertArticle({ feed_id: feed.id, title: 'Test', url: 'https://example.com/unread', published_at: '2025-01-01T00:00:00Z' })
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now'), read_at = datetime('now') WHERE id = ?").run(articleId)
+    const { auth } = await clientLogin()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reader/api/0/edit-tag',
+      headers: {
+        authorization: `GoogleLogin auth=${auth}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `i=${articleId}&r=user/-/state/com.google/read`,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe('OK')
+
+    const row = getDb().prepare('SELECT seen_at, read_at FROM articles WHERE id = ?').get(articleId) as {
+      seen_at: string | null
+      read_at: string | null
+    }
+    expect(row.seen_at).toBeNull()
+    expect(row.read_at).toBeNull()
   })
 
   it('marks article as starred using tag URI ID', async () => {

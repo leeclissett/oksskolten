@@ -58,3 +58,5 @@ The Google Reader API uses a token-based auth flow:
 | `GET` | `/reader/api/0/stream/contents/<stream>` | Get article content for a stream |
 | `POST` | `/reader/api/0/edit-tag` | Mark articles read/unread/starred |
 | `POST` | `/reader/api/0/mark-all-as-read` | Mark all articles in a stream as read |
+
+An explicit `com.google/read` edit records the article as actually read in Oksskolten (`read_at` and `seen_at`). Removing that state clears both timestamps. Bulk mark-all operations only set `seen_at`, because they represent clearing a stream rather than opening every article.
