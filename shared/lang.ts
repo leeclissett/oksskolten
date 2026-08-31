@@ -12,6 +12,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
   es: 'Spanish',
   pt: 'Portuguese',
   it: 'Italian',
+  nl: 'Dutch',
   ru: 'Russian',
 }
 

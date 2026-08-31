@@ -20,12 +20,14 @@ import {
   getFeedMetrics,
   getCategories,
   createCategory,
+  cancelFeedTranslations,
 } from '../db.js'
 import { requireJson } from '../auth.js'
 import { fetchSingleFeed, discoverRssUrl } from '../fetcher.js'
 import { queryRssBridge, inferCssSelectorBridge } from '../rss-bridge.js'
 import { parseOpml, generateOpml } from '../opml.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
+import { queueFeedTranslations } from '../translation-worker.js'
 
 const httpOrHttpsUrl = z
   .string({ error: 'url is required' })
@@ -57,6 +59,8 @@ const UpdateFeedBody = z.object({
   rss_bridge_url: z.string().nullable().optional(),
   disabled: z.number().optional(),
   category_id: z.number().nullable().optional(),
+  auto_translate_target: z.enum(['en']).nullable().optional(),
+  backfill_translations: z.boolean().optional(),
 })
 
 export async function feedRoutes(api: FastifyInstance): Promise<void> {
@@ -201,15 +205,23 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
       const body = parseOrBadRequest(UpdateFeedBody, request.body, reply)
       if (!body) return
 
-      const feed = updateFeed(params.id, body)
+      const { backfill_translations: backfillTranslations, ...updates } = body
+      const feed = updateFeed(params.id, updates)
       if (!feed) {
         reply.status(404).send({ error: 'Feed not found' })
         return
       }
 
+      let queued = 0
+      if (body.auto_translate_target === null) {
+        cancelFeedTranslations(params.id)
+      } else if (body.auto_translate_target && backfillTranslations) {
+        queued = queueFeedTranslations(params.id, body.auto_translate_target).queued
+      }
+
       const feeds = getFeeds()
       const withCounts = feeds.find(f => f.id === feed.id)
-      reply.send(withCounts || feed)
+      reply.send({ ...(withCounts || feed), auto_translation_queued: queued })
     },
   )
 

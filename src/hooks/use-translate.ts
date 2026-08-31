@@ -17,13 +17,18 @@ export function useTranslate(
   const [fullTextTranslated, setFullTextTranslated] = useState<string | null>(null)
 
   const initializedIdRef = useRef<number | null>(null)
+  const hadTranslationRef = useRef(false)
   useEffect(() => {
     if (article) {
       setFullTextTranslated(article.full_text_translated)
       if (initializedIdRef.current !== article.id) {
         initializedIdRef.current = article.id
         setViewMode(article.full_text_translated ? 'translated' : 'original')
+      } else if (article.full_text_translated && !hadTranslationRef.current) {
+        // A background translation completed while this article was open.
+        setViewMode('translated')
       }
+      hadTranslationRef.current = !!article.full_text_translated
     }
   }, [article])
 

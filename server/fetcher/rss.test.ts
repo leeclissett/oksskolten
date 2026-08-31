@@ -228,6 +228,20 @@ describe('fetchAndParseRss', () => {
     expect(items[0].url).toBe('https://example.com/fxp')
   })
 
+  it('carries RSS language metadata into article tasks', async () => {
+    feedsmithShouldFail = true
+    mockSafeFetch.mockResolvedValue(mockResponse(`<?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Dutch</title><language>nl-NL</language>
+      <item><title>Bericht</title><link>https://example.com/bericht</link>
+      <description>Een Nederlands bericht.</description></item></channel></rss>`))
+
+    const { items } = await fetchAndParseRss({
+      id: 1, name: 'Dutch', url: 'https://example.com', rss_url: 'https://example.com/rss',
+    } as any)
+
+    expect(items[0].lang).toBe('nl-NL')
+  })
+
   it('handles single RSS item (not array)', async () => {
     feedsmithShouldFail = true
     mockSafeFetch.mockResolvedValue(mockResponse(RSS_SINGLE_ITEM_XML))

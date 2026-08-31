@@ -20,6 +20,7 @@ export interface MeiliArticleDoc {
   feed_id: number
   category_id: number | null
   title: string
+  title_translated: string
   full_text: string
   full_text_translated: string
   lang: string | null

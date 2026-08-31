@@ -109,7 +109,7 @@ flowchart TD
     FXPFormat -- "RSS 1.0<br/>(RDF)" --> RDF["URL = item.link<br/>?? item.@rdf:about"]
 ```
 
-**Note**: Summarization (Haiku) and translation (Sonnet) are not executed during Cron. They are invoked on-demand when the user opens an article (`POST /api/articles/:id/summarize`, `POST /api/articles/:id/translate`).
+**Note**: Summarization remains on-demand. Translation can be invoked manually, or queued automatically for feeds with `auto_translate_target = 'en'`. The translation worker is serial and independent from feed fetching, so provider latency or failure never blocks ingestion.
 
 ### Shared Article Fetch Function (`fetchArticleContent`)
 
@@ -237,17 +237,9 @@ server/lib/cleaner/
 
 ### Language Detection (Local Processing)
 
-```typescript
-function detectLanguage(fullText: string): string {
-  const sample = fullText.slice(0, 1000)
-  const jaCount = (sample.match(/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/g) || []).length
-  return jaCount / sample.length > 0.1 ? 'ja' : 'en'
-}
-```
+Article bodies are classified locally with TinyLD. RSS/Atom language metadata is used only as a fallback when the body is too short or ambiguous. Uncertain text is stored as `und` and is not automatically translated, preventing accidental token spend. No detection API call is made.
 
-If the ratio of CJK characters (hiragana, katakana, kanji) in the first 1000 characters exceeds 10%, the language is `ja`; otherwise `en`. No API calls required, zero cost.
-
-### AI API Calls (On-Demand)
+### AI API Calls
 
 Any of Anthropic / Gemini / OpenAI can be selected from the settings screen. Streaming is supported. Provider and model can be configured independently for summarization and translation (`summary.provider`, `summary.model`, `translate.provider`, `translate.model`).
 
@@ -281,7 +273,7 @@ const TRANSLATE_MODEL = 'claude-sonnet-4-6'
 // - Preserve Markdown formatting
 ```
 
-Results are saved in `articles.full_text_ja`. The entire full_text is passed as-is (not truncated).
+Results are saved in `articles.full_text_translated` with `translated_lang`. Automatic jobs also translate `title`, derive a translated excerpt, and retain queue status/token usage in the article row. The entire `full_text` is passed as-is (not truncated).
 
 **Google Translate (Alternative Provider for Translation Only)**
 
@@ -304,10 +296,10 @@ When `translate.provider` is set to `deepl`, translation uses DeepL API v2 inste
 - No streaming needed (responses are instant), no model selection
 
 Processing flow:
-1. User opens an article and selects the "Summary" tab -> invokes summarization via `POST /api/articles/:id/summarize`
-2. User selects the "Japanese" tab -> invokes translation via `POST /api/articles/:id/translate`
-3. Japanese articles only get summarized, no translation call (minimal cost)
-4. Results are cached in the DB; no API calls from the second access onward
+1. Manual: the user chooses Translate, which invokes `POST /api/articles/:id/translate` and caches the result.
+2. Automatic: after extraction, confidently non-English articles from opted-in feeds are added to the durable queue.
+3. One worker processes jobs serially, retries provider failures with exponential backoff, and never changes feed health.
+4. Cached translations are reused when `translated_lang` matches the selected target.
 
 ### published_at Normalization
 

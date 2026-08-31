@@ -32,9 +32,9 @@ Typical RSS readers only display the title and summary provided by the feed, req
 | Markdown | marked.js (`{ gfm: true, breaks: true }`) + DOMPurify (default `ALLOWED_TAGS`, `<iframe>` excluded) |
 | RSS Parsing | feedsmith (uses fast-xml-parser internally). Supports RSS 2.0 / Atom 1.0 / RSS 1.0 (RDF). Falls back to direct fast-xml-parser only when feedsmith fails |
 | Full-text Extraction | @mozilla/readability + jsdom + turndown + HTML cleaner (defuddle-based, local processing). Runs in piscina Worker Threads (does not block the main event loop) |
-| Language Detection | Local processing (CJK character ratio, no API needed) |
+| Language Detection | TinyLD local processing (62 languages, no API needed) |
 | Summarization | Selectable from Anthropic / Gemini / OpenAI. Default: Anthropic Haiku (`claude-haiku-4-5-20251001`). On-demand, streaming-capable |
-| Translation | Selectable from Anthropic / Gemini / OpenAI / Google Translate / DeepL. Default: Anthropic Sonnet (`claude-sonnet-4-6`). Non-ja articles only. On-demand, streaming-capable |
+| Translation | Selectable from Anthropic / Gemini / OpenAI / Google Translate / DeepL. Manual translation is streaming-capable; feeds can also queue non-English articles for serial background translation to English |
 | Authentication | JWT (`@fastify/jwt`) + bcryptjs (password auth) + WebAuthn/Passkey (`@simplewebauthn/server`) + GitHub OAuth (`arctic`) |
 | Rate Limiting | `@fastify/rate-limit` (applied to auth endpoints) |
 | Deployment | `docker compose up -d` (NAS, VPS, cloud VM, etc.) |

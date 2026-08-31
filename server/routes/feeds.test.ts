@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { createFeed } from '../db.js'
+import { createFeed, getDb, insertArticle } from '../db.js'
 import type { FastifyInstance } from 'fastify'
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,73 @@ describe('GET /api/discover-title', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json().title).toBeNull()
+  })
+})
+
+describe('PATCH /api/feeds/:id automatic translation', () => {
+  it('re-detects existing articles and queues only non-English content', async () => {
+    const feed = seedFeed()
+    const dutchId = insertArticle({
+      feed_id: feed.id,
+      title: 'Nederlands nieuws',
+      url: 'https://example.com/nl',
+      published_at: '2026-01-01T00:00:00Z',
+      lang: 'en', // Legacy detector incorrectly stored this as English.
+      full_text: 'De gemeenteraad heeft vandaag een nieuw plan voor betaalbare woningen besproken. Het voorstel wordt volgende maand opnieuw behandeld.',
+    })
+    const englishId = insertArticle({
+      feed_id: feed.id,
+      title: 'English news',
+      url: 'https://example.com/en',
+      published_at: '2026-01-02T00:00:00Z',
+      lang: 'en',
+      full_text: 'The city council discussed a new plan for affordable housing today. The proposal will be considered again next month.',
+    })
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now'), bookmarked_at = datetime('now') WHERE id = ?").run(dutchId)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/feeds/${feed.id}`,
+      headers: json,
+      payload: { auto_translate_target: 'en', backfill_translations: true },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().auto_translate_target).toBe('en')
+    expect(res.json().auto_translation_queued).toBe(1)
+
+    const dutch = getDb().prepare('SELECT lang, translation_status, seen_at, bookmarked_at FROM articles WHERE id = ?').get(dutchId) as Record<string, unknown>
+    const english = getDb().prepare('SELECT lang, translation_status FROM articles WHERE id = ?').get(englishId) as Record<string, unknown>
+    expect(dutch.lang).toBe('nl')
+    expect(dutch.translation_status).toBe('pending')
+    expect(dutch.seen_at).toBeTruthy()
+    expect(dutch.bookmarked_at).toBeTruthy()
+    expect(english.lang).toBe('en')
+    expect(english.translation_status).toBeNull()
+  })
+
+  it('cancels pending jobs when automatic translation is disabled', async () => {
+    const feed = seedFeed({ auto_translate_target: 'en' })
+    const articleId = insertArticle({
+      feed_id: feed.id,
+      title: 'Nederlands nieuws',
+      url: 'https://example.com/pending',
+      published_at: null,
+      lang: 'nl',
+      full_text: 'Dit is een lang Nederlands artikel met voldoende woorden om automatisch te worden herkend en vertaald.',
+    })
+    getDb().prepare("UPDATE articles SET translation_status = 'pending', translation_target_lang = 'en' WHERE id = ?").run(articleId)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/feeds/${feed.id}`,
+      headers: json,
+      payload: { auto_translate_target: null },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const row = getDb().prepare('SELECT translation_status FROM articles WHERE id = ?').get(articleId) as { translation_status: string | null }
+    expect(row.translation_status).toBeNull()
   })
 })
 

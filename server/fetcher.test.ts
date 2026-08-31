@@ -220,11 +220,9 @@ describe('detectLanguage', () => {
     expect(detectLanguage(enText)).toBe('en')
   })
 
-  it('samples only the first 1000 characters', () => {
-    // First 1000 chars are English, then Japanese follows
-    const enPart = 'A'.repeat(1000)
-    const jaPart = 'あ'.repeat(500)
-    expect(detectLanguage(enPart + jaPart)).toBe('en')
+  it('detects Dutch text instead of treating all Latin script as English', () => {
+    const nlText = 'De gemeenteraad heeft vandaag een nieuw plan voor betaalbare woningen besproken. Het voorstel wordt volgende maand opnieuw behandeld.'
+    expect(detectLanguage(nlText)).toBe('nl')
   })
 })
 
