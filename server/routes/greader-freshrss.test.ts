@@ -84,6 +84,17 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(subscriptions.statusCode).toBe(200)
     expect(subscriptions.json().subscriptions).toHaveLength(1)
     expect(subscriptions.json().subscriptions[0].id).toBe('feed/https://example.com/rss')
+    expect(subscriptions.json().subscriptions[0].url).toBe('https://example.com/rss')
+
+    const tags = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/tag/list?output=json',
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+    expect(tags.statusCode).toBe(200)
+    expect(tags.json().tags).toContainEqual({
+      id: 'user/-/state/com.google/reading-list',
+    })
   })
 
   it('completes the prefixed unread article sync sequence', async () => {
@@ -102,6 +113,17 @@ describe('FreshRSS-compatible GReader prefix', () => {
     })
     const { auth } = await freshRssLogin()
     const headers = { authorization: `GoogleLogin auth=${auth}` }
+
+    const stream = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/stream/contents?output=json&n=1000&s=user%2F-%2Fstate%2Fcom.google%2Freading-list&xt=user%2F-%2Fstate%2Fcom.google%2Fread',
+      headers,
+    })
+    expect(stream.statusCode).toBe(200)
+    expect(stream.json()).toMatchObject({
+      id: 'user/-/state/com.google/reading-list',
+      items: [{ title: 'Visible article' }],
+    })
 
     const unread = await app.inject({
       method: 'GET',
