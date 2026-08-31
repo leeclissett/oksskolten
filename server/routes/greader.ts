@@ -8,6 +8,7 @@
  *   GET  /reader/api/0/user-info
  *   GET  /reader/api/0/token
  *   GET  /reader/api/0/subscription/list
+ *   GET  /reader/api/0/unread-count
  *   GET  /reader/api/0/tag/list
  *   GET  /reader/api/0/stream/items/ids
  *   POST /reader/api/0/stream/items/contents
@@ -46,6 +47,16 @@ function feedOriginUrl(url: string): string {
   } catch {
     return url
   }
+}
+
+/** Convert an ISO or SQLite UTC datetime to a Google Reader microsecond timestamp. */
+function dateToTimestampUsec(value: string | null): number {
+  if (!value) return 0
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value
+  const milliseconds = Date.parse(normalized)
+  return Number.isFinite(milliseconds) ? milliseconds * 1000 : 0
 }
 
 // --- Zod schemas for GReader request bodies ---
@@ -345,6 +356,61 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     })
     reply.header('Content-Type', 'application/json')
     return reply.send({ subscriptions })
+  })
+
+  // ── Unread counts ───────────────────────────────────────────────────────────
+
+  app.get('/reader/api/0/unread-count', async (_request, reply) => {
+    const feeds = getFeeds().filter((f) => f.type !== 'clip')
+    const categories = getCategories()
+    const categoryTotals = new Map(
+      categories.map((category) => [category.id, { count: 0, newestItemTimestampUsec: 0 }]),
+    )
+
+    let totalUnreads = 0
+    let newestItemTimestampUsec = 0
+
+    const unreadcounts = feeds.map((feed) => {
+      const count = Number(feed.unread_count)
+      const newest = dateToTimestampUsec(feed.latest_published_at)
+      totalUnreads += count
+      newestItemTimestampUsec = Math.max(newestItemTimestampUsec, newest)
+
+      if (feed.category_id !== null) {
+        const categoryTotal = categoryTotals.get(feed.category_id)
+        if (categoryTotal) {
+          categoryTotal.count += count
+          categoryTotal.newestItemTimestampUsec = Math.max(
+            categoryTotal.newestItemTimestampUsec,
+            newest,
+          )
+        }
+      }
+
+      return {
+        id: `feed/${feed.rss_url ?? feed.url}`,
+        count,
+        newestItemTimestampUsec: String(newest),
+      }
+    })
+
+    for (const category of categories) {
+      const totals = categoryTotals.get(category.id)!
+      unreadcounts.push({
+        id: `user/-/label/${category.name}`,
+        count: totals.count,
+        newestItemTimestampUsec: String(totals.newestItemTimestampUsec),
+      })
+    }
+
+    unreadcounts.push({
+      id: 'user/-/state/com.google/reading-list',
+      count: totalUnreads,
+      newestItemTimestampUsec: String(newestItemTimestampUsec),
+    })
+
+    reply.header('Content-Type', 'application/json')
+    return reply.send({ max: totalUnreads, unreadcounts })
   })
 
   // ── Tag / label list ─────────────────────────────────────────────────────────

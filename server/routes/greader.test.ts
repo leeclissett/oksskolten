@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { getDb, createFeed, insertArticle } from '../db.js'
+import { getDb, createCategory, createFeed, insertArticle } from '../db.js'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
 
@@ -134,6 +134,71 @@ describe('GET /reader/api/0/subscription/list', () => {
     expect(subscriptions).toHaveLength(1)
     expect(subscriptions[0].id).toBe('feed/https://example.com/rss')
     expect(subscriptions[0].title).toBe('My Feed')
+  })
+})
+
+describe('GET /reader/api/0/unread-count', () => {
+  it('returns per-feed, category, and reading-list unread counts', async () => {
+    seedUser()
+    const category = createCategory('News')
+    const categorizedFeed = createFeed({
+      name: 'Categorized Feed',
+      url: 'https://example.com/categorized',
+      rss_url: 'https://example.com/categorized/rss',
+      category_id: category.id,
+    })
+    const uncategorizedFeed = createFeed({
+      name: 'Uncategorized Feed',
+      url: 'https://example.com/uncategorized',
+    })
+
+    insertArticle({
+      feed_id: categorizedFeed.id,
+      title: 'Unread categorized article',
+      url: 'https://example.com/categorized/unread',
+      published_at: '2025-01-01T00:00:00Z',
+    })
+    const readArticleId = insertArticle({
+      feed_id: categorizedFeed.id,
+      title: 'Read categorized article',
+      url: 'https://example.com/categorized/read',
+      published_at: '2025-01-02T00:00:00Z',
+    })
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now') WHERE id = ?").run(readArticleId)
+    insertArticle({
+      feed_id: uncategorizedFeed.id,
+      title: 'Unread uncategorized article',
+      url: 'https://example.com/uncategorized/unread',
+      published_at: '2025-01-03T00:00:00Z',
+    })
+
+    const { auth } = await clientLogin()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reader/api/0/unread-count?output=json',
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.max).toBe(2)
+
+    const counts = new Map(body.unreadcounts.map((entry: { id: string }) => [entry.id, entry]))
+    expect(counts.get('feed/https://example.com/categorized/rss')).toEqual({
+      id: 'feed/https://example.com/categorized/rss',
+      count: 1,
+      newestItemTimestampUsec: '1735776000000000',
+    })
+    expect(counts.get('user/-/label/News')).toEqual({
+      id: 'user/-/label/News',
+      count: 1,
+      newestItemTimestampUsec: '1735776000000000',
+    })
+    expect(counts.get('user/-/state/com.google/reading-list')).toEqual({
+      id: 'user/-/state/com.google/reading-list',
+      count: 2,
+      newestItemTimestampUsec: '1735862400000000',
+    })
   })
 })
 

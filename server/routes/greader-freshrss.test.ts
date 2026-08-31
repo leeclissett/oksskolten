@@ -3,7 +3,7 @@ import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { createFeed, getDb } from '../db.js'
+import { createFeed, getDb, insertArticle } from '../db.js'
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -84,5 +84,53 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(subscriptions.statusCode).toBe(200)
     expect(subscriptions.json().subscriptions).toHaveLength(1)
     expect(subscriptions.json().subscriptions[0].id).toBe('feed/https://example.com/rss')
+  })
+
+  it('completes the prefixed unread article sync sequence', async () => {
+    seedUser()
+    const feed = createFeed({
+      name: 'My Feed',
+      url: 'https://example.com',
+      rss_url: 'https://example.com/rss',
+    })
+    insertArticle({
+      feed_id: feed.id,
+      title: 'Visible article',
+      url: 'https://example.com/article',
+      published_at: '2025-01-01T00:00:00Z',
+      summary: 'Article body',
+    })
+    const { auth } = await freshRssLogin()
+    const headers = { authorization: `GoogleLogin auth=${auth}` }
+
+    const unread = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/unread-count?output=json',
+      headers,
+    })
+    expect(unread.statusCode).toBe(200)
+    expect(unread.json().max).toBe(1)
+
+    const ids = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/reader/api/0/stream/items/ids?output=json&xt=user%2F-%2Fstate%2Fcom.google%2Fread',
+      headers,
+    })
+    expect(ids.statusCode).toBe(200)
+    expect(ids.json().itemRefs).toHaveLength(1)
+
+    const contents = await app.inject({
+      method: 'POST',
+      url: '/api/greader.php/reader/api/0/stream/items/contents',
+      headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `i=${encodeURIComponent(ids.json().itemRefs[0].id)}`,
+    })
+    expect(contents.statusCode).toBe(200)
+    expect(contents.json().items).toHaveLength(1)
+    expect(contents.json().items[0]).toMatchObject({
+      title: 'Visible article',
+      summary: { content: '<p>Article body</p>\n' },
+      origin: { streamId: 'feed/https://example.com/rss' },
+    })
   })
 })
