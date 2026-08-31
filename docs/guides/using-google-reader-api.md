@@ -54,6 +54,7 @@ The Google Reader API uses a token-based auth flow:
 | `GET` | `/reader/api/0/unread-count` | Get unread counts by feed and folder |
 | `GET` | `/reader/api/0/stream/items/ids` | Get article IDs for a stream |
 | `POST` | `/reader/api/0/stream/items/contents` | Get article content by IDs |
+| `GET` | `/reader/api/0/stream/contents?s=<stream>` | Get article content for a query-selected stream |
 | `GET` | `/reader/api/0/stream/contents/<stream>` | Get article content for a stream |
 | `POST` | `/reader/api/0/edit-tag` | Mark articles read/unread/starred |
 | `POST` | `/reader/api/0/mark-all-as-read` | Mark all articles in a stream as read |

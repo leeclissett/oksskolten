@@ -12,6 +12,7 @@
  *   GET  /reader/api/0/tag/list
  *   GET  /reader/api/0/stream/items/ids
  *   POST /reader/api/0/stream/items/contents
+ *   GET  /reader/api/0/stream/contents?s=:stream
  *   GET  /reader/api/0/stream/contents/:stream
  *   POST /reader/api/0/edit-tag
  *   POST /reader/api/0/mark-all-as-read
@@ -348,6 +349,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       return {
         id: `feed/${feedUrl}`,
         title: f.name,
+        url: feedUrl,
         htmlUrl: feedOriginUrl(feedUrl),
         iconUrl: '',
         firstitemmsec: '0',
@@ -419,6 +421,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const cats = getCategories()
     const tags = [
       { id: 'user/-/state/com.google/starred', type: 'tag' },
+      { id: 'user/-/state/com.google/reading-list' },
       ...cats.map((c) => ({ id: `user/-/label/${c.name}`, type: 'folder' })),
     ]
     reply.header('Content-Type', 'application/json')
@@ -497,17 +500,22 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Stream contents ──────────────────────────────────────────────────────────
 
-  app.get('/reader/api/0/stream/contents/*', async (request, reply) => {
-    const q = request.query as Record<string, string>
-    const stream = decodeURIComponent((request.params as Record<string, string>)['*'] ?? '')
-    const exclude = q.xt ?? ''
+  async function sendStreamContents(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    stream: string,
+  ): Promise<FastifyReply> {
+    const q = request.query as Record<string, string | string[]>
+    const exclude = Array.isArray(q.xt) ? q.xt[0] : (q.xt ?? '')
     const limit = (() => {
-      const n = Number(q.n ?? 20)
+      const raw = Array.isArray(q.n) ? q.n[0] : q.n
+      const n = Number(raw ?? 20)
       return Number.isFinite(n) && n >= 1 ? Math.min(n, 100) : 20
     })()
     const offset = (() => {
       if (!q.c) return 0
-      const decoded = Number(Buffer.from(q.c, 'base64').toString())
+      const raw = Array.isArray(q.c) ? q.c[0] : q.c
+      const decoded = Number(Buffer.from(raw, 'base64').toString())
       return Number.isFinite(decoded) && decoded >= 0 ? decoded : 0
     })()
 
@@ -527,6 +535,20 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       items,
       ...(continuation ? { continuation } : {}),
     })
+  }
+
+  // FreshRSS supports both the original path form and the BazQux-style query
+  // form, and different clients use different variants during article sync.
+  app.get('/reader/api/0/stream/contents', async (request, reply) => {
+    const q = request.query as Record<string, string | string[]>
+    const streamParam = Array.isArray(q.s) ? q.s[0] : q.s
+    const stream = streamParam ?? 'user/-/state/com.google/reading-list'
+    return sendStreamContents(request, reply, stream)
+  })
+
+  app.get('/reader/api/0/stream/contents/*', async (request, reply) => {
+    const stream = decodeURIComponent((request.params as Record<string, string>)['*'] ?? '')
+    return sendStreamContents(request, reply, stream)
   })
 
   // ── Edit tag (mark read/unread/starred) ──────────────────────────────────────
