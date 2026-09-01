@@ -26,6 +26,7 @@ export interface Feed {
   last_content_hash: string | null
   next_check_at: string | null
   check_interval: number | null
+  auto_translate_target?: string | null
   created_at: string
 }
 
@@ -46,7 +47,12 @@ export interface Article {
   lang: string | null
   full_text: string | null
   full_text_translated: string | null
+  title_translated?: string | null
+  excerpt_translated?: string | null
   translated_lang: string | null
+  translation_target_lang?: string | null
+  translation_status?: 'pending' | 'processing' | 'completed' | 'failed' | null
+  translation_error?: string | null
   summary: string | null
   og_image: string | null
   last_error: string | null
@@ -65,16 +71,20 @@ export interface ArticleListItem {
   feed_id: number
   feed_name: string
   title: string
+  title_translated?: string | null
   url: string
   published_at: string | null
   lang: string | null
   summary: string | null
   excerpt: string | null
+  excerpt_translated?: string | null
   og_image: string | null
   seen_at: string | null
   read_at: string | null
   bookmarked_at: string | null
   liked_at: string | null
+  translated_lang?: string | null
+  translation_status?: 'pending' | 'processing' | 'completed' | 'failed' | null
   score?: number
   similar_count?: number
 }
@@ -82,7 +92,6 @@ export interface ArticleListItem {
 export interface ArticleDetail extends ArticleListItem {
   full_text: string | null
   full_text_translated: string | null
-  translated_lang: string | null
   images_archived_at: string | null
   feed_type: 'rss' | 'clip'
   imageArchivingEnabled: boolean

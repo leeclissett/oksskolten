@@ -704,11 +704,13 @@ The frontend then presents the user with a choice: "Subscribe to the whole site"
   "name": "New Name",
   "rss_bridge_url": "http://rss-bridge/?...",
   "disabled": 0,
-  "category_id": 2
+  "category_id": 2,
+  "auto_translate_target": "en",
+  "backfill_translations": true
 }
 ```
 
-Updatable fields: `name`, `rss_bridge_url`, `disabled` (`0` or `1`), `category_id`. `url` and `rss_url` cannot be changed (ignored even if included in the request). Setting `disabled: 0` also resets `error_count` to `0` and `last_error` to `NULL`.
+Updatable fields: `name`, `rss_bridge_url`, `disabled` (`0` or `1`), `category_id`, and `auto_translate_target` (`"en"` or `null`). When enabling automatic translation, `backfill_translations: true` locally re-detects existing articles and queues the non-English ones. `url` and `rss_url` cannot be changed (ignored even if included in the request). Setting `disabled: 0` also resets `error_count` to `0` and `last_error` to `NULL`.
 
 ```json
 // Response: 200 (returns all feed fields)
@@ -722,6 +724,8 @@ Updatable fields: `name`, `rss_bridge_url`, `disabled` (`0` or `1`), `category_i
   "category_name": "Tech",
   "disabled": 0,
   "last_error": null,
+  "auto_translate_target": "en",
+  "auto_translation_queued": 8,
   "article_count": 12,
   "unread_count": 3
 }

@@ -10,7 +10,6 @@ interface ArticleToolbarProps {
   chatPosition: string
   chatOpen: boolean
   onChatToggle: () => void
-  isUserLang: boolean
   hasTranslation: boolean
   translating: boolean
   onTranslate: () => void
@@ -31,7 +30,6 @@ export function ArticleToolbar({
   chatPosition,
   chatOpen,
   onChatToggle,
-  isUserLang,
   hasTranslation,
   translating,
   onTranslate,
@@ -48,6 +46,7 @@ export function ArticleToolbar({
 }: ArticleToolbarProps) {
   const navigate = useNavigate()
   const { t } = useI18n()
+  const automaticTranslationPending = article.translation_status === 'pending' || article.translation_status === 'processing'
 
   return (
     <div className="flex items-stretch flex-wrap gap-2 mb-6 select-none">
@@ -74,7 +73,7 @@ export function ArticleToolbar({
       {chatPosition === 'inline' && (
         <ChatInlineTrigger active={chatOpen} onToggle={onChatToggle} />
       )}
-      {!isUserLang && !hasTranslation && !translating && (
+      {!hasTranslation && !translating && !automaticTranslationPending && (
         <ActionChip onClick={onTranslate}>
           <Languages className="w-3.5 h-3.5" />
           {t('article.translate')}

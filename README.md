@@ -153,7 +153,7 @@ The feed fetcher minimizes bandwidth and adapts to each feed's behavior, inspire
 | **JS-rendered sites** | FlareSolverr | — | — | Enterprise only |
 | **Sites without RSS** | Auto-discovery → RSS Bridge → LLM inference | — | — | Pro+ (25) / Enterprise (100) |
 | **AI summarization** | Built-in (Anthropic/Gemini/OpenAI) | — | — | Pro+ only (Leo) |
-| **AI translation** | Built-in (+ Google Translate, DeepL) | — | — | Enterprise only |
+| **AI translation** | Built-in, manual or automatic per feed (+ Google Translate, DeepL) | — | — | Enterprise only |
 | **AI chat** | MCP-powered, searches archive | — | — | — |
 | **Search** | Meilisearch (typo-tolerant) | PostgreSQL full-text | SQL LIKE | Pro+ (Power Search) |
 | **Database** | SQLite (embedded, WAL) | PostgreSQL (external) | MySQL/PG/SQLite | SaaS |

@@ -29,6 +29,7 @@ import {
   summarizeArticle,
   streamSummarizeArticle,
   translateArticle,
+  translateArticleFields,
   streamTranslateArticle,
 } from './ai.js'
 
@@ -49,27 +50,22 @@ describe('detectLanguage', () => {
     expect(detectLanguage('This is an English text written for testing purposes.')).toBe('en')
   })
 
-  it('returns "en" for empty string', () => {
-    expect(detectLanguage('')).toBe('en')
+  it('returns "und" for empty text rather than guessing English', () => {
+    expect(detectLanguage('')).toBe('und')
   })
 
-  it('uses only first 1000 chars for detection', () => {
-    const ja = 'あ'.repeat(200)
-    const en = 'a'.repeat(2000)
-    // First 1000 chars: 200 ja + 800 en → 200/1000 = 20% > 10% → "ja"
-    expect(detectLanguage(ja + en)).toBe('ja')
+  it('detects Dutch text', () => {
+    const text = 'Dit is een Nederlands nieuwsartikel over technologie en wetenschap. De regering heeft vandaag nieuwe maatregelen aangekondigd.'
+    expect(detectLanguage(text)).toBe('nl')
   })
 
-  it('returns "en" when CJK ratio is at boundary (<=10%)', () => {
-    // 10 CJK chars + 90 ASCII = 10% → not > 10% → "en"
-    const text = 'あ'.repeat(10) + 'a'.repeat(90)
-    expect(detectLanguage(text)).toBe('en')
+  it('uses a normalized feed-language hint for short text', () => {
+    expect(detectLanguage('Kort bericht', 'nl-NL')).toBe('nl')
   })
 
-  it('returns "ja" when CJK ratio is just above 10%', () => {
-    // 11 CJK chars + 89 ASCII = 11% → > 10% → "ja"
-    const text = 'あ'.repeat(11) + 'a'.repeat(89)
-    expect(detectLanguage(text)).toBe('ja')
+  it('does not let a hint override confident local detection', () => {
+    const text = 'This is a complete English article with enough words for reliable local language detection and classification.'
+    expect(detectLanguage(text, 'nl')).toBe('en')
   })
 
   it('detects kanji-heavy text as Japanese', () => {
@@ -255,6 +251,25 @@ describe('translateArticle', () => {
     mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
     const result = await translateArticle('text')
     expect(result.model).toBe('gpt-4.1')
+  })
+})
+
+describe('translateArticleFields', () => {
+  it('translates title and body together using the explicit feed target', async () => {
+    mockGetSetting.mockImplementation((key: string) => key === 'translate.target_lang' ? 'ja' : null)
+    mockCreateMessage.mockResolvedValue({
+      text: 'OKSSKOLTEN_TRANSLATED_TITLE_7F3A\nDutch headline\nOKSSKOLTEN_TRANSLATED_BODY_7F3A\nTranslated article body.',
+      inputTokens: 50,
+      outputTokens: 40,
+    })
+
+    const result = await translateArticleFields('Nederlandse kop', 'Nederlandse tekst.', 'en')
+
+    expect(result.titleTranslated).toBe('Dutch headline')
+    expect(result.fullTextTranslated).toBe('Translated article body.')
+    const prompt = mockCreateMessage.mock.calls[0][0].messages[0].content
+    expect(prompt).toContain('Translate the following article into English')
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
   })
 })
 

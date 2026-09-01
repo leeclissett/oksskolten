@@ -200,9 +200,9 @@ describe('POST /api/articles/:id/translate', () => {
     expect(res.json().cached).toBeUndefined()
   })
 
-  it('returns 400 when article is already in user language', async () => {
+  it('allows manual translation even when detection says it is already in the target language', async () => {
     const feed = seedFeed()
-    // Default user language is 'en', so an English article should be rejected
+    // This is the escape hatch for a bad detector result.
     const artId = seedArticle(feed.id, { full_text: 'English article', lang: 'en' })
 
     const res = await app.inject({
@@ -212,8 +212,8 @@ describe('POST /api/articles/:id/translate', () => {
       payload: {},
     })
 
-    expect(res.statusCode).toBe(400)
-    expect(res.json().error).toMatch(/already in en/)
+    expect(res.statusCode).toBe(200)
+    expect(res.json().text).toBe('翻訳テキスト')
   })
 
   it('returns 400 when no full_text', async () => {

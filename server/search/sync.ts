@@ -35,7 +35,7 @@ let changeLog: ChangeEntry[] | null = null
 // --- Index settings ---
 
 const INDEX_SETTINGS = {
-  searchableAttributes: ['title', 'full_text', 'full_text_translated'],
+  searchableAttributes: ['title', 'title_translated', 'full_text', 'full_text_translated'],
   filterableAttributes: ['feed_id', 'category_id', 'lang', 'published_at', 'is_unread', 'is_liked', 'is_bookmarked'],
   sortableAttributes: ['published_at', 'score'],
   rankingRules: ['words', 'typo', 'proximity', 'attribute', 'sort', 'exactness'],
@@ -82,6 +82,7 @@ export async function rebuildSearchIndex(): Promise<void> {
     // 3. Fetch all articles from SQLite and batch-insert into staging
     const rows = getDb().prepare(`
       SELECT id, feed_id, category_id, title,
+             COALESCE(title_translated, '') AS title_translated,
              COALESCE(full_text, '') AS full_text,
              COALESCE(full_text_translated, '') AS full_text_translated,
              lang,

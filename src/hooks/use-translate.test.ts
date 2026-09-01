@@ -57,6 +57,20 @@ describe('useTranslate', () => {
     expect(result.current.viewMode).toBe('original')
   })
 
+  it('switches to a background translation that completes while open', () => {
+    const metrics = mockMetrics()
+    const { result, rerender } = renderHook(
+      ({ translated }) => useTranslate({ id: 1, full_text_translated: translated }, metrics),
+      { initialProps: { translated: null as string | null } },
+    )
+    expect(result.current.viewMode).toBe('original')
+
+    rerender({ translated: 'Background translation' })
+
+    expect(result.current.fullTextTranslated).toBe('Background translation')
+    expect(result.current.viewMode).toBe('translated')
+  })
+
   it('uses streamPost for streaming translation', async () => {
     mockStreamPost.mockImplementation((_url: string, onDelta: (text: string) => void) => {
       onDelta('翻訳テキスト')

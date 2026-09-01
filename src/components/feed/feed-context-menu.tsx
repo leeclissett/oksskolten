@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { Pencil, CheckCheck, Trash2, FolderInput, RefreshCw, Search } from 'lucide-react'
+import { Pencil, CheckCheck, Trash2, FolderInput, RefreshCw, Search, Languages } from 'lucide-react'
 import { useI18n } from '../../lib/i18n'
 import {
   ContextMenu,
@@ -22,6 +22,8 @@ interface FeedMenuProps {
   onMoveToCategory?: (categoryId: number | null) => void
   onFetch?: () => void
   onReDetect?: () => void
+  autoTranslateEnabled?: boolean
+  onToggleAutoTranslate?: () => void
 }
 
 export function FeedContextMenu({
@@ -34,6 +36,8 @@ export function FeedContextMenu({
   onMoveToCategory,
   onFetch,
   onReDetect,
+  autoTranslateEnabled,
+  onToggleAutoTranslate,
 }: FeedMenuProps) {
   const { t } = useI18n()
   const isClip = feedType === 'clip'
@@ -83,6 +87,13 @@ export function FeedContextMenu({
           <ContextMenuItem onSelect={onReDetect}>
             <Search size={16} strokeWidth={1.5} />
             {t('feeds.reDetect')}
+          </ContextMenuItem>
+        )}
+
+        {!isClip && onToggleAutoTranslate && (
+          <ContextMenuItem onSelect={onToggleAutoTranslate}>
+            <Languages size={16} strokeWidth={1.5} />
+            {autoTranslateEnabled ? t('feeds.disableAutoTranslate') : t('feeds.enableAutoTranslate')}
           </ContextMenuItem>
         )}
 

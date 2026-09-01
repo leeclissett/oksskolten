@@ -39,10 +39,11 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
   const navigate = useNavigate()
   const { t, tError, isKeyNotSetError, locale } = useI18n()
   const articleKey = `/api/articles/by-url?url=${encodeURIComponent(articleUrl)}`
-  const { data: article, error, mutate } = useSWR<ArticleDetailData>(articleKey, fetcher)
+  const { data: article, error, mutate } = useSWR<ArticleDetailData>(articleKey, fetcher, {
+    refreshInterval: latest => latest?.translation_status === 'pending' || latest?.translation_status === 'processing' ? 3000 : 0,
+  })
   const { mutate: globalMutate } = useSWRConfig()
 
-  const isUserLang = article?.lang === (translateTargetLang || locale)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   const articleRef = useRef<HTMLElement>(null)
@@ -65,7 +66,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
   // Sync translation/summary back into SWR cache so it persists across navigations
   useEffect(() => {
     if (fullTextTranslated && article && article.full_text_translated !== fullTextTranslated) {
-      void mutate({ ...article, full_text_translated: fullTextTranslated, translated_lang: locale }, false)
+      void mutate({ ...article, full_text_translated: fullTextTranslated, translated_lang: translateTargetLang || locale }, false)
     }
   }, [fullTextTranslated]) // eslint-disable-line react-hooks/exhaustive-deps -- only sync when translated text changes; article/mutate are refs to current data
 
@@ -97,14 +98,14 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
   const content = useMemo(() => {
     if (!article) return ''
     let md = ''
-    if (viewMode === 'translated' && !isUserLang) {
+    if (viewMode === 'translated') {
       md = fullTextTranslated || ''
     } else {
       md = article.full_text || ''
     }
     if (!md) return `<p class="text-muted">${t('article.noContent')}</p>`
     return sanitizeHtml(renderMarkdown(md))
-  }, [article, viewMode, isUserLang, fullTextTranslated, t])
+  }, [article, viewMode, fullTextTranslated, t])
 
   const { rewrittenHtml: displayContent } = useRewriteInternalLinks(
     content,
@@ -192,7 +193,9 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       <article ref={articleRef} className="article-card max-w-2xl mx-auto px-6 md:px-10 py-8">
       {/* Title */}
       <h1 className="mb-1.5 text-[28px] font-bold leading-[1.3] break-words [overflow-wrap:anywhere]">
-        {article.title}
+        {viewMode === 'translated' && isTranslationCurrent && article.title_translated
+          ? article.title_translated
+          : article.title}
       </h1>
 
       {/* Date */}
@@ -204,7 +207,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         chatPosition={chatPosition}
         chatOpen={chat.open}
         onChatToggle={chat.toggle}
-        isUserLang={isUserLang}
         hasTranslation={hasTranslation}
         translating={translating}
         onTranslate={handleTranslate}
@@ -219,6 +221,18 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         onArchiveImages={handleArchiveImages}
         onDelete={() => setDeleteConfirmOpen(true)}
       />
+
+      {!hasTranslation && (article.translation_status === 'pending' || article.translation_status === 'processing') && (
+        <Callout className="py-3 mb-6">
+          <p className="text-sm text-muted">{t('article.translationQueued')}</p>
+        </Callout>
+      )}
+
+      {!hasTranslation && article.translation_status === 'failed' && (
+        <Callout variant="error" className="py-3 mb-6">
+          <p className="text-sm text-error">{t('article.automaticTranslationFailed')}</p>
+        </Callout>
+      )}
 
       {/* Inline Chat Panel */}
       {chatPosition === 'inline' && chat.open && (
@@ -264,7 +278,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       )}
 
       {/* Language banner */}
-      {!isUserLang && hasTranslation && (
+      {hasTranslation && (
         <ArticleTranslationBanner
           viewMode={viewMode}
           onToggle={() => setViewMode(viewMode === 'translated' ? 'original' : 'translated')}

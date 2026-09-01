@@ -25,7 +25,7 @@ This query lacks the following controls:
 - No consideration of time elapsed since the last retry (all candidates are selected every time)
 - No cap on the number of retry articles processed per cron run
 
-Additionally, the `summary IS NULL OR full_text_translated IS NULL` conditions are inappropriate. Translation (`translateArticle`) and summarization (`summarizeArticle`) are not part of the cron pipeline — they are executed on-demand via API routes (`server/routes/articles.ts`) when a user opens an article in the frontend. Translation/summarization failures are not recorded in `last_error` (only HTTP error responses are returned). Since `processArticle()`'s sole responsibility is fetching `full_text`, the retry condition should be limited to `full_text IS NULL`.
+Additionally, the `summary IS NULL OR full_text_translated IS NULL` conditions are inappropriate. Summarization is on-demand, while automatic translation has its own durable queue, retry counter, error, and backoff fields. Neither belongs to the article-fetch retry pipeline or writes translation/provider failures to `last_error`. Since `processArticle()`'s sole responsibility is fetching `full_text`, the fetch retry condition should be limited to `full_text IS NULL`.
 
 Articles with partially fetched content (`full_text` is non-NULL but `last_error` is also non-NULL) are excluded from retry. Users can read articles with partial body text.
 

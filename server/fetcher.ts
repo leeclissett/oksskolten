@@ -6,6 +6,7 @@ import {
   getRetryArticles,
   getRetryStats,
   insertArticle,
+  enqueueArticleTranslationFromFeedPolicy,
   markArticleRefreshAttempted,
   normalizeUrl,
   updateArticleContent,
@@ -32,7 +33,7 @@ const log = logger.child('fetcher')
 export { normalizeDate } from './fetcher/util.js'
 export { type FetchProgressEvent, fetchProgress, getFeedState } from './fetcher/progress.js'
 export { discoverRssUrl } from './fetcher/rss.js'
-export { detectLanguage, summarizeArticle, streamSummarizeArticle, translateArticle, streamTranslateArticle } from './fetcher/ai.js'
+export { detectLanguage, summarizeArticle, streamSummarizeArticle, translateArticle, streamTranslateArticle, translateArticleFields } from './fetcher/ai.js'
 export type { AiTextResult, AiBillingMode } from './fetcher/ai.js'
 
 /**
@@ -70,6 +71,7 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
       updateArticleContent(candidate.id, {
         full_text: md,
         excerpt: markdownToExcerpt(md),
+        lang: detectLanguage(md, rssItem?.lang),
         // The old full_text was garbage, so any derived summary or
         // translation produced from it is also garbage. Clear them so
         // the UI / chat tools regenerate on next access.
@@ -78,6 +80,7 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
         translated_lang: null,
         last_refresh_attempt_at: now,
       })
+      enqueueArticleTranslationFromFeedPolicy(candidate.id)
       log.info({ url: candidate.url, prevLen: currentLen, newLen: mdLen }, 'refreshed stale article with RSS excerpt')
     } else {
       // Couldn't improve this one (no RSS excerpt, or excerpt no longer in
@@ -108,6 +111,8 @@ export async function fetchArticleContent(
     requiresJsChallenge?: boolean
     /** CSS Bridge listing-page excerpt, used as fullText fallback */
     listingExcerpt?: string
+    /** RSS/Atom language metadata, used only when local detection is uncertain. */
+    languageHint?: string
     /** Existing article data for retry (skips fetch if full_text present) */
     existingArticle?: { full_text: string | null; og_image: string | null; lang: string | null }
   },
@@ -167,9 +172,11 @@ export async function fetchArticleContent(
 
   // Step 2: Detect language (local, no API call)
   if (fullText && !(existing?.lang)) {
-    lang = detectLanguage(fullText)
+    lang = detectLanguage(fullText, options?.languageHint)
   } else if (existing) {
     lang = existing.lang
+  } else if (options?.languageHint) {
+    lang = detectLanguage('', options.languageHint)
   }
 
   return { fullText, ogImage, excerpt, lang, lastError, title }
@@ -186,6 +193,7 @@ interface NewArticle {
   requires_js_challenge?: boolean
   /** Excerpt from listing page (CSS Bridge content_selector), used as fullText fallback */
   excerpt?: string
+  language_hint?: string
 }
 
 interface RetryArticle {
@@ -202,6 +210,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
   const content = await fetchArticleContent(articleUrl, {
     requiresJsChallenge: task.kind === 'new' ? task.requires_js_challenge : undefined,
     listingExcerpt: task.kind === 'new' ? task.excerpt : undefined,
+    languageHint: task.kind === 'new' ? task.language_hint : undefined,
     existingArticle: task.kind === 'retry' ? task.article : undefined,
   })
 
@@ -223,6 +232,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
         og_image: content.ogImage,
         last_error: content.lastError,
       })
+      enqueueArticleTranslationFromFeedPolicy(articleId)
       // Fire-and-forget: detect similar articles asynchronously
       void detectAndStoreSimilarArticles(articleId, task.title, task.feed_id, task.published_at)
     } catch (err) {
@@ -239,6 +249,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
       og_image: content.ogImage,
       last_error: content.lastError,
     })
+    if (!content.lastError) enqueueArticleTranslationFromFeedPolicy(task.article.id)
   }
   return !!content.lastError
 }
@@ -303,6 +314,7 @@ export async function fetchSingleFeed(
       published_at: item.published_at,
       requires_js_challenge: !!feed.requires_js_challenge,
       excerpt: item.excerpt,
+      language_hint: item.lang,
     }))
 
   if (tasks.length === 0) {
@@ -402,6 +414,7 @@ export async function fetchAllFeeds(
               published_at: item.published_at,
               requires_js_challenge: !!feed.requires_js_challenge,
               excerpt: item.excerpt,
+              language_hint: item.lang,
             }))
 
           allTasks.push(...newItems)

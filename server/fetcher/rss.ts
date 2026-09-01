@@ -20,6 +20,7 @@ export interface RssItem {
   url: string
   published_at: string | null
   excerpt?: string
+  lang?: string
 }
 
 export interface FetchRssResult {
@@ -289,11 +290,24 @@ function buildSyntheticEntryUrl(
 }
 
 async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
+  const languageOf = (...values: unknown[]): string | undefined => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value
+      if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>
+        const nested = record.value ?? record['#text']
+        if (typeof nested === 'string' && nested.trim()) return nested
+      }
+    }
+    return undefined
+  }
+
   // Try feedsmith first
   try {
     const { parseFeed } = await import('feedsmith')
     const parsed = parseFeed(xml) as Record<string, unknown>
     const feed = parsed.feed as Record<string, unknown> | undefined
+    const feedLang = languageOf(parsed.language, parsed.lang, feed?.language, feed?.lang)
     const items = (parsed.items ?? parsed.entries ?? feed?.items ?? feed?.entries) as Record<string, unknown>[] | undefined
     if (items && items.length > 0) {
       return items
@@ -310,6 +324,7 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
           const rawExcerpt = item.content_encoded || item['content:encoded'] || item.content || item.description || item.summary
           const excerpt = typeof rawExcerpt === 'string' ? rawExcerpt : (rawExcerpt && typeof rawExcerpt === 'object' && 'value' in rawExcerpt ? String((rawExcerpt as Record<string, unknown>).value) : undefined)
           const id = typeof item.id === 'string' ? item.id : undefined
+          const itemLang = languageOf(item.language, item.lang, item['xml:lang'], feedLang)
           const effectiveUrl =
             url ||
             (id && /^https?:\/\//i.test(id) ? id : undefined) ||
@@ -324,6 +339,7 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
               (item.published || item.updated || item.date || item.pubDate || (item.dc as Record<string, unknown>)?.date) as string | undefined,
             ),
             ...(excerpt ? { excerpt } : {}),
+            ...(itemLang ? { lang: itemLang } : {}),
           }
         })
         .filter((item): item is RssItem => item !== null)
@@ -351,11 +367,13 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
     return items
       .map((item: Record<string, unknown>) => {
         const excerpt = textOf(item['content:encoded']) || textOf(item.description)
+        const lang = textOf(item['dc:language']) || textOf(item.language) || textOf(channel.language)
         return {
           title: textOf(item.title) || 'Untitled',
           url: (item.link || item.guid || '') as string,
           published_at: normalizeDate(item.pubDate as string | undefined),
           ...(excerpt ? { excerpt } : {}),
+          ...(lang ? { lang } : {}),
         }
       })
       .filter((item: RssItem) => item.url)
@@ -373,6 +391,7 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
           : (entry.link as Record<string, string>)?.['@_href'] || (entry.link as string)
         const id = textOf(entry.id) || undefined
         const excerpt = textOf(entry.content) || textOf(entry.summary)
+        const lang = textOf(entry['dc:language']) || String(entry['@_xml:lang'] || atomFeed['@_xml:lang'] || '')
         const effectiveUrl =
           link ||
           (id && /^https?:\/\//i.test(id) ? id : '') ||
@@ -385,6 +404,7 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
             (entry.published || entry.updated) as string | undefined,
           ),
           ...(excerpt ? { excerpt } : {}),
+          ...(lang ? { lang } : {}),
         }
       })
       .filter((item: RssItem) => item.url)
@@ -396,11 +416,15 @@ async function parseRssXml(xml: string, feedUrl?: string): Promise<RssItem[]> {
   if (rdfItem) {
     const items = Array.isArray(rdfItem) ? rdfItem : [rdfItem]
     return items
-      .map((item: Record<string, unknown>) => ({
-        title: textOf(item.title) || 'Untitled',
-        url: (item.link || item['@_rdf:about'] || '') as string,
-        published_at: normalizeDate((item['dc:date'] ?? item.pubDate) as string | undefined),
-      }))
+      .map((item: Record<string, unknown>) => {
+        const lang = textOf(item['dc:language'])
+        return {
+          title: textOf(item.title) || 'Untitled',
+          url: (item.link || item['@_rdf:about'] || '') as string,
+          published_at: normalizeDate((item['dc:date'] ?? item.pubDate) as string | undefined),
+          ...(lang ? { lang } : {}),
+        }
+      })
       .filter((item: RssItem) => item.url)
   }
 

@@ -333,6 +333,7 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
         // Sync clip move to Meilisearch (best-effort, outside transaction)
         const movedDoc = getDb().prepare(`
           SELECT id, feed_id, category_id, title,
+                 COALESCE(title_translated, '') AS title_translated,
                  COALESCE(full_text, '') AS full_text,
                  COALESCE(full_text_translated, '') AS full_text_translated,
                  lang,
@@ -478,10 +479,6 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
         const userLang = getTranslateTargetLang()
         return article.translated_lang === userLang ? article.full_text_translated : null
       },
-      validate: (article) => {
-        const userLang = getTranslateTargetLang()
-        return article.lang === userLang ? `Article is already in ${userLang}` : null
-      },
       streamFn: async (fullText, onDelta) => {
         const r = await streamTranslateArticle(fullText, onDelta)
         return { text: r.fullTextTranslated, ...r }
@@ -492,7 +489,15 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       },
       applyResult: (articleId, text) => {
         const userLang = getTranslateTargetLang()
-        updateArticleContent(articleId, { full_text_translated: text, translated_lang: userLang })
+        updateArticleContent(articleId, {
+          full_text_translated: text,
+          translated_lang: userLang,
+          translation_target_lang: userLang,
+          translation_status: 'completed',
+          translation_error: null,
+          translation_next_attempt_at: null,
+          translation_started_at: null,
+        })
         updateScore(articleId)
       },
       errorMessage: 'Translation failed',
