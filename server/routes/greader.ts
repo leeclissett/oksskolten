@@ -169,6 +169,7 @@ interface ArticleRow {
   feed_id: number
   feed_name: string
   title: string
+  title_translated: string | null
   feed_url: string
   article_url: string
   created_at: string | null
@@ -183,6 +184,9 @@ interface ArticleRow {
   liked_at: string | null
   score?: number
   full_text?: string | null
+  full_text_translated: string | null
+  translated_lang: string | null
+  auto_translate_target: string | null
   rss_url?: string | null
   category_name?: string | null
 }
@@ -207,16 +211,26 @@ function articleToGReaderItem(a: ArticleRow): Record<string, unknown> {
   if (a.category_name) categories.push(`user/-/label/${a.category_name}`)
 
   const feedUrl = a.rss_url ?? a.feed_url
+  const translatedContent = (
+    a.auto_translate_target
+    && a.translated_lang === a.auto_translate_target
+    && a.full_text_translated?.trim()
+  ) ? a.full_text_translated : null
+  const title = translatedContent && a.title_translated?.trim()
+    ? a.title_translated
+    : a.title
+  const content = translatedContent ?? a.full_text ?? a.summary ?? a.excerpt ?? ''
+
   return {
     id: itemTagId(a.id),
     crawlTimeMsec: crawlMsec,
     timestampUsec: String(publishedSec * 1_000_000),
     published: publishedSec,
     updated: publishedSec,
-    title: a.title ?? '(no title)',
+    title: title ?? '(no title)',
     canonical: [{ href: a.article_url }],
     alternate: [{ href: a.article_url, type: 'text/html' }],
-    summary: { direction: 'ltr', content: markdownToHtml(a.full_text ?? a.summary ?? a.excerpt ?? '') },
+    summary: { direction: 'ltr', content: markdownToHtml(content) },
     author: a.feed_name ?? '',
     origin: {
       streamId: `feed/${feedUrl}`,
@@ -237,8 +251,11 @@ function getEnrichedArticles(ids: number[]): ArticleRow[] {
     const orderCase = batchIds.map((id, j) => `WHEN ${id} THEN ${i + j}`).join(' ')
     const rows = getDb().prepare(`
       SELECT a.id, a.feed_id, f.name AS feed_name, f.rss_url, f.url AS feed_url,
-             a.title, a.url AS article_url,
-             a.created_at, a.published_at, a.lang, a.summary, a.excerpt, a.og_image, a.full_text,
+             f.auto_translate_target,
+             a.title, a.title_translated, a.url AS article_url,
+             a.created_at, a.published_at, a.lang, a.summary,
+             a.excerpt, a.og_image,
+             a.full_text, a.full_text_translated, a.translated_lang,
              a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
              c.name AS category_name
       FROM active_articles a
