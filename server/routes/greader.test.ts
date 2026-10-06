@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
 import { getDb, createCategory, createFeed, insertArticle } from '../db.js'
@@ -66,6 +66,42 @@ describe('POST /accounts/ClientLogin', () => {
     const decoded = app.jwt.decode(auth!) as { email: string; token_version: number }
     expect(decoded.email).toBe('test@example.com')
     expect(decoded.token_version).toBe(0)
+  })
+
+  it('issues a long-lived token so reader apps are not signed out monthly', async () => {
+    seedUser()
+    const { auth } = await clientLogin()
+    const decoded = app.jwt.decode(auth!) as { iat: number; exp: number }
+    const lifetimeDays = (decoded.exp - decoded.iat) / 86_400
+    expect(lifetimeDays).toBe(3650)
+  })
+
+  it('still accepts the token after the 30-day web session lifetime', async () => {
+    seedUser()
+    const { auth } = await clientLogin()
+    vi.useFakeTimers({ now: Date.now() + 45 * 86_400_000, toFake: ['Date'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/reader/api/0/user-info',
+        headers: { authorization: `GoogleLogin auth=${auth}` },
+      })
+      expect(res.statusCode).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still rejects the token once the password changes (token_version bump)', async () => {
+    seedUser()
+    const { auth } = await clientLogin()
+    getDb().prepare('UPDATE users SET token_version = token_version + 1').run()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reader/api/0/user-info',
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+    expect(res.statusCode).toBe(401)
   })
 })
 

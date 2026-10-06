@@ -37,6 +37,15 @@ declare module 'fastify' {
 
 const log = logger.child('greader')
 
+/**
+ * Lifetime of tokens issued by ClientLogin. FreshRSS issues auth tokens that
+ * never expire, so Google Reader clients store the token and treat a later 401
+ * as "signed out" instead of logging in again. The web session default (30d)
+ * therefore signs reader apps out once a month. Tokens stay revocable: changing
+ * the account password or email bumps token_version and rejects them.
+ */
+const GREADER_TOKEN_EXPIRY = '3650d'
+
 /** Maximum SQLite bound parameters per query (hard limit is 999). */
 const MAX_SQL_PARAMS = 900
 
@@ -318,7 +327,10 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       return reply.send('Error=BadAuthentication\n')
     }
 
-    const token = app.jwt.sign({ email: user.email, token_version: user.token_version })
+    const token = app.jwt.sign(
+      { email: user.email, token_version: user.token_version },
+      { expiresIn: GREADER_TOKEN_EXPIRY },
+    )
     reply.header('Content-Type', 'text/plain')
     return reply.send(`SID=${token}\nLSID=${token}\nAuth=${token}\n`)
   })
