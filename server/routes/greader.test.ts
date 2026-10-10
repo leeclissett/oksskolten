@@ -207,6 +207,12 @@ describe('GET /reader/api/0/unread-count', () => {
       url: 'https://example.com/uncategorized/unread',
       published_at: '2025-01-03T00:00:00Z',
     })
+    // newestItemTimestampUsec follows arrival time (created_at), so pin it to
+    // values that differ from every published_at above.
+    const setArrival = getDb().prepare('UPDATE articles SET created_at = ? WHERE url = ?')
+    setArrival.run('2025-02-01 00:00:00', 'https://example.com/categorized/unread')
+    setArrival.run('2025-02-02 00:00:00', 'https://example.com/categorized/read')
+    setArrival.run('2025-02-03 00:00:00', 'https://example.com/uncategorized/unread')
 
     const { auth } = await clientLogin()
     const res = await app.inject({
@@ -223,18 +229,46 @@ describe('GET /reader/api/0/unread-count', () => {
     expect(counts.get('feed/https://example.com/categorized/rss')).toEqual({
       id: 'feed/https://example.com/categorized/rss',
       count: 1,
-      newestItemTimestampUsec: '1735776000000000',
+      newestItemTimestampUsec: '1738454400000000',
     })
     expect(counts.get('user/-/label/News')).toEqual({
       id: 'user/-/label/News',
       count: 1,
-      newestItemTimestampUsec: '1735776000000000',
+      newestItemTimestampUsec: '1738454400000000',
     })
     expect(counts.get('user/-/state/com.google/reading-list')).toEqual({
       id: 'user/-/state/com.google/reading-list',
       count: 2,
-      newestItemTimestampUsec: '1735862400000000',
+      newestItemTimestampUsec: '1738540800000000',
     })
+  })
+
+  it('reports a newly added feed as changed even when its newest article was published long ago', async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Just Added', url: 'https://example.com/added', rss_url: 'https://example.com/added/rss' })
+    const emptyFeed = createFeed({ name: 'No Articles Yet', url: 'https://example.com/empty', rss_url: 'https://example.com/empty/rss' })
+    const beforeSec = Math.floor(Date.now() / 1000) - 5
+    insertArticle({
+      feed_id: feed.id,
+      title: 'Backlog article',
+      url: 'https://example.com/added/old-post',
+      published_at: '2020-06-01T00:00:00Z',
+    })
+
+    const { auth } = await clientLogin()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reader/api/0/unread-count?output=json',
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+
+    const counts = new Map<string, { newestItemTimestampUsec: string }>(
+      res.json().unreadcounts.map((entry: { id: string }) => [entry.id, entry]),
+    )
+    const newestSec = Number(counts.get(`feed/${feed.rss_url}`)!.newestItemTimestampUsec) / 1_000_000
+    // Arrival time (now), not the 2020 publication date.
+    expect(newestSec).toBeGreaterThanOrEqual(beforeSec)
+    expect(counts.get(`feed/${emptyFeed.rss_url}`)!.newestItemTimestampUsec).toBe('0')
   })
 })
 

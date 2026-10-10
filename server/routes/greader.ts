@@ -401,9 +401,23 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     let totalUnreads = 0
     let newestItemTimestampUsec = 0
 
+    // FreshRSS reports when a feed's newest item reached the server (its entry
+    // IDs are arrival timestamps), not when that item was published. Clients
+    // compare this value with their last sync to decide which feeds changed,
+    // so a publication date would make a newly added feed whose latest post
+    // predates that sync look unchanged, and its articles would never load.
+    const newestArrivalByFeed = new Map(
+      (getDb().prepare(`
+        SELECT feed_id, MAX(created_at) AS newest_created_at
+        FROM active_articles
+        GROUP BY feed_id
+      `).all() as { feed_id: number; newest_created_at: string | null }[])
+        .map((row) => [row.feed_id, row.newest_created_at]),
+    )
+
     const unreadcounts = feeds.map((feed) => {
       const count = Number(feed.unread_count)
-      const newest = dateToTimestampUsec(feed.latest_published_at)
+      const newest = dateToTimestampUsec(newestArrivalByFeed.get(feed.id) ?? null)
       totalUnreads += count
       newestItemTimestampUsec = Math.max(newestItemTimestampUsec, newest)
 

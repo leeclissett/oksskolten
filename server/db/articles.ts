@@ -513,9 +513,8 @@ export function getInlineArticleRepairCandidates(
 ): { id: number; url: string; full_text: string }[] {
   return getDb().prepare(`
     SELECT id, url, full_text
-    FROM articles
+    FROM active_articles
     WHERE feed_id = ?
-      AND purged_at IS NULL
       AND instr(url, '#') > 0
       AND instr(coalesce(full_text, ''), '{') > 0
   `).all(feedId) as { id: number; url: string; full_text: string }[]
