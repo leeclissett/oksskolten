@@ -59,11 +59,12 @@ interface Row {
   translated_lang: string | null
   seen_at: string | null
   bookmarked_at: string | null
+  source_url: string | null
 }
 
 function rows(): Row[] {
   return getDb().prepare(
-    'SELECT id, url, full_text, excerpt, summary, full_text_translated, translated_lang, seen_at, bookmarked_at FROM articles ORDER BY id',
+    'SELECT id, url, full_text, excerpt, summary, full_text_translated, translated_lang, seen_at, bookmarked_at, source_url FROM articles ORDER BY id',
   ).all() as Row[]
 }
 
@@ -166,5 +167,63 @@ describe('repair of articles stored as a raw HTML document dump', () => {
     const old = rows().find(r => r.id === before.id)!
     expect(old.full_text).toBe(before.full_text)
     expect(old.summary).toBe('Summary generated from the dump')
+  })
+})
+
+describe('source page of an inline-content article', () => {
+  const POST_URL = 'https://open.substack.com/pub/example/p/the-issue'
+  const EMAIL_WITH_POST_LINK = EMAIL_HTML.replace(
+    /<body[^>]*>/,
+    (bodyTag) => `${bodyTag}<a href="${POST_URL}?utm_source=email&amp;token=SECRET">Read in app</a>`,
+  )
+
+  it('is stored when the entry is first ingested', async () => {
+    serveFeed(atomXml([{ id: 'urn:letterfeed:entry:123', title: 'Issue', html: EMAIL_WITH_POST_LINK }]))
+
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+
+    const [article] = rows()
+    expect(article.url).toBe(`${FEED_URL}#urn:letterfeed:entry:123`)
+    expect(article.source_url).toBe(POST_URL)
+  })
+
+  it('is backfilled on the next fetch for an article stored without one, leaving the article as it was', async () => {
+    serveFeed(atomXml([{ id: 'urn:letterfeed:entry:123', title: 'Issue', html: EMAIL_WITH_POST_LINK }]))
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+    const [stored] = rows()
+    getDb().prepare('UPDATE articles SET source_url = NULL WHERE id = ?').run(stored.id)
+    updateArticleContent(stored.id, { summary: 'A summary worth keeping' })
+    markArticleSeen(stored.id, true)
+
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+
+    const [article] = rows()
+    expect(article.source_url).toBe(POST_URL)
+    expect(article.full_text).toBe(stored.full_text)
+    expect(article.summary).toBe('A summary worth keeping')
+    expect(article.seen_at).not.toBeNull()
+  })
+
+  it('is filled in together with the repair of a raw document dump', async () => {
+    serveFeed(atomXml([{ id: 'urn:letterfeed:entry:123', title: 'Issue', html: EMAIL_WITH_POST_LINK }]))
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+    const [stored] = rows()
+    getDb().prepare('UPDATE articles SET source_url = NULL WHERE id = ?').run(stored.id)
+    updateArticleContent(stored.id, { full_text: new TurndownService().turndown(EMAIL_WITH_POST_LINK) })
+
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+
+    const [article] = rows()
+    expect(article.full_text).not.toContain('@media')
+    expect(article.source_url).toBe(POST_URL)
+  })
+
+  it('stays empty when the email has no recognisable post address', async () => {
+    serveFeed(atomXml([{ id: 'urn:letterfeed:entry:123', title: 'Issue', html: EMAIL_HTML }]))
+
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+    await fetchSingleFeed(feed, undefined, { skipCache: true })
+
+    expect(rows()[0].source_url).toBeNull()
   })
 })

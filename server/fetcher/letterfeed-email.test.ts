@@ -85,12 +85,30 @@ describe('LetterFeed entry carrying a full HTML email', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
+  it('reports the original post address when the email carries one', async () => {
+    const withPostLink = EMAIL_HTML.replace(
+      /<body[^>]*>/,
+      (bodyTag) => `${bodyTag}<a href="https://open.substack.com/pub/example/p/the-issue?utm_source=email&amp;token=SECRET">Read in app</a>`,
+    )
+
+    const result = await fetchArticleContent(ENTRY_URL, { listingExcerpt: withPostLink })
+
+    expect(result.sourceUrl).toBe('https://open.substack.com/pub/example/p/the-issue')
+    expect(result.fullText).toContain('BODY-START-MARKER')
+  })
+
+  it('reports no post address when the email has none', async () => {
+    const result = await fetchArticleContent(ENTRY_URL, { listingExcerpt: EMAIL_HTML })
+    expect(result.sourceUrl).toBeNull()
+  })
+
   it('keeps converting HTML fragments directly, without article extraction', async () => {
     const fragment = '<h2>2.1.74</h2><p>Fixed a <a href="https://example.com/bug">bug</a>.</p>'
 
     const result = await fetchArticleContent('https://example.com/changelog#2-1-74', { listingExcerpt: fragment })
 
     expect(result.fullText).toBe('## 2.1.74\n\nFixed a [bug](https://example.com/bug).')
+    expect(result.sourceUrl).toBeNull()
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })

@@ -187,7 +187,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         <ArticleZapNavigation
           currentArticleId={String(article.id)}
           onBookmarkToggle={toggleBookmark}
-          onOpenExternal={() => window.open(article.url, '_blank')}
+          onOpenExternal={() => { if (article.source_url) window.open(article.source_url, '_blank') }}
         />
       )}
       <article ref={articleRef} className="article-card max-w-2xl mx-auto px-6 md:px-10 py-8">

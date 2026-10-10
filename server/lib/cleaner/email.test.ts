@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { JSDOM } from 'jsdom'
 import { Readability } from '@mozilla/readability'
-import { isLayoutTable, prepareEmailDocument, protectHeadings, unwrapLayoutTables } from './email.js'
+import { extractEmailSourceUrl, isLayoutTable, prepareEmailDocument, protectHeadings, unwrapLayoutTables } from './email.js'
 
 function docOf(html: string): Document {
   return new JSDOM(`<!DOCTYPE html><html><body>${html}</body></html>`).window.document
@@ -139,5 +139,28 @@ describe('prepareEmailDocument', () => {
     prepareEmailDocument(doc)
     expect(doc.querySelector('table')).toBeNull()
     expect(doc.querySelector('h2')!.hasAttribute('class')).toBe(false)
+  })
+})
+
+describe('extractEmailSourceUrl', () => {
+  it('returns the Substack post address without its tracking query string', () => {
+    const html = `<html><body>
+      <a class="email-icon-button" href="https://open.substack.com/pub/example/p/the-issue-title?utm_source=substack&amp;utm_medium=email&amp;action=restack-comment&amp;r=abc12&amp;token=SECRET.TOKEN">Restack</a>
+      <a href="https://open.substack.com/pub/example/p/the-issue-title?utm_source=email&amp;redirect=app-store">Read in app</a>
+      <p>Body</p></body></html>`
+    expect(extractEmailSourceUrl(html)).toBe('https://open.substack.com/pub/example/p/the-issue-title')
+  })
+
+  it('ignores tracking redirects, other Substack links, and plain text mentions', () => {
+    const html = `<html><body>
+      <a href="https://substack.com/redirect/2f1c0d6e-0000-4000-8000-000000000000?j=TOKEN">Post title</a>
+      <a href="https://open.substack.com/pub/example?utm_source=email">Publication home</a>
+      <a href="https://substack.com/app-link/post?publication_id=1&amp;post_id=2">Open</a>
+      <p>See https://open.substack.com/pub/example/p/not-a-link for more.</p></body></html>`
+    expect(extractEmailSourceUrl(html)).toBeNull()
+  })
+
+  it('returns null for an email with no recognisable post address', () => {
+    expect(extractEmailSourceUrl('<html><body><a href="https://news.example.com/view-in-browser/123">View in browser</a></body></html>')).toBeNull()
   })
 })

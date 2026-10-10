@@ -131,6 +131,7 @@ CREATE TABLE articles (
   summary         TEXT,                               -- Japanese summary
   excerpt         TEXT,                               -- 200-char preview (auto-generated from full_text)
   og_image        TEXT,                               -- OGP image URL
+  source_url      TEXT,                               -- Original post for inline feed entries whose url is a synthetic key; NULL otherwise
   last_error      TEXT,                               -- Fetch / Claude API error
   retry_count     INTEGER NOT NULL DEFAULT 0,         -- full_text fetch retry count (for exponential backoff)
   last_retry_at   TEXT,                               -- Last retry timestamp (ISO 8601)

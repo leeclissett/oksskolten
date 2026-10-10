@@ -1,5 +1,6 @@
 import { getDb, runNamed, getNamed, allNamed } from './connection.js'
 import type { Article, ArticleListItem, ArticleDetail } from './types.js'
+import { isInlineEntryUrl } from '../../shared/url.js'
 import type { MeiliArticleDoc } from '../search/client.js'
 import { syncArticleToSearch, deleteArticleFromSearch, deleteArticlesFromSearch, syncArticleScoreToSearch, syncArticleFiltersToSearch } from '../search/sync.js'
 import { RETRY_MAX_ATTEMPTS, RETRY_BATCH_LIMIT } from '../fetcher/util.js'
@@ -207,6 +208,33 @@ export function getArticles(opts: {
   return { articles, total, ...(totalWithoutFloor != null && totalWithoutFloor > total ? { totalWithoutFloor } : {}) }
 }
 
+/**
+ * Where an article can be read on the web. An ordinary article's URL is its
+ * page. An inline feed entry (see isInlineEntryUrl) has only a synthetic URL,
+ * so its page is the stored source_url, or nothing if none was found.
+ */
+export function resolveArticleSourceUrl(article: {
+  url: string
+  source_url: string | null | undefined
+  feed_rss_url: string | null | undefined
+}): string | null {
+  if (article.source_url) return article.source_url
+  return isInlineEntryUrl(article.url, article.feed_rss_url) ? null : article.url
+}
+
+type ArticleDetailRow = Omit<ArticleDetail, 'source_url'> & {
+  stored_source_url: string | null
+  feed_rss_url: string | null
+}
+
+function toArticleDetail(row: ArticleDetailRow): ArticleDetail {
+  const { stored_source_url, feed_rss_url, ...article } = row
+  return {
+    ...article,
+    source_url: resolveArticleSourceUrl({ url: row.url, source_url: stored_source_url, feed_rss_url }),
+  }
+}
+
 export function getArticleByUrl(url: string): ArticleDetail | undefined {
   const db = getDb()
   const normalized = normalizeUrl(url)
@@ -214,15 +242,15 @@ export function getArticleByUrl(url: string): ArticleDetail | undefined {
     SELECT a.id, a.feed_id, f.name AS feed_name, f.type AS feed_type,
            a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated, a.og_image,
            a.full_text, a.full_text_translated, a.translated_lang, a.translation_status, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.images_archived_at,
+           a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url,
            (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     WHERE a.url = ?
   `)
 
-  const article = stmt.get(normalized) as ArticleDetail | undefined
-  if (article) return article
+  const article = stmt.get(normalized) as ArticleDetailRow | undefined
+  if (article) return toArticleDetail(article)
 
   // Protocol fallback: handle articles stored under one protocol when the
   // request arrives with the other. This covers the transition period where
@@ -234,23 +262,25 @@ export function getArticleByUrl(url: string): ArticleDetail | undefined {
     fallbackUrl = 'https://' + normalized.slice(7)
   }
   if (fallbackUrl) {
-    return stmt.get(fallbackUrl) as ArticleDetail | undefined
+    const fallback = stmt.get(fallbackUrl) as ArticleDetailRow | undefined
+    return fallback ? toArticleDetail(fallback) : undefined
   }
 
   return undefined
 }
 
 export function getArticleById(id: number): ArticleDetail | undefined {
-  return getDb().prepare(`
+  const row = getDb().prepare(`
     SELECT a.id, a.feed_id, f.name AS feed_name, f.type AS feed_type,
            a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated, a.og_image,
            a.full_text, a.full_text_translated, a.translated_lang, a.translation_status, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.images_archived_at,
+           a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url,
            (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     WHERE a.id = ?
-  `).get(id) as ArticleDetail | undefined
+  `).get(id) as ArticleDetailRow | undefined
+  return row ? toArticleDetail(row) : undefined
 }
 
 export function markArticleSeen(
@@ -371,11 +401,12 @@ export function insertArticle(data: {
   summary?: string | null
   excerpt?: string | null
   og_image?: string | null
+  source_url?: string | null
   last_error?: string | null
 }): number {
   const info = runNamed(`
-    INSERT INTO articles (feed_id, category_id, title, url, published_at, lang, full_text, full_text_translated, translated_lang, summary, excerpt, og_image, last_error)
-    VALUES (@feed_id, (SELECT category_id FROM feeds WHERE id = @feed_id), @title, @url, @published_at, @lang, @full_text, @full_text_translated, @translated_lang, @summary, @excerpt, @og_image, @last_error)
+    INSERT INTO articles (feed_id, category_id, title, url, published_at, lang, full_text, full_text_translated, translated_lang, summary, excerpt, og_image, source_url, last_error)
+    VALUES (@feed_id, (SELECT category_id FROM feeds WHERE id = @feed_id), @title, @url, @published_at, @lang, @full_text, @full_text_translated, @translated_lang, @summary, @excerpt, @og_image, @source_url, @last_error)
   `, {
     feed_id: data.feed_id,
     title: data.title,
@@ -388,6 +419,7 @@ export function insertArticle(data: {
     summary: data.summary ?? null,
     excerpt: data.excerpt ?? null,
     og_image: data.og_image ?? null,
+    source_url: data.source_url ?? null,
     last_error: data.last_error ?? null,
   })
   const articleId = info.lastInsertRowid as number
@@ -518,6 +550,25 @@ export function getInlineArticleRepairCandidates(
       AND instr(url, '#') > 0
       AND instr(coalesce(full_text, ''), '{') > 0
   `).all(feedId) as { id: number; url: string; full_text: string }[]
+}
+
+/**
+ * Return id + url for active inline-content articles (synthetic fragment URL)
+ * in the given feed that have no source page recorded yet.
+ */
+export function getInlineArticlesMissingSourceUrl(feedId: number): { id: number; url: string }[] {
+  return getDb().prepare(`
+    SELECT id, url
+    FROM active_articles
+    WHERE feed_id = ?
+      AND instr(url, '#') > 0
+      AND source_url IS NULL
+  `).all(feedId) as { id: number; url: string }[]
+}
+
+/** Record the web page an inline-content article came from. Content is untouched, so no search resync. */
+export function setArticleSourceUrl(articleId: number, sourceUrl: string): void {
+  runNamed('UPDATE articles SET source_url = @sourceUrl WHERE id = @id', { id: articleId, sourceUrl })
 }
 
 export function getExistingArticleUrls(urls: string[]): Set<string> {

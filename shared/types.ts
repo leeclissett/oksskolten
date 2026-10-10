@@ -55,6 +55,7 @@ export interface Article {
   translation_error?: string | null
   summary: string | null
   og_image: string | null
+  source_url?: string | null
   last_error: string | null
   retry_count: number
   last_retry_at: string | null
@@ -90,6 +91,12 @@ export interface ArticleListItem {
 }
 
 export interface ArticleDetail extends ArticleListItem {
+  /**
+   * Where the article can be read on the web: the stored source page for
+   * inline feed entries, otherwise the article URL. Null when an inline entry
+   * has no known page, in which case `url` is only an in-app key.
+   */
+  source_url: string | null
   full_text: string | null
   full_text_translated: string | null
   images_archived_at: string | null

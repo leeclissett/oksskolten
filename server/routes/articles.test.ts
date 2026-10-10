@@ -448,3 +448,33 @@ describe('GET /api/articles?unread=1 — total_all field', () => {
     expect(res.json().total_all).toBeUndefined()
   })
 })
+
+describe('GET /api/articles/by-url — source_url', () => {
+  async function detail(url: string) {
+    const res = await app.inject({ method: 'GET', url: `/api/articles/by-url?url=${encodeURIComponent(url)}` })
+    expect(res.statusCode).toBe(200)
+    return res.json()
+  }
+
+  it('is the article URL for an ordinary article', async () => {
+    const feed = seedFeed()
+    seedArticle(feed.id, { url: 'https://example.com/ordinary' })
+
+    const body = await detail('https://example.com/ordinary')
+    expect(body.source_url).toBe('https://example.com/ordinary')
+    expect(body).not.toHaveProperty('stored_source_url')
+    expect(body).not.toHaveProperty('feed_rss_url')
+  })
+
+  it('is the stored post address for an inline feed entry, and null when none is known', async () => {
+    const rssUrl = 'http://192.168.1.50:3100/api/feeds/newsletter'
+    const feed = seedFeed({ url: 'http://192.168.1.50:3100', rss_url: rssUrl })
+    seedArticle(feed.id, { url: `${rssUrl}#urn:letterfeed:entry:1`, source_url: 'https://open.substack.com/pub/example/p/one' })
+    seedArticle(feed.id, { url: `${rssUrl}#urn:letterfeed:entry:2` })
+
+    expect((await detail(`${rssUrl}#urn:letterfeed:entry:1`)).source_url).toBe('https://open.substack.com/pub/example/p/one')
+    const withoutSource = await detail(`${rssUrl}#urn:letterfeed:entry:2`)
+    expect(withoutSource.source_url).toBeNull()
+    expect(withoutSource.url).toBe(`${rssUrl}#urn:letterfeed:entry:2`)
+  })
+})

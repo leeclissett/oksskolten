@@ -500,3 +500,74 @@ describe('stream ordering and time filters', () => {
     expect(feedStream.items).toHaveLength(3)
   })
 })
+
+// ── Article links ────────────────────────────────────────────────────────────
+
+describe('article links for reader apps', () => {
+  const FEED_RSS = 'http://192.168.1.50:3100/api/feeds/newsletter'
+
+  async function linkOf(articleId: number): Promise<{ canonical: string; alternate: string }> {
+    const { auth } = await clientLogin()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reader/api/0/stream/items/contents',
+      headers: {
+        authorization: `GoogleLogin auth=${auth}`,
+        'content-type': 'application/x-www-form-urlencoded',
+        host: 'rss.example.com',
+      },
+      payload: `i=${articleId}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const [item] = res.json().items
+    return { canonical: item.canonical[0].href, alternate: item.alternate[0].href }
+  }
+
+  it('uses the article URL for an ordinary article', async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Blog', url: 'https://blog.example.com', rss_url: 'https://blog.example.com/feed.xml' })
+    const id = insertArticle({ feed_id: feed.id, title: 'Post', url: 'https://blog.example.com/post', published_at: '2025-01-01T00:00:00Z' })
+
+    expect(await linkOf(id)).toEqual({ canonical: 'https://blog.example.com/post', alternate: 'https://blog.example.com/post' })
+  })
+
+  it('keeps the page URL of an anchor-link article on some other page', async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Changelog', url: 'https://example.com', rss_url: 'https://example.com/changelog.xml' })
+    const id = insertArticle({ feed_id: feed.id, title: '2.1.74', url: 'https://example.com/changelog#2-1-74', published_at: '2025-01-01T00:00:00Z' })
+
+    expect((await linkOf(id)).alternate).toBe('https://example.com/changelog#2-1-74')
+  })
+
+  it('uses the original post for an inline feed entry that has one', async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Newsletter', url: 'http://192.168.1.50:3100', rss_url: FEED_RSS })
+    const id = insertArticle({
+      feed_id: feed.id,
+      title: 'Issue',
+      url: `${FEED_RSS}#urn:letterfeed:entry:123`,
+      published_at: '2025-01-01T00:00:00Z',
+      source_url: 'https://open.substack.com/pub/example/p/the-issue',
+    })
+
+    expect(await linkOf(id)).toEqual({
+      canonical: 'https://open.substack.com/pub/example/p/the-issue',
+      alternate: 'https://open.substack.com/pub/example/p/the-issue',
+    })
+  })
+
+  it("falls back to this server's own article page, never the private feed address", async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Newsletter', url: 'http://192.168.1.50:3100', rss_url: FEED_RSS })
+    const id = insertArticle({
+      feed_id: feed.id,
+      title: 'Issue',
+      url: `${FEED_RSS}#urn:letterfeed:entry:124`,
+      published_at: '2025-01-01T00:00:00Z',
+    })
+
+    const { canonical, alternate } = await linkOf(id)
+    expect(alternate).toBe('http://rss.example.com/http/192.168.1.50:3100/api/feeds/newsletter%23urn:letterfeed:entry:124')
+    expect(canonical).toBe(alternate)
+  })
+})

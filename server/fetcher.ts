@@ -3,6 +3,8 @@ import {
   countStaleArticlesByFeed,
   getArticlesNeedingRefresh,
   getInlineArticleRepairCandidates,
+  getInlineArticlesMissingSourceUrl,
+  setArticleSourceUrl,
   getExistingArticleUrls,
   getRetryArticles,
   getRetryStats,
@@ -26,6 +28,7 @@ import { fetchFullText, isBotBlockPage, isHtmlDocument, parseInlineHtml, convert
 import { type FetchRssResult, type RssItem, fetchAndParseRss, RateLimitError } from './fetcher/rss.js'
 import { computeInterval, computeEmpiricalInterval, sqliteFuture, DEFAULT_INTERVAL } from './fetcher/schedule.js'
 import { detectLanguage } from './fetcher/ai.js'
+import { extractEmailSourceUrl } from './lib/cleaner/email.js'
 import { logger } from './logger.js'
 
 const log = logger.child('fetcher')
@@ -137,6 +140,26 @@ async function repairRawDocumentArticles(feedId: number, rssItems: RssItem[]): P
   }
 }
 
+/**
+ * Record the original post's web address on inline-content articles that
+ * were stored before source_url existed. The feed still carries the HTML the
+ * address is read from. Articles whose entry has no recognisable address stay
+ * without one and are looked at again on later fetches, which is cheap: no
+ * parsing, one pattern match per entry.
+ */
+function backfillInlineSourceUrls(feedId: number, rssItems: RssItem[]): void {
+  const missing = getInlineArticlesMissingSourceUrl(feedId)
+  if (missing.length === 0) return
+  const itemsByUrl = new Map(rssItems.map(i => [normalizeUrl(i.url), i]))
+
+  for (const article of missing) {
+    const html = itemsByUrl.get(normalizeUrl(article.url))?.excerpt
+    if (!html || !isHtmlDocument(html)) continue
+    const sourceUrl = extractEmailSourceUrl(html)
+    if (sourceUrl) setArticleSourceUrl(article.id, sourceUrl)
+  }
+}
+
 // --- Article content fetching (shared by feed pipeline & clip) ---
 
 export interface FetchedContent {
@@ -147,6 +170,8 @@ export interface FetchedContent {
   lastError: string | null
   /** Title extracted by fetchFullText (from OGP etc.) */
   title: string | null
+  /** Web page of the original post, for inline feed entries that have no link of their own */
+  sourceUrl: string | null
 }
 
 /**
@@ -159,20 +184,22 @@ export interface FetchedContent {
 async function convertInlineContent(
   content: string,
   url: string,
-): Promise<{ fullText: string; excerpt: string | null }> {
+): Promise<{ fullText: string; excerpt: string | null; sourceUrl: string | null }> {
+  let sourceUrl: string | null = null
   if (isHtmlDocument(content)) {
+    sourceUrl = extractEmailSourceUrl(content)
     try {
       const parsed = await parseInlineHtml(content, url)
       const extractedLen = parsed.fullText.replace(/\s+/g, ' ').trim().length
       if (extractedLen >= MIN_EXTRACTED_LENGTH) {
-        return { fullText: parsed.fullText, excerpt: parsed.excerpt }
+        return { fullText: parsed.fullText, excerpt: parsed.excerpt, sourceUrl }
       }
     } catch (err) {
       log.warn({ url, err: errorMessage(err) }, 'inline HTML extraction failed, using plain conversion')
     }
   }
   const fullText = convertHtmlToMarkdown(content)
-  return { fullText, excerpt: markdownToExcerpt(fullText) }
+  return { fullText, excerpt: markdownToExcerpt(fullText), sourceUrl }
 }
 
 export async function fetchArticleContent(
@@ -193,6 +220,7 @@ export async function fetchArticleContent(
   let lang: string | null = null
   let lastError: string | null = null
   let title: string | null = null
+  let sourceUrl: string | null = null
 
   const existing = options?.existingArticle
 
@@ -209,6 +237,7 @@ export async function fetchArticleContent(
     const inline = await convertInlineContent(options.listingExcerpt, url)
     fullText = inline.fullText
     excerpt = inline.excerpt
+    sourceUrl = inline.sourceUrl
   } else {
     try {
       const result = await fetchFullText(url, { requiresJsChallenge: options?.requiresJsChallenge })
@@ -250,7 +279,7 @@ export async function fetchArticleContent(
     lang = detectLanguage('', options.languageHint)
   }
 
-  return { fullText, ogImage, excerpt, lang, lastError, title }
+  return { fullText, ogImage, excerpt, lang, lastError, title, sourceUrl }
 }
 
 // --- Article processing ---
@@ -301,6 +330,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
         summary: null,
         excerpt: content.excerpt,
         og_image: content.ogImage,
+        source_url: content.sourceUrl,
         last_error: content.lastError,
       })
       enqueueArticleTranslationFromFeedPolicy(articleId)
@@ -375,6 +405,7 @@ export async function fetchSingleFeed(
   const existing = getExistingArticleUrls(urls)
   refreshStaleArticles(feed.id, rssResult.items)
   await repairRawDocumentArticles(feed.id, rssResult.items)
+  backfillInlineSourceUrls(feed.id, rssResult.items)
 
   const tasks: ArticleTask[] = rssResult.items
     .filter(item => !existing.has(item.url))
@@ -476,6 +507,7 @@ export async function fetchAllFeeds(
           const existing = getExistingArticleUrls(urls)
           refreshStaleArticles(feed.id, rssResult.items)
           await repairRawDocumentArticles(feed.id, rssResult.items)
+          backfillInlineSourceUrls(feed.id, rssResult.items)
 
           const newItems: ArticleTask[] = rssResult.items
             .filter(item => !existing.has(item.url))

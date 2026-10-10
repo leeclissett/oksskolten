@@ -376,3 +376,58 @@ describe('ArticleDetail stale translation filtering', () => {
     expect(firstArg).toEqual({ id: 1, full_text_translated: null })
   })
 })
+
+describe('ArticleDetail source link', () => {
+  const feedUrl = 'http://192.168.1.50:3100/api/feeds/newsletter'
+  const articleUrl = `${feedUrl}#urn:letterfeed:entry:123`
+  const articleKey = `/api/articles/by-url?url=${encodeURIComponent(articleUrl)}`
+  const baseArticle = {
+    id: 1,
+    feed_id: 2,
+    feed_name: 'Newsletter',
+    title: 'Issue',
+    url: articleUrl,
+    published_at: '2026-03-04T00:00:00.000Z',
+    lang: 'en',
+    summary: null,
+    full_text: 'Body',
+    full_text_translated: null,
+    translated_lang: null,
+    seen_at: '2026-03-04T00:00:00.000Z',
+    read_at: '2026-03-04T00:00:00.000Z',
+    bookmarked_at: null,
+    liked_at: null,
+  }
+
+  function renderArticle(sourceUrl: string | null) {
+    render(
+      <MemoryRouter>
+        <LocaleContext.Provider value={{ locale: 'en', setLocale: vi.fn() }}>
+          <TooltipProvider>
+            <SWRConfig value={{ provider: () => new Map(), fallback: { [articleKey]: { ...baseArticle, source_url: sourceUrl } } }}>
+              <Routes>
+                <Route element={<OutletWrapper />}>
+                  <Route path="*" element={<ArticleDetail articleUrl={articleUrl} />} />
+                </Route>
+              </Routes>
+            </SWRConfig>
+          </TooltipProvider>
+        </LocaleContext.Provider>
+      </MemoryRouter>,
+    )
+  }
+
+  it('links to the original post, not to the in-app article key', () => {
+    renderArticle('https://open.substack.com/pub/example/p/the-issue')
+
+    const link = screen.getByRole('link', { name: /Source Article/ })
+    expect(link.getAttribute('href')).toBe('https://open.substack.com/pub/example/p/the-issue')
+  })
+
+  it('shows no source link when the article has no page on the web', () => {
+    renderArticle(null)
+
+    expect(screen.getByText('Newsletter')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Source Article/ })).toBeNull()
+  })
+})

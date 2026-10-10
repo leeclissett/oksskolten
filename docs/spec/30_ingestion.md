@@ -125,6 +125,15 @@ When the fallback triggers, the RSS content is only used if it is more substanti
 
 This addresses SPA sites where even FlareSolverr returns rendered HTML but `preClean` removes `display: none` elements, leaving Readability with an effectively empty DOM — while the RSS feed itself often contains the full article content (as used by readers like Feedly).
 
+### Inline HTML Documents (Email Newsletters)
+
+A feed entry with inline content but no link (for example a newsletter relayed by a mail-to-feed bridge such as LetterFeed) has no page to fetch. `parseRssXml` gives it a synthetic URL, the feed URL with the entry ID as a fragment, which serves as the dedup key, and `fetchArticleContent` builds the article from the inline content instead of fetching anything.
+
+- **Fragments** are converted directly with `convertHtmlToMarkdown()`, which drops `<style>`, `<script>`, `<title>` and `<noscript>`.
+- **Whole HTML documents** (an email: `<head>`, stylesheet, layout tables, header and footer chrome) go through the same worker pipeline as a fetched page, in email mode (`ParseHtmlInput.email`). Before Readability, `prepareEmailDocument()` in `server/lib/cleaner/email.ts` unwraps layout tables (data tables are kept) and strips class names from section headings, which Readability would otherwise discard; `<h1>` sections inside the body are moved down a level because Readability deletes every `<h1>`. Email mode also relaxes Readability's link-density cut-off so link lists survive. If extraction fails or yields less than `MIN_EXTRACTED_LENGTH`, the plain conversion is used.
+- **Source page.** The synthetic URL is not a page anyone can open. `extractEmailSourceUrl()` reads the original post's address from the email when it can be recognised reliably (currently Substack's `open.substack.com/pub/<publication>/p/<slug>` link, with its tracking query removed) and stores it in `articles.source_url`. Reader apps and the web UI link to that; without it, the Google Reader API links to this server's own page for the article.
+- **Repair on fetch.** Each parsed fetch of a feed re-converts inline articles still holding a raw-document dump from before email mode existed (detected by the entry's own stylesheet appearing in the stored text) and fills in a missing `source_url`. Both steps are idempotent and leave read, bookmark and like state alone. Entries that have rolled off the feed cannot be repaired.
+
 ### Full-Text Retrieval and Markdown Conversion Pipeline
 
 End-to-end flow from article URL to Markdown text. A multi-stage pipeline combining HTML cleaning (defuddle-based) and Readability that removes noise such as ads, navigation, and tracking attributes before converting to Markdown. Runs entirely locally with no external API dependencies.

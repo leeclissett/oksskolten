@@ -107,3 +107,17 @@ export function prepareEmailDocument(doc: Document): void {
   unwrapLayoutTables(doc)
   protectHeadings(doc)
 }
+
+// Substack puts the post's public address on the header buttons of every
+// email ("Read in app", restack). The query string carries per-recipient
+// tracking tokens, so only the path is kept.
+const SUBSTACK_POST_RE = /href="(https:\/\/open\.substack\.com\/pub\/[\w-]+\/p\/[\w%-]+)/i
+
+/**
+ * Find the web address of the post an email was sent for, if the email
+ * carries one in a form that can be recognised reliably. Returns null
+ * otherwise: a wrong link is worse than none.
+ */
+export function extractEmailSourceUrl(html: string): string | null {
+  return SUBSTACK_POST_RE.exec(html)?.[1] ?? null
+}

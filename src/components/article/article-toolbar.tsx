@@ -53,17 +53,19 @@ export function ArticleToolbar({
       <ActionChip className="max-w-[200px]" tooltip={article.feed_name} onClick={() => navigate(`/feeds/${article.feed_id}`)}>
         <span className="truncate">{article.feed_name}</span>
       </ActionChip>
-      <ActionChip
-        as="a"
-        href={article.url}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {t('article.sourceArticle')}
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M4 1h7v7M11 1L5 7" />
-        </svg>
-      </ActionChip>
+      {article.source_url && (
+        <ActionChip
+          as="a"
+          href={article.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t('article.sourceArticle')}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 1h7v7M11 1L5 7" />
+          </svg>
+        </ActionChip>
+      )}
       {summary === null && !summarizing && (
         <ActionChip onClick={onSummarize}>
           <Sparkles className="w-3.5 h-3.5" />

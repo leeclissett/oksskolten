@@ -423,6 +423,7 @@ The floor is **not applied** in:
   "feed_name": "Cloudflare Blog",
   "title": "Markdown for Agents",
   "url": "https://blog.cloudflare.com/new-features-2025",
+  "source_url": "https://blog.cloudflare.com/new-features-2025",
   "published_at": "2025-02-26T00:00:00Z",
   "lang": "en",
   "summary": "Markdown features designed for AI agents...",
@@ -435,6 +436,8 @@ The floor is **not applied** in:
   "liked_at": null
 }
 ```
+
+`source_url` is where the article can be read on the web. For an ordinary article it equals `url`. For an inline feed entry (see [Inline HTML documents](./30_ingestion.md#inline-html-documents-email-newsletters)) `url` is only an in-app key, so `source_url` is the original post when one was found and `null` otherwise. The article page shows its "Source Article" link only when `source_url` is set.
 
 Returns `404 { "error": "Article not found" }` if the article does not exist.
 

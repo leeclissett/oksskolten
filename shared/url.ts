@@ -23,3 +23,23 @@ export function articlePathToUrl(splat: string): string {
     ? `http://${decodeURIComponent(rawSplat.slice(5))}`
     : `https://${decodeURIComponent(rawSplat)}`
 }
+
+/**
+ * True when an article URL is the synthetic key given to a feed entry that
+ * has inline content but no link of its own: the feed's URL with the entry ID
+ * as a fragment. It identifies the article inside the app but is not a page
+ * anyone can open.
+ */
+export function isInlineEntryUrl(articleUrl: string, feedUrl: string | null | undefined): boolean {
+  if (!feedUrl) return false
+  try {
+    const article = new URL(articleUrl)
+    if (!article.hash) return false
+    article.hash = ''
+    const feed = new URL(feedUrl)
+    feed.hash = ''
+    return article.href === feed.href
+  } catch {
+    return false
+  }
+}

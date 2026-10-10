@@ -63,4 +63,6 @@ Streams (`stream/items/ids` and `stream/contents`) list articles by the time the
 
 In `unread-count`, `newestItemTimestampUsec` is the time a feed's newest article arrived in Oksskolten, not its publication date. This matches FreshRSS, and lets clients that skip unchanged feeds notice a newly added feed whose latest post is older than their last sync.
 
+Each item's `canonical` and `alternate` link is the article's page on the web. Inline feed entries such as email newsletters have no page at their own URL, so the link is the original post when Oksskolten found one, and otherwise the article's page on this server (built from the host the client connected to).
+
 An explicit `com.google/read` edit records the article as actually read in Oksskolten (`read_at` and `seen_at`). Removing that state clears both timestamps. Bulk mark-all operations only set `seen_at`, because they represent clearing a stream rather than opening every article.

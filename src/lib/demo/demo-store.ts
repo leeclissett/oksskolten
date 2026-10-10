@@ -199,6 +199,7 @@ function toArticleListItem(a: SeedArticle): ArticleListItem {
 function toArticleDetail(a: SeedArticle): ArticleDetail {
   return {
     ...toArticleListItem(a),
+    source_url: a.url,
     full_text: a.full_text,
     full_text_translated: translatedIds.has(a.id) ? (a.full_text_translated ?? null) : null,
     translated_lang: translatedIds.has(a.id) ? getLocale() : null,

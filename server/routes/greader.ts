@@ -25,7 +25,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { allNamed, getDb, getNamed, getSetting } from '../db.js'
 import { getFeeds } from '../db/feeds.js'
 import { getCategories, markAllSeenByCategory } from '../db/categories.js'
-import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead } from '../db/articles.js'
+import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
+import { articleUrlToPath } from '../../shared/url.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { logger } from '../logger.js'
 
@@ -181,6 +182,7 @@ interface ArticleRow {
   title_translated: string | null
   feed_url: string
   article_url: string
+  source_url: string | null
   created_at: string | null
   published_at: string | null
   lang: string | null
@@ -207,7 +209,23 @@ function markdownToHtml(text: string): string {
   return marked.parse(text, { async: false }) as string
 }
 
-function articleToGReaderItem(a: ArticleRow): Record<string, unknown> {
+/** Scheme and host the client reached this server on (the public address when behind a proxy). */
+function requestOrigin(request: FastifyRequest): string {
+  return `${request.protocol}://${request.host}`
+}
+
+/**
+ * The link a reader app opens for an article. Inline feed entries (email
+ * newsletters) have no page at their own URL, which is the feed address plus
+ * a fragment and usually sits on a private network: use the original post
+ * when it is known, otherwise this server's own page for the article.
+ */
+function articleLink(a: ArticleRow, origin: string): string {
+  const sourceUrl = resolveArticleSourceUrl({ url: a.article_url, source_url: a.source_url, feed_rss_url: a.rss_url })
+  return sourceUrl ?? `${origin}${articleUrlToPath(a.article_url)}`
+}
+
+function articleToGReaderItem(a: ArticleRow, origin: string): Record<string, unknown> {
   const publishedSec = a.published_at ? Math.floor(new Date(a.published_at).getTime() / 1000) : 0
   const crawledSec = a.created_at
     ? Math.floor(new Date(a.created_at).getTime() / 1000)
@@ -229,6 +247,7 @@ function articleToGReaderItem(a: ArticleRow): Record<string, unknown> {
     ? a.title_translated
     : a.title
   const content = translatedContent ?? a.full_text ?? a.summary ?? a.excerpt ?? ''
+  const link = articleLink(a, origin)
 
   return {
     id: itemTagId(a.id),
@@ -237,8 +256,8 @@ function articleToGReaderItem(a: ArticleRow): Record<string, unknown> {
     published: publishedSec,
     updated: publishedSec,
     title: title ?? '(no title)',
-    canonical: [{ href: a.article_url }],
-    alternate: [{ href: a.article_url, type: 'text/html' }],
+    canonical: [{ href: link }],
+    alternate: [{ href: link, type: 'text/html' }],
     summary: { direction: 'ltr', content: markdownToHtml(content) },
     author: a.feed_name ?? '',
     origin: {
@@ -261,7 +280,7 @@ function getEnrichedArticles(ids: number[]): ArticleRow[] {
     const rows = getDb().prepare(`
       SELECT a.id, a.feed_id, f.name AS feed_name, f.rss_url, f.url AS feed_url,
              f.auto_translate_target,
-             a.title, a.title_translated, a.url AS article_url,
+             a.title, a.title_translated, a.url AS article_url, a.source_url,
              a.created_at, a.published_at, a.lang, a.summary,
              a.excerpt, a.og_image,
              a.full_text, a.full_text_translated, a.translated_lang,
@@ -573,7 +592,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
     const ids = body.i.slice(0, 100).map(decodeItemId).filter((id): id is number => id !== null)
     const rows = getEnrichedArticles(ids)
-    const items = rows.map((row) => articleToGReaderItem(row))
+    const items = rows.map((row) => articleToGReaderItem(row, requestOrigin(request)))
 
     reply.header('Content-Type', 'application/json')
     return reply.send({ id: 'user/-/state/com.google/reading-list', updated: Math.floor(Date.now() / 1000), items })
@@ -609,7 +628,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     })
     const rows = getEnrichedArticles(refs.map((ref) => ref.id))
 
-    const items = rows.map((row) => articleToGReaderItem(row))
+    const items = rows.map((row) => articleToGReaderItem(row, requestOrigin(request)))
     const nextOffset = offset + limit
     const continuation = nextOffset < total ? Buffer.from(String(nextOffset)).toString('base64') : undefined
 
