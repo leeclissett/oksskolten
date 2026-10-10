@@ -59,6 +59,8 @@ The Google Reader API uses a token-based auth flow:
 | `POST` | `/reader/api/0/edit-tag` | Mark articles read/unread/starred |
 | `POST` | `/reader/api/0/mark-all-as-read` | Mark all articles in a stream as read |
 
+Streams (`stream/items/ids` and `stream/contents`) list articles by the time they arrived in Oksskolten, newest first, as FreshRSS does. `ot` and `nt` bound that arrival time, `r=o` reverses the order, and `c` continues from the previous page. Ordering by arrival is what lets a reader app find a newly added feed: its backlog arrives now, however old the posts are.
+
 In `unread-count`, `newestItemTimestampUsec` is the time a feed's newest article arrived in Oksskolten, not its publication date. This matches FreshRSS, and lets clients that skip unchanged feeds notice a newly added feed whose latest post is older than their last sync.
 
 An explicit `com.google/read` edit records the article as actually read in Oksskolten (`read_at` and `seen_at`). Removing that state clears both timestamps. Bulk mark-all operations only set `seen_at`, because they represent clearing a stream rather than opening every article.

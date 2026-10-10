@@ -375,3 +375,128 @@ describe('POST /reader/api/0/edit-tag', () => {
     expect(row.liked_at).not.toBeNull()
   })
 })
+
+// ── Stream ordering: newest-arrived first, as FreshRSS does ──────────────────
+
+describe('stream ordering and time filters', () => {
+  const READING_LIST = 'user/-/state/com.google/reading-list'
+
+  /**
+   * 150 recently published articles that reached the server a day ago, then a
+   * feed subscribed just now whose three backlog articles were published years
+   * earlier.
+   */
+  function seedEstablishedFeedThenNewFeed(): { backlogIds: number[] } {
+    const established = createFeed({ name: 'Established', url: 'https://example.com/old', rss_url: 'https://example.com/old/rss' })
+    for (let i = 0; i < 150; i++) {
+      insertArticle({
+        feed_id: established.id,
+        title: `Recent ${i}`,
+        url: `https://example.com/old/${i}`,
+        published_at: new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString(),
+      })
+    }
+    getDb().prepare("UPDATE articles SET created_at = '2026-09-30 12:00:00'").run()
+
+    const added = createFeed({ name: 'Just Added', url: 'https://example.com/new', rss_url: 'https://example.com/new/rss' })
+    const backlogIds = [0, 1, 2].map((i) => insertArticle({
+      feed_id: added.id,
+      title: `Backlog ${i}`,
+      url: `https://example.com/new/${i}`,
+      published_at: `2020-01-0${i + 1}T00:00:00Z`,
+    }))
+    getDb().prepare("UPDATE articles SET created_at = '2026-10-01 12:00:00' WHERE feed_id = ?").run(added.id)
+    return { backlogIds }
+  }
+
+  async function get(url: string, auth: string | null) {
+    const res = await app.inject({ method: 'GET', url, headers: { authorization: `GoogleLogin auth=${auth}` } })
+    expect(res.statusCode).toBe(200)
+    return res.json()
+  }
+
+  it('puts a newly added feed at the head of the reading list even though its articles are old', async () => {
+    seedUser()
+    const { backlogIds } = seedEstablishedFeedThenNewFeed()
+    const { auth } = await clientLogin()
+
+    // The request a reader app makes on a routine sync: first page, no time filter.
+    const body = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=100`, auth)
+
+    expect(body.items).toHaveLength(100)
+    const firstThree = body.items.slice(0, 3).map((item: { origin: { streamId: string } }) => item.origin.streamId)
+    expect(firstThree).toEqual(Array(3).fill('feed/https://example.com/new/rss'))
+    expect(body.items.slice(0, 3).map((item: { title: string }) => item.title)).toEqual(['Backlog 2', 'Backlog 1', 'Backlog 0'])
+    expect(body.continuation).toBeTruthy()
+
+    // Item IDs follow the same order.
+    const ids = await get(`/reader/api/0/stream/items/ids?output=json&s=${READING_LIST}&n=3`, auth)
+    expect(ids.itemRefs.map((ref: { id: string }) => Number(ref.id))).toEqual([...backlogIds].reverse())
+  })
+
+  it('pages through the whole stream with the continuation token, without gaps or repeats', async () => {
+    seedUser()
+    seedEstablishedFeedThenNewFeed()
+    const { auth } = await clientLogin()
+
+    const seen: string[] = []
+    let continuation: string | undefined
+    let pages = 0
+    do {
+      const c = continuation ? `&c=${continuation}` : ''
+      const body = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=100${c}`, auth)
+      seen.push(...body.items.map((item: { id: string }) => item.id))
+      continuation = body.continuation
+      pages++
+    } while (continuation && pages < 10)
+
+    expect(pages).toBe(2)
+    expect(seen).toHaveLength(153)
+    expect(new Set(seen).size).toBe(153)
+  })
+
+  it('applies ot and nt to arrival time, on both stream endpoints', async () => {
+    seedUser()
+    const { backlogIds } = seedEstablishedFeedThenNewFeed()
+    const { auth } = await clientLogin()
+    const cutoff = Math.floor(Date.UTC(2026, 9, 1, 0, 0, 0) / 1000) // between the two arrival times
+
+    const since = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=100&ot=${cutoff}`, auth)
+    expect(since.items.map((item: { title: string }) => item.title).sort()).toEqual(['Backlog 0', 'Backlog 1', 'Backlog 2'])
+    expect(since.continuation).toBeUndefined()
+
+    const until = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=100&nt=${cutoff}`, auth)
+    expect(until.items).toHaveLength(100)
+    expect(until.items.every((item: { title: string }) => item.title.startsWith('Recent'))).toBe(true)
+
+    // ot is applied before the limit: a small n must not hide matching items.
+    const ids = await get(`/reader/api/0/stream/items/ids?output=json&s=${READING_LIST}&n=2&ot=${cutoff}`, auth)
+    expect(ids.itemRefs).toHaveLength(2)
+    expect(ids.itemRefs.every((ref: { id: string }) => backlogIds.includes(Number(ref.id)))).toBe(true)
+  })
+
+  it('returns oldest-arrived first when r=o', async () => {
+    seedUser()
+    seedEstablishedFeedThenNewFeed()
+    const { auth } = await clientLogin()
+
+    const body = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=100&r=o`, auth)
+
+    expect(body.items[0].title).toBe('Recent 0')
+    expect(body.items.some((item: { title: string }) => item.title.startsWith('Backlog'))).toBe(false)
+  })
+
+  it('still honours the unread filter and per-feed streams', async () => {
+    seedUser()
+    const { backlogIds } = seedEstablishedFeedThenNewFeed()
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now') WHERE id = ?").run(backlogIds[2])
+    const { auth } = await clientLogin()
+
+    const unread = await get(`/reader/api/0/stream/items/ids?output=json&s=${READING_LIST}&n=10000&xt=user/-/state/com.google/read`, auth)
+    expect(unread.itemRefs).toHaveLength(152)
+    expect(unread.itemRefs.map((ref: { id: string }) => Number(ref.id))).not.toContain(backlogIds[2])
+
+    const feedStream = await get(`/reader/api/0/stream/contents?output=json&s=${encodeURIComponent('feed/https://example.com/new/rss')}&n=100`, auth)
+    expect(feedStream.items).toHaveLength(3)
+  })
+})

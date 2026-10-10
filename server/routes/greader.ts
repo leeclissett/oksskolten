@@ -22,10 +22,10 @@ import { z } from 'zod'
 import { compareSync } from 'bcryptjs'
 import { marked } from 'marked'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { getDb, getSetting } from '../db.js'
+import { allNamed, getDb, getNamed, getSetting } from '../db.js'
 import { getFeeds } from '../db/feeds.js'
 import { getCategories, markAllSeenByCategory } from '../db/categories.js'
-import { getArticles, markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead } from '../db/articles.js'
+import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead } from '../db/articles.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { logger } from '../logger.js'
 
@@ -278,6 +278,73 @@ function getEnrichedArticles(ids: number[]): ArticleRow[] {
   return results
 }
 
+// --- Stream listing ---
+
+interface StreamArticleRef {
+  id: number
+  created_at: string
+}
+
+/** Read a positive integer query parameter (first value if repeated). */
+function positiveIntParam(value: string | string[] | undefined): number | null {
+  if (value === undefined) return null
+  const n = Number(Array.isArray(value) ? value[0] : value)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+}
+
+/**
+ * List the articles of a stream the way FreshRSS does: by the time they
+ * reached the server, newest first, with `ot` / `nt` bounding that same
+ * arrival time.
+ *
+ * Reader apps sync incrementally by reading the head of the reading list (or
+ * asking for everything since their last sync). A feed subscribed today
+ * arrives with a backlog whose publication dates can be weeks old, so ordering
+ * or filtering by publication date hides those articles from every such sync
+ * and the new feed never shows up in the app.
+ */
+function listStreamArticles(
+  filter: ReturnType<typeof buildArticleOpts>,
+  page: { limit: number; offset: number; startSec?: number | null; stopSec?: number | null; ascending?: boolean },
+): { refs: StreamArticleRef[]; total: number } {
+  const conditions: string[] = []
+  const params: Record<string, number> = {}
+
+  if (filter.feedId) {
+    conditions.push('a.feed_id = @feedId')
+    params.feedId = filter.feedId
+  }
+  if (filter.categoryId) {
+    conditions.push('a.category_id = @categoryId')
+    params.categoryId = filter.categoryId
+  }
+  if (filter.unread) conditions.push('a.seen_at IS NULL')
+  if (filter.bookmarked) conditions.push('a.bookmarked_at IS NOT NULL')
+  if (filter.liked) conditions.push('a.liked_at IS NOT NULL')
+  if (page.startSec) {
+    conditions.push("a.created_at >= datetime(@startSec, 'unixepoch')")
+    params.startSec = page.startSec
+  }
+  if (page.stopSec) {
+    conditions.push("a.created_at <= datetime(@stopSec, 'unixepoch')")
+    params.stopSec = page.stopSec
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  const direction = page.ascending ? 'ASC' : 'DESC'
+
+  const total = getNamed<{ n: number }>(`SELECT COUNT(*) AS n FROM active_articles a ${where}`, params).n
+  const refs = allNamed<StreamArticleRef>(`
+    SELECT a.id, a.created_at
+    FROM active_articles a
+    ${where}
+    ORDER BY a.created_at ${direction}, a.id ${direction}
+    LIMIT @limit OFFSET @offset
+  `, { ...params, limit: page.limit, offset: page.offset })
+
+  return { refs, total }
+}
+
 // --- Route registration ---
 
 export async function greaderRoutes(app: FastifyInstance): Promise<void> {
@@ -481,48 +548,19 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       const n = Number(q.n ?? 10000)
       return Number.isFinite(n) && n >= 1 ? Math.min(n, 10000) : 10000
     })()
-    const otSec = (() => {
-      if (!q.ot) return null
-      const raw = Array.isArray(q.ot) ? q.ot[0] : q.ot
-      const n = Number(raw)
-      return Number.isFinite(n) && n > 0 ? n : null
-    })()
-
-    const opts = buildArticleOpts(stream, exclude)
-    const { articles } = getArticles({ ...opts, limit, offset: 0 })
-
-    // Fetch created_at for each article (used for ot filter and timestampUsec).
-    // getArticles() returns ArticleListItem which omits created_at, so we query it separately.
-    const ids = articles.map((a) => a.id)
-    const createdAtMap = new Map<number, string>()
-    if (ids.length > 0) {
-      for (let i = 0; i < ids.length; i += MAX_SQL_PARAMS) {
-        const batchIds = ids.slice(i, i + MAX_SQL_PARAMS)
-        const placeholders = batchIds.map(() => '?').join(',')
-        const rows = getDb()
-          .prepare(`SELECT id, created_at FROM articles WHERE id IN (${placeholders})`)
-          .all(...batchIds) as { id: number; created_at: string }[]
-        for (const r of rows) createdAtMap.set(r.id, r.created_at)
-      }
-    }
-
-    const filtered = otSec
-      ? articles.filter((a) => {
-          const crawled = createdAtMap.get(a.id)
-          const sec = crawled ? Math.floor(new Date(crawled).getTime() / 1000) : 0
-          return sec >= otSec
-        })
-      : articles
-
-    const itemRefs = filtered.map((a) => {
-      const crawled = createdAtMap.get(a.id)
-      const tsUsec = crawled ? String(Math.floor(new Date(crawled).getTime() / 1000) * 1_000_000) : '0'
-      return {
-        id: String(a.id),   // bare decimal — NNW expects this for FreshRSS variant
-        directStreamIds: [],
-        timestampUsec: tsUsec,
-      }
+    const { refs } = listStreamArticles(buildArticleOpts(stream, exclude), {
+      limit,
+      offset: 0,
+      startSec: positiveIntParam(q.ot),
+      stopSec: positiveIntParam(q.nt),
+      ascending: (Array.isArray(q.r) ? q.r[0] : q.r) === 'o',
     })
+
+    const itemRefs = refs.map((ref) => ({
+      id: String(ref.id),   // bare decimal — NNW expects this for FreshRSS variant
+      directStreamIds: [],
+      timestampUsec: String(dateToTimestampUsec(ref.created_at)),
+    }))
     reply.header('Content-Type', 'application/json')
     return reply.send({ itemRefs })
   })
@@ -562,10 +600,14 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       return Number.isFinite(decoded) && decoded >= 0 ? decoded : 0
     })()
 
-    const opts = buildArticleOpts(stream, exclude)
-    const { articles, total } = getArticles({ ...opts, limit, offset })
-    const ids = articles.map((a) => a.id)
-    const rows = getEnrichedArticles(ids)
+    const { refs, total } = listStreamArticles(buildArticleOpts(stream, exclude), {
+      limit,
+      offset,
+      startSec: positiveIntParam(q.ot),
+      stopSec: positiveIntParam(q.nt),
+      ascending: (Array.isArray(q.r) ? q.r[0] : q.r) === 'o',
+    })
+    const rows = getEnrichedArticles(refs.map((ref) => ref.id))
 
     const items = rows.map((row) => articleToGReaderItem(row))
     const nextOffset = offset + limit
