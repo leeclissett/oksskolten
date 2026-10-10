@@ -501,6 +501,26 @@ export function countStaleArticlesByFeed(feedId: number, minLength: number): num
   return row.n
 }
 
+/**
+ * Return id + url + full_text for active articles in the given feed that
+ * were built from inline feed content (synthetic fragment URL) and whose
+ * stored text contains a brace. The fetcher narrows these down to articles
+ * that still hold a raw HTML document dump; the brace test is only a cheap
+ * pre-filter, since a dumped stylesheet always has one and prose rarely does.
+ */
+export function getInlineArticleRepairCandidates(
+  feedId: number,
+): { id: number; url: string; full_text: string }[] {
+  return getDb().prepare(`
+    SELECT id, url, full_text
+    FROM articles
+    WHERE feed_id = ?
+      AND purged_at IS NULL
+      AND instr(url, '#') > 0
+      AND instr(coalesce(full_text, ''), '{') > 0
+  `).all(feedId) as { id: number; url: string; full_text: string }[]
+}
+
 export function getExistingArticleUrls(urls: string[]): Set<string> {
   if (urls.length === 0) return new Set()
   const normalized = urls.map(normalizeUrl)

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { parseHtml } from './contentWorker.js'
 import { extractAnchoredContentHtml, isBotBlockPage, stripHeavyTags } from './content.js'
-import { convertHtmlToMarkdown, markdownToExcerpt } from './markdown-utils.js'
+import { containsStyleSheetDump, convertHtmlToMarkdown, markdownToExcerpt } from './markdown-utils.js'
 
 // ---------------------------------------------------------------------------
 // Mocks — these mock modules used by contentWorker.ts (parseHtml)
@@ -420,6 +420,37 @@ describe('isBotBlockPage', () => {
   it('detects pattern embedded in larger HTML text', () => {
     const html = '<div class="wrapper"><h1>Security Check</h1><p>Please verify you are a human to continue browsing.</p></div>'
     expect(isBotBlockPage(html)).toBe(true)
+  })
+})
+
+describe('containsStyleSheetDump', () => {
+  const html = `<html><head><title>Issue</title><style>
+    * { margin: 0; }
+    .wrap_inner, [class~="x"] { width: 100%; }
+    @media (max-width: 600px) { .wrap_inner { width: auto; } }
+  </style></head><body><p>Hello reader</p></body></html>`
+
+  it('recognises the stylesheet after Turndown has collapsed whitespace and escaped Markdown characters', () => {
+    const dumped = 'Issue \\* { margin: 0; } .wrap\\_inner, \\[class~="x"\\] { width: 100%; } @media (max-width: 600px) { .wrap\\_inner { width: auto; } }\n\nHello reader'
+    expect(containsStyleSheetDump(dumped, html)).toBe(true)
+  })
+
+  it('is false for the cleanly converted article', () => {
+    expect(containsStyleSheetDump(convertHtmlToMarkdown(html), html)).toBe(false)
+  })
+
+  it('is false for text that merely contains braces or CSS of its own', () => {
+    expect(containsStyleSheetDump('Use {name} as a placeholder. @media (print) { a { color: red } }', html)).toBe(false)
+  })
+
+  it('is false when the document has no stylesheet, or only a trivial one', () => {
+    expect(containsStyleSheetDump('Issue p{} Hello reader', '<html><head><style>p{}</style></head><body><p>Hello reader</p></body></html>')).toBe(false)
+    expect(containsStyleSheetDump('Hello reader', '<html><body><p>Hello reader</p></body></html>')).toBe(false)
+  })
+
+  it('skips an empty <style> and fingerprints the next one', () => {
+    const doc = '<html><head><style></style><style>.post-body-wrapper { max-width: 550px; }</style></head><body><p>x</p></body></html>'
+    expect(containsStyleSheetDump('Title .post-body-wrapper { max-width: 550px; } x', doc)).toBe(true)
   })
 })
 

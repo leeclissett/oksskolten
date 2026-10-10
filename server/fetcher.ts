@@ -2,6 +2,7 @@ import {
   getEnabledFeeds,
   countStaleArticlesByFeed,
   getArticlesNeedingRefresh,
+  getInlineArticleRepairCandidates,
   getExistingArticleUrls,
   getRetryArticles,
   getRetryStats,
@@ -21,7 +22,7 @@ import {
 import { Semaphore, CONCURRENCY, errorMessage } from './fetcher/util.js'
 import { detectAndStoreSimilarArticles } from './similarity.js'
 import { type FetchProgressEvent, emitProgress, markFeedDone } from './fetcher/progress.js'
-import { fetchFullText, isBotBlockPage, isHtmlDocument, parseInlineHtml, convertHtmlToMarkdown, markdownToExcerpt, MIN_EXTRACTED_LENGTH } from './fetcher/content.js'
+import { fetchFullText, isBotBlockPage, isHtmlDocument, parseInlineHtml, convertHtmlToMarkdown, markdownToExcerpt, containsStyleSheetDump, MIN_EXTRACTED_LENGTH } from './fetcher/content.js'
 import { type FetchRssResult, type RssItem, fetchAndParseRss, RateLimitError } from './fetcher/rss.js'
 import { computeInterval, computeEmpiricalInterval, sqliteFuture, DEFAULT_INTERVAL } from './fetcher/schedule.js'
 import { detectLanguage } from './fetcher/ai.js'
@@ -89,6 +90,49 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
       // indefinitely. Use the lightweight helper so we don't trigger a
       // Meilisearch resync for a no-op update.
       markArticleRefreshAttempted(candidate.id, now)
+    }
+  }
+}
+
+/**
+ * Re-convert inline-content articles that were stored before HTML email got
+ * its own extraction path. Those rows hold the whole document run through a
+ * bare Turndown: the subject line, the stylesheet, then the body with all of
+ * the email chrome. The feed still carries the original HTML, so rebuild the
+ * article from it.
+ *
+ * Runs on every parsed fetch and needs no bookkeeping: an article qualifies
+ * only while its stored text still contains the entry's own stylesheet, so a
+ * repaired article drops out by itself. Read, bookmark and like state are
+ * untouched. Entries that have rolled off the feed cannot be repaired.
+ */
+async function repairRawDocumentArticles(feedId: number, rssItems: RssItem[]): Promise<void> {
+  const candidates = getInlineArticleRepairCandidates(feedId)
+  if (candidates.length === 0) return
+  const itemsByUrl = new Map(rssItems.map(i => [normalizeUrl(i.url), i]))
+
+  for (const candidate of candidates) {
+    const rssItem = itemsByUrl.get(normalizeUrl(candidate.url))
+    const html = rssItem?.excerpt
+    if (!html || !isHtmlDocument(html) || !containsStyleSheetDump(candidate.full_text, html)) continue
+
+    try {
+      const repaired = await convertInlineContent(html, candidate.url)
+      if (!repaired.fullText.trim() || containsStyleSheetDump(repaired.fullText, html)) continue
+
+      updateArticleContent(candidate.id, {
+        full_text: repaired.fullText,
+        excerpt: repaired.excerpt,
+        lang: detectLanguage(repaired.fullText, rssItem?.lang),
+        // Summary and translation were generated from the dump.
+        summary: null,
+        full_text_translated: null,
+        translated_lang: null,
+      })
+      enqueueArticleTranslationFromFeedPolicy(candidate.id)
+      log.info({ url: candidate.url, prevLen: candidate.full_text.length, newLen: repaired.fullText.length }, 'repaired raw HTML document article')
+    } catch (err) {
+      log.warn({ url: candidate.url, err: errorMessage(err) }, 'raw HTML document article repair failed')
     }
   }
 }
@@ -330,6 +374,7 @@ export async function fetchSingleFeed(
   const urls = rssResult.items.map(i => i.url)
   const existing = getExistingArticleUrls(urls)
   refreshStaleArticles(feed.id, rssResult.items)
+  await repairRawDocumentArticles(feed.id, rssResult.items)
 
   const tasks: ArticleTask[] = rssResult.items
     .filter(item => !existing.has(item.url))
@@ -430,6 +475,7 @@ export async function fetchAllFeeds(
           const urls = rssResult.items.map(i => i.url)
           const existing = getExistingArticleUrls(urls)
           refreshStaleArticles(feed.id, rssResult.items)
+          await repairRawDocumentArticles(feed.id, rssResult.items)
 
           const newItems: ArticleTask[] = rssResult.items
             .filter(item => !existing.has(item.url))

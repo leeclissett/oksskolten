@@ -24,6 +24,32 @@ export function convertHtmlToMarkdown(content: string): string {
   return fallbackTurndown.turndown(content).trim()
 }
 
+const FIRST_STYLE_RE = /<style[^>]*>([\s\S]*?)<\/style>/gi
+const FINGERPRINT_LENGTH = 80
+const MIN_FINGERPRINT_LENGTH = 20
+
+/** Drop whitespace and Markdown escape backslashes so CSS compares equal before and after Turndown. */
+function squash(text: string): string {
+  return text.replace(/[\s\\]/g, '')
+}
+
+/**
+ * True when `markdown` contains the stylesheet of the HTML document it was
+ * converted from. That is the signature of an article stored by the old
+ * inline-content path, which ran whole HTML emails through a bare Turndown
+ * and so printed the <style> block into the body.
+ */
+export function containsStyleSheetDump(markdown: string, html: string): boolean {
+  FIRST_STYLE_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = FIRST_STYLE_RE.exec(html))) {
+    const fingerprint = squash(match[1]).slice(0, FINGERPRINT_LENGTH)
+    if (fingerprint.length < MIN_FINGERPRINT_LENGTH) continue
+    return squash(markdown).includes(fingerprint)
+  }
+  return false
+}
+
 /**
  * Generate a plain-text excerpt from Markdown by stripping images and links.
  * Used by both contentWorker (page extraction) and fetcher (RSS fallback).
