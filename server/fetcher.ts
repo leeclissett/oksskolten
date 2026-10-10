@@ -21,7 +21,7 @@ import {
 import { Semaphore, CONCURRENCY, errorMessage } from './fetcher/util.js'
 import { detectAndStoreSimilarArticles } from './similarity.js'
 import { type FetchProgressEvent, emitProgress, markFeedDone } from './fetcher/progress.js'
-import { fetchFullText, isBotBlockPage, convertHtmlToMarkdown, markdownToExcerpt, MIN_EXTRACTED_LENGTH } from './fetcher/content.js'
+import { fetchFullText, isBotBlockPage, isHtmlDocument, parseInlineHtml, convertHtmlToMarkdown, markdownToExcerpt, MIN_EXTRACTED_LENGTH } from './fetcher/content.js'
 import { type FetchRssResult, type RssItem, fetchAndParseRss, RateLimitError } from './fetcher/rss.js'
 import { computeInterval, computeEmpiricalInterval, sqliteFuture, DEFAULT_INTERVAL } from './fetcher/schedule.js'
 import { detectLanguage } from './fetcher/ai.js'
@@ -105,6 +105,32 @@ export interface FetchedContent {
   title: string | null
 }
 
+/**
+ * Convert inline feed content to Markdown for entries that have no page to
+ * fetch. Fragments go straight through Turndown. A full HTML document (an
+ * email relayed by LetterFeed) carries a <head>, layout tables, header and
+ * footer chrome, so it gets the full extraction pipeline instead; if that
+ * fails or extracts almost nothing, fall back to the plain conversion.
+ */
+async function convertInlineContent(
+  content: string,
+  url: string,
+): Promise<{ fullText: string; excerpt: string | null }> {
+  if (isHtmlDocument(content)) {
+    try {
+      const parsed = await parseInlineHtml(content, url)
+      const extractedLen = parsed.fullText.replace(/\s+/g, ' ').trim().length
+      if (extractedLen >= MIN_EXTRACTED_LENGTH) {
+        return { fullText: parsed.fullText, excerpt: parsed.excerpt }
+      }
+    } catch (err) {
+      log.warn({ url, err: errorMessage(err) }, 'inline HTML extraction failed, using plain conversion')
+    }
+  }
+  const fullText = convertHtmlToMarkdown(content)
+  return { fullText, excerpt: markdownToExcerpt(fullText) }
+}
+
 export async function fetchArticleContent(
   url: string,
   options?: {
@@ -136,8 +162,9 @@ export async function fetchArticleContent(
     fullText = existing.full_text
     ogImage = existing.og_image
   } else if (isAnchorLink && options?.listingExcerpt) {
-    fullText = convertHtmlToMarkdown(options.listingExcerpt)
-    excerpt = markdownToExcerpt(fullText)
+    const inline = await convertInlineContent(options.listingExcerpt, url)
+    fullText = inline.fullText
+    excerpt = inline.excerpt
   } else {
     try {
       const result = await fetchFullText(url, { requiresJsChallenge: options?.requiresJsChallenge })

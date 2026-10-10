@@ -181,7 +181,14 @@ export function removeEmptyElements(
     if (toRemove.length > 0) {
       toRemove.forEach(el => {
         try {
-          el.remove()
+          if (isInlineWordSeparator(el)) {
+            // `<strong>A</strong><span> </span><em>B</em>` — the span is the
+            // only whitespace between two inline runs. Dropping it outright
+            // glues the neighbours together ("**A**_B_").
+            el.replaceWith(el.ownerDocument.createTextNode(' '))
+          } else {
+            el.remove()
+          }
         } catch {
           // Already removed as descendant
         }
@@ -218,6 +225,21 @@ export function stripExtraBrElements(element: Element): void {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const INLINE_TAGS = new Set([
+  'span', 'a', 'em', 'strong', 'b', 'i', 'u', 's', 'small', 'sub', 'sup',
+  'mark', 'font', 'abbr', 'cite', 'q', 'label',
+])
+
+/**
+ * True for a whitespace-only inline element that sits between two sibling
+ * nodes, i.e. one whose whitespace is acting as a word separator.
+ */
+function isInlineWordSeparator(el: Element): boolean {
+  if (!INLINE_TAGS.has(el.tagName.toLowerCase())) return false
+  if ((el.textContent || '').length === 0) return false
+  return !!el.previousSibling && !!el.nextSibling
+}
 
 function isInsidePreOrCode(node: Node): boolean {
   let parent = node.parentNode

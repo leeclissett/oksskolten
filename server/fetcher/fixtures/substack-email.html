@@ -1,0 +1,789 @@
+<!-- Synthetic fixture: the markup of a Substack newsletter email with all text replaced by placeholder words and every URL replaced by example.com. -->
+<html lang="en" dir="ltr" style="scrollbar-width: thin;scrollbar-color: rgb(219,219,219)rgb(255,255,255);"><head><meta charset="utf-8"><title>Fixture Newsletter: the issue title</title><style>
+@media (max-width: 1024px) {
+  .typography .pullquote-align-left,
+  .typography.editor .pullquote-align-left,
+  .typography .pullquote-align-right,
+  .typography.editor .pullquote-align-right,
+  .typography .pullquote-align-wide,
+  .typography.editor .pullquote-align-wide,
+  .typography .pullquote-align-center,
+  .typography.editor .pullquote-align-center {
+    float: none;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 100%;
+  }
+}
+@media all and (-ms-high-contrast: none), (-ms-high-contrast: active) {
+  .typography .markup table.image-wrapper img,
+  .typography.editor .markup table.image-wrapper img,
+  .typography .markup table.kindle-wrapper img,
+  .typography.editor .markup table.kindle-wrapper img {
+    max-width: 550px;
+  }
+}
+@media (min-width: 1024px) {
+  .typography:not(:has(#toc)) .captioned-image-container figure:has(> a.image2-offset-left),
+  .typography.editor:not(:has(#toc)) .captioned-image-container figure:has(> a.image2-offset-left) {
+    margin-left: var(--image-offset-margin);
+  }
+  .typography:not(:has(#toc)) .captioned-image-container figure:has(> a.image2-offset-right),
+  .typography.editor:not(:has(#toc)) .captioned-image-container figure:has(> a.image2-offset-right) {
+    margin-right: var(--image-offset-margin);
+  }
+}
+@media (min-width: 1300px) {
+  .typography .captioned-image-container figure:has(> a.image2-offset-left),
+  .typography.editor .captioned-image-container figure:has(> a.image2-offset-left) {
+    margin-left: var(--image-offset-margin);
+  }
+  .typography .captioned-image-container figure:has(> a.image2-offset-right),
+  .typography.editor .captioned-image-container figure:has(> a.image2-offset-right) {
+    margin-right: var(--image-offset-margin);
+  }
+}
+@media (max-width: 1024px) {
+  .typography,
+  .typography.editor {
+    /* Disable offset on mobile/tablet */
+  }
+  .typography .captioned-image-container figure:has(> a.image2-align-left),
+  .typography.editor .captioned-image-container figure:has(> a.image2-align-left),
+  .typography .captioned-image-container figure:has(> a.image2-align-right),
+  .typography.editor .captioned-image-container figure:has(> a.image2-align-right) {
+    float: none;
+    margin: 1em auto;
+    max-width: 100%;
+    width: auto;
+    padding: 0;
+  }
+  .typography .captioned-image-container figure:has(> a.image2-align-left.thefp),
+  .typography.editor .captioned-image-container figure:has(> a.image2-align-left.thefp),
+  .typography .captioned-image-container figure:has(> a.image2-align-right.thefp),
+  .typography.editor .captioned-image-container figure:has(> a.image2-align-right.thefp) {
+    margin: 1em auto;
+  }
+  .typography .captioned-image-container figure:has(> a.image2-offset-left),
+  .typography.editor .captioned-image-container figure:has(> a.image2-offset-left),
+  .typography .captioned-image-container figure:has(> a.image2-offset-right),
+  .typography.editor .captioned-image-container figure:has(> a.image2-offset-right) {
+    margin: 1em auto;
+  }
+  .typography .captioned-image-container figure:has(> a.image2-align-left) .image2-inset,
+  .typography.editor .captioned-image-container figure:has(> a.image2-align-left) .image2-inset,
+  .typography .captioned-image-container figure:has(> a.image2-align-right) .image2-inset,
+  .typography.editor .captioned-image-container figure:has(> a.image2-align-right) .image2-inset {
+    display: block;
+    justify-content: initial;
+  }
+}
+@media (max-width: 768px) {
+  .typography .markup div.sponsorship-campaign-embed,
+  .typography.editor .markup div.sponsorship-campaign-embed {
+    margin-top: 24px;
+    margin-bottom: 24px;
+  }
+  .typography .markup div.sponsorship-campaign-embed:first-child,
+  .typography.editor .markup div.sponsorship-campaign-embed:first-child {
+    margin-top: 0px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .typography .markup div.youtube-overlay,
+  .typography.editor .markup div.youtube-overlay,
+  .typography .markup div.vimeo-overlay,
+  .typography.editor .markup div.vimeo-overlay {
+    display: none !important;
+  }
+}
+@media screen and (max-width: 370px) {
+  .typography .markup div.tiktok-wrap,
+  .typography.editor .markup div.tiktok-wrap {
+    width: calc(95vw - 32px);
+    height: calc((95vw - 32px - 2px) / 0.485714);
+  }
+}
+@media screen and (max-width: 650px) {
+  .typography .markup div.embedded-publication-wrap .embedded-publication.show-subscribe,
+  .typography.editor .markup div.embedded-publication-wrap .embedded-publication.show-subscribe {
+    padding: 24px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .typography .markup div.subscription-widget-wrap .subscription-widget.show-subscribe,
+  .typography.editor .markup div.subscription-widget-wrap .subscription-widget.show-subscribe,
+  .typography .markup div.subscription-widget-wrap-editor .subscription-widget.show-subscribe,
+  .typography.editor .markup div.subscription-widget-wrap-editor .subscription-widget.show-subscribe,
+  .typography .markup div.captioned-button-wrap .subscription-widget.show-subscribe,
+  .typography.editor .markup div.captioned-button-wrap .subscription-widget.show-subscribe {
+    padding: 0px 24px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .typography .markup div.subscription-widget-wrap .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  .typography.editor .markup div.subscription-widget-wrap .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  .typography .markup div.subscription-widget-wrap-editor .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  .typography.editor .markup div.subscription-widget-wrap-editor .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  .typography .markup div.captioned-button-wrap .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  .typography.editor .markup div.captioned-button-wrap .subscription-widget.show-subscribe .subscription-widget-subscribe .button {
+    padding: 10px 12px;
+    min-width: 110px;
+  }
+}
+@media (max-width: 650px) {
+  .typography .markup .twitter-embed,
+  .typography.editor .markup .twitter-embed,
+  .typography .markup .tweet,
+  .typography.editor .markup .tweet {
+    padding: 12px;
+  }
+}
+@media (max-width: 650px) {
+  .typography .markup .twitter-embed .tweet-text,
+  .typography.editor .markup .twitter-embed .tweet-text,
+  .typography .markup .tweet .tweet-text,
+  .typography.editor .markup .tweet .tweet-text {
+    font-size: 14px;
+    line-height: 20px;
+  }
+}
+@media (max-width: 650px) {
+  .typography .markup .twitter-embed .tweet-photos-container.two,
+  .typography.editor .markup .twitter-embed .tweet-photos-container.two,
+  .typography .markup .tweet .tweet-photos-container.two,
+  .typography.editor .markup .tweet .tweet-photos-container.two,
+  .typography .markup .twitter-embed .tweet-photos-container.three,
+  .typography.editor .markup .twitter-embed .tweet-photos-container.three,
+  .typography .markup .tweet .tweet-photos-container.three,
+  .typography.editor .markup .tweet .tweet-photos-container.three,
+  .typography .markup .twitter-embed .tweet-photos-container.four,
+  .typography.editor .markup .twitter-embed .tweet-photos-container.four,
+  .typography .markup .tweet .tweet-photos-container.four,
+  .typography.editor .markup .tweet .tweet-photos-container.four {
+    height: 200px;
+  }
+}
+@media (max-width: 650px) {
+  .typography .markup .twitter-embed a.expanded-link .expanded-link-img,
+  .typography.editor .markup .twitter-embed a.expanded-link .expanded-link-img,
+  .typography .markup .tweet a.expanded-link .expanded-link-img,
+  .typography.editor .markup .tweet a.expanded-link .expanded-link-img {
+    max-height: 180px;
+  }
+}
+@media (max-width: 650px) {
+  .typography .markup .twitter-embed a.expanded-link .expanded-link-description,
+  .typography.editor .markup .twitter-embed a.expanded-link .expanded-link-description,
+  .typography .markup .tweet a.expanded-link .expanded-link-description,
+  .typography.editor .markup .tweet a.expanded-link .expanded-link-description {
+    display: none;
+  }
+}
+@media screen and (max-width: 650px) {
+  .typography .markup .apple-podcast-container,
+  .typography.editor .markup .apple-podcast-container {
+    width: unset;
+  }
+}
+@media (max-width: 420px) {
+  .typography .markup .install-substack-app-embed img.install-substack-app-embed-img,
+  .typography.editor .markup .install-substack-app-embed img.install-substack-app-embed-img {
+    margin: 0 auto 16px auto;
+  }
+}
+@media (max-width: 420px) {
+  .typography .markup .install-substack-app-embed .install-substack-app-embed-text,
+  .typography.editor .markup .install-substack-app-embed .install-substack-app-embed-text {
+    margin: 0 0 12px 0;
+    max-width: 100%;
+    width: auto;
+    text-align: center;
+  }
+}
+@media (max-width: 420px) {
+  .typography .markup .install-substack-app-embed .install-substack-app-embed-link,
+  .typography.editor .markup .install-substack-app-embed .install-substack-app-embed-link {
+    display: flex;
+    justify-content: center;
+  }
+}
+@media screen and (min-width: 481px) {
+  .share-button-container {
+    height: 38px;
+  }
+}
+@media screen and (min-width: 481px) {
+  .share-button-container a.comment {
+    height: 38px;
+    line-height: 38px;
+    padding-right: 10px;
+  }
+}
+@media screen and (max-width: 480px) {
+  .share-button-container .separator {
+    display: block;
+    margin: 0;
+    height: 8px;
+    border-left: none;
+  }
+}
+@media screen and (max-width: 480px) {
+  .share-button-container a.share.first img {
+    padding-left: 0;
+  }
+}
+@media screen and (min-width: 481px) {
+  .share-button-container a.mobile {
+    display: none !important;
+  }
+}
+@media screen and (min-width: 541px) {
+  .settings-add-pub-modal-wrapper .container .add-recommending-pub-modal-container {
+    padding: 36px;
+    height: 680px;
+  }
+}
+@media screen and (min-width: 541px) {
+  .settings-add-pub-modal-wrapper .container .add-recommending-pub-modal-container .footer {
+    position: absolute;
+    bottom: 36px;
+    margin: 0px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .header-anchor-parent {
+    display: none;
+  }
+}
+@media screen and (max-width: 768px) {
+  .post {
+    padding: 16px 0 0 0;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post .post-header .post-label {
+    margin-top: 8px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post .post-header .meta-author-wrap.alternative-meta .meta-right-column .post-meta {
+    margin-top: 6px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post .footer-facepile-container {
+    height: 64px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post .post-footer.use-separators {
+    justify-content: center;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post .post-footer.next-prev {
+    height: 64px;
+    justify-content: space-between;
+    box-sizing: border-box;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post-contributor-footer .post-contributor-bio-table {
+    display: block;
+  }
+  .post-contributor-footer .post-contributor-bio-table-row {
+    display: flex;
+    flex-direction: row;
+  }
+  .post-contributor-footer .post-contributor-bio-userhead-cell,
+  .post-contributor-footer .post-contributor-bio-body-cell {
+    display: block;
+  }
+  .post-contributor-footer .post-contributor-bio-body-cell {
+    flex-grow: 1;
+  }
+  .post-contributor-footer .post-contributor-bio-body-table {
+    display: block;
+  }
+  .post-contributor-footer .post-contributor-bio-body-table-row {
+    display: block;
+  }
+  .post-contributor-footer .post-contributor-bio-copy-cell,
+  .post-contributor-footer .post-contributor-bio-controls-cell {
+    display: block;
+  }
+  .post-contributor-footer .post-contributor-bio-copy-cell {
+    margin: 0 0 16px 0;
+  }
+  .post-contributor-footer .post-contributor-bio-controls-cell {
+    width: auto;
+  }
+  .post-contributor-footer .post-contributor-bio-controls {
+    margin: auto;
+  }
+  .post-contributor-footer .post-contributor-bio-controls .button.primary {
+    width: 100%;
+  }
+  .post-contributor-footer .post-contributor-bio-text {
+    font-size: 14px;
+  }
+}
+@media screen and (min-width: 768px) {
+  .post-silhouette {
+    padding: 32px 0;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post-silhouette .post-silhouette-title {
+    margin-top: 10.44225025px;
+    height: 120px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post-silhouette .post-silhouette-meta {
+    width: 75%;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post-silhouette .post-silhouette-meta.with-byline-image {
+    margin: 20px 0;
+  }
+}
+@media screen and (max-width: 650px) {
+  .use-theme-bg .post-meta.alternative-meta .post-meta-item,
+  .post-meta.alternative-meta .post-meta-item {
+    padding-right: 16px;
+  }
+}
+@media screen and (max-width: 370px) {
+  .use-theme-bg .post-meta.alternative-meta .post-meta-item,
+  .post-meta.alternative-meta .post-meta-item {
+    font-size: 14px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .use-theme-bg .post-meta.alternative-meta .post-meta-item.guest-author-publication,
+  .post-meta.alternative-meta .post-meta-item.guest-author-publication {
+    display: none;
+  }
+}
+@media screen and (max-width: 370px) {
+  .post-meta .post-meta-item .post-meta-button {
+    height: 36px !important;
+    /* important to override in-line height style on emails */
+  }
+  .post-meta .post-meta-item .post-meta-button .meta-button-label {
+    display: none;
+  }
+  .post-meta .post-meta-item .post-meta-button > svg {
+    margin-right: 0;
+  }
+}
+@media screen and (max-width: 370px) {
+  .post-meta .post-meta-item {
+    font-size: 12px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post .floating-subscribe-button {
+    bottom: 20px;
+    right: 20px;
+  }
+}
+@media (max-width: 1024px) {
+  body .pullquote-align-left,
+  body .pullquote-align-right,
+  body .pullquote-align-wide,
+  body .pullquote-align-center {
+    float: none;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 100%;
+  }
+}
+@media all and (-ms-high-contrast: none), (-ms-high-contrast: active) {
+  body .markup table.image-wrapper img,
+  body .markup table.kindle-wrapper img {
+    max-width: 550px;
+  }
+}
+@media (min-width: 1024px) {
+  body:not(:has(#toc)) .captioned-image-container figure:has(> a.image2-offset-left) {
+    margin-left: var(--image-offset-margin);
+  }
+  body:not(:has(#toc)) .captioned-image-container figure:has(> a.image2-offset-right) {
+    margin-right: var(--image-offset-margin);
+  }
+}
+@media (min-width: 1300px) {
+  body .captioned-image-container figure:has(> a.image2-offset-left) {
+    margin-left: var(--image-offset-margin);
+  }
+  body .captioned-image-container figure:has(> a.image2-offset-right) {
+    margin-right: var(--image-offset-margin);
+  }
+}
+@media (max-width: 1024px) {
+  body {
+    /* Disable offset on mobile/tablet */
+  }
+  body .captioned-image-container figure:has(> a.image2-align-left),
+  body .captioned-image-container figure:has(> a.image2-align-right) {
+    float: none;
+    margin: 1em auto;
+    max-width: 100%;
+    width: auto;
+    padding: 0;
+  }
+  body .captioned-image-container figure:has(> a.image2-align-left.thefp),
+  body .captioned-image-container figure:has(> a.image2-align-right.thefp) {
+    margin: 1em auto;
+  }
+  body .captioned-image-container figure:has(> a.image2-offset-left),
+  body .captioned-image-container figure:has(> a.image2-offset-right) {
+    margin: 1em auto;
+  }
+  body .captioned-image-container figure:has(> a.image2-align-left) .image2-inset,
+  body .captioned-image-container figure:has(> a.image2-align-right) .image2-inset {
+    display: block;
+    justify-content: initial;
+  }
+}
+@media (max-width: 768px) {
+  body .markup div.sponsorship-campaign-embed {
+    margin-top: 24px;
+    margin-bottom: 24px;
+  }
+  body .markup div.sponsorship-campaign-embed:first-child {
+    margin-top: 0px;
+  }
+}
+@media screen and (max-width: 650px) {
+  body .markup div.youtube-overlay,
+  body .markup div.vimeo-overlay {
+    display: none !important;
+  }
+}
+@media screen and (max-width: 370px) {
+  body .markup div.tiktok-wrap {
+    width: calc(95vw - 32px);
+    height: calc((95vw - 32px - 2px) / 0.485714);
+  }
+}
+@media screen and (max-width: 650px) {
+  body .markup div.embedded-publication-wrap .embedded-publication.show-subscribe {
+    padding: 24px;
+  }
+}
+@media screen and (max-width: 650px) {
+  body .markup div.subscription-widget-wrap .subscription-widget.show-subscribe,
+  body .markup div.subscription-widget-wrap-editor .subscription-widget.show-subscribe,
+  body .markup div.captioned-button-wrap .subscription-widget.show-subscribe {
+    padding: 0px 24px;
+  }
+}
+@media screen and (max-width: 650px) {
+  body .markup div.subscription-widget-wrap .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  body .markup div.subscription-widget-wrap-editor .subscription-widget.show-subscribe .subscription-widget-subscribe .button,
+  body .markup div.captioned-button-wrap .subscription-widget.show-subscribe .subscription-widget-subscribe .button {
+    padding: 10px 12px;
+    min-width: 110px;
+  }
+}
+@media (max-width: 650px) {
+  body .markup .twitter-embed,
+  body .markup .tweet {
+    padding: 12px;
+  }
+}
+@media (max-width: 650px) {
+  body .markup .twitter-embed .tweet-text,
+  body .markup .tweet .tweet-text {
+    font-size: 14px;
+    line-height: 20px;
+  }
+}
+@media (max-width: 650px) {
+  body .markup .twitter-embed .tweet-photos-container.two,
+  body .markup .tweet .tweet-photos-container.two,
+  body .markup .twitter-embed .tweet-photos-container.three,
+  body .markup .tweet .tweet-photos-container.three,
+  body .markup .twitter-embed .tweet-photos-container.four,
+  body .markup .tweet .tweet-photos-container.four {
+    height: 200px;
+  }
+}
+@media (max-width: 650px) {
+  body .markup .twitter-embed a.expanded-link .expanded-link-img,
+  body .markup .tweet a.expanded-link .expanded-link-img {
+    max-height: 180px;
+  }
+}
+@media (max-width: 650px) {
+  body .markup .twitter-embed a.expanded-link .expanded-link-description,
+  body .markup .tweet a.expanded-link .expanded-link-description {
+    display: none;
+  }
+}
+@media screen and (max-width: 650px) {
+  body .markup .apple-podcast-container {
+    width: unset;
+  }
+}
+@media (max-width: 420px) {
+  body .markup .install-substack-app-embed img.install-substack-app-embed-img {
+    margin: 0 auto 16px auto;
+  }
+}
+@media (max-width: 420px) {
+  body .markup .install-substack-app-embed .install-substack-app-embed-text {
+    margin: 0 0 12px 0;
+    max-width: 100%;
+    width: auto;
+    text-align: center;
+  }
+}
+@media (max-width: 420px) {
+  body .markup .install-substack-app-embed .install-substack-app-embed-link {
+    display: flex;
+    justify-content: center;
+  }
+}
+@media screen and (min-width: 500px) {
+  body .header a.logo {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+  }
+}
+@media screen and (max-width: 420px) {
+  body .subscription-receipt table:first-of-type .subscription-amount .subscription-discount {
+    width: 72px !important;
+  }
+}
+@media screen and (min-width: 481px) {
+  body .share-button-container {
+    height: auto;
+  }
+}
+@media screen and (max-width: 480px) {
+  body .share-button-container .separator {
+    display: block !important;
+    margin: 0 !important;
+    height: 8px !important;
+    border-left: none !important;
+  }
+}
+@media screen and (max-width: 650px) {
+  .digest .item .post-meta-item.audience {
+    display: none;
+  }
+}
+@media screen and (min-width: 500px) {
+  .digest-publication .logo img {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .comments-page .container .comment-list .collapsed-reply {
+    margin-left: calc(10 + 32px - 24px);
+  }
+}
+@media screen and (max-width: 650px) {
+  .comment > .comment-list {
+    padding-left: 24px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .finish-magic-login-modal .modal-content .container {
+    padding: 24px 0;
+  }
+}
+@media (max-width: 650px) {
+  .reader2-text-b3 {
+    line-height: 24px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .reader2-text-h4 {
+    line-height: 24px;
+  }
+}
+@media screen and (min-width: 541px) {
+  .user-profile-modal {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .subscribe-widget form.form .sideBySideWrap button.rightButton {
+    padding: 10px 12px;
+  }
+}
+@media screen and (min-width: 541px) {
+  .pub-icon:hover .logo-hover,
+  .feed-item-icon:hover .logo-hover {
+    display: block;
+  }
+}
+@media screen and (max-width: 650px) {
+  .post-ufi.single-full-width-button .post-ufi-button-wrapper {
+    width: 100%;
+    padding: 16px;
+  }
+  .post-ufi.single-full-width-button .post-ufi-button-wrapper:empty {
+    display: none;
+  }
+  .post-ufi.single-full-width-button .post-ufi-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+@media screen and (max-width: 768px) {
+  .file-embed-wrapper {
+    padding: 0;
+  }
+}
+@media screen and (max-width: 768px) {
+  .file-embed-wrapper-editor {
+    padding: 0;
+  }
+}
+@media screen and (max-width: 768px) {
+  .file-embed-wrapper-editor:active {
+    padding: 0;
+  }
+}
+@media only screen and (max-width: 650px) {
+  .file-embed-button.wide,
+  .file-embed-error-button.wide {
+    display: none;
+  }
+}
+@media only screen and (min-width: 630px) {
+  .file-embed-button.narrow,
+  .file-embed-error-button.narrow {
+    display: none;
+  }
+}
+@media screen and (min-width: 541px) {
+  .audio-player-wrapper .audio-player {
+    min-width: 500px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .audio-player-wrapper .audio-player .audio-player-progress {
+    border-left-width: 16px;
+    border-right-width: 16px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .audio-player-wrapper .audio-player .audio-player-progress .audio-player-progress-bar .audio-player-progress-bar-popup {
+    top: -54px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .audio-player-wrapper-fancy .audio-player .audio-player-progress {
+    border-left-width: 16px;
+    border-right-width: 16px;
+  }
+}
+@media screen and (max-width: 650px) {
+  .audio-player-wrapper-fancy .audio-player .audio-player-progress .audio-player-progress-bar .audio-player-progress-bar-popup {
+    top: -54px;
+  }
+}
+@media (min-width: 250px) {
+  .audio-player-wrapper-fancy .audio-player {
+    padding: 32px;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group {
+    display: flex;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group .button:last-of-type {
+    display: block;
+  }
+}
+@media (min-width: 300px) {
+  .audio-player-wrapper-fancy .audio-player .btn-group {
+    display: block;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group .button:first-of-type {
+    display: block;
+  }
+}
+@media (min-width: 350px) {
+  .audio-player-wrapper-fancy .audio-player .audio-player-substack-logo {
+    display: block;
+  }
+  .audio-player-wrapper-fancy .audio-player .audio-player-title {
+    margin-top: 16px;
+  }
+  .audio-player-wrapper-fancy .audio-player .audio-player-hero-image-container {
+    padding-top: 15%;
+    width: 15%;
+    display: block;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group .button:first-of-type {
+    display: block;
+  }
+  .audio-player-wrapper-fancy .audio-player .audio-player-substack-logo {
+    display: block;
+  }
+}
+@media (min-width: 350px) {
+  .audio-player-wrapper-fancy .audio-player .audio-player-hero-image-container {
+    padding-top: 25%;
+    width: 25%;
+    display: block;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group {
+    display: flex;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group .button:first-of-type {
+    display: block;
+  }
+}
+@media (min-width: 400px) {
+  .audio-player-wrapper-fancy .audio-player .audio-player-hero-image-container {
+    padding-top: 40%;
+    width: 40%;
+  }
+}
+@media (max-width: 400px) {
+  .audio-player-wrapper-fancy .audio-player .btn-group {
+    margin-top: 12px;
+  }
+  .audio-player-wrapper-fancy .audio-player .btn-group .button {
+    font-size: 13px;
+    padding: 6px 12px;
+    height: auto;
+    margin-top: 10px;
+  }
+}
+@media (min-width: 600px) {
+  .audio-player-wrapper-fancy .audio-player .audio-player-hero-image-container {
+    padding-top: 55%;
+    width: 55%;
+  }
+}
+@media (max-width: 650px) {
+  .poll-editor-modal {
+    min-width: calc(100% - 20px);
+  }
+}
+@media (max-width: 750px) {
+  .poll-embed .poll-anchor-target .poll-anchor-copy-button {
+    left: 8px;
+    top: 45px;
+  }
+}</style></head><body class="email-body" style="font-kerning: auto;--image-offset-margin: -120px;"><img src="https://example.com/open/pixel.gif" alt="" width="1" height="1" border="0" style="height:1px !important;width:1px !important;border-width:0 !important;margin-top:0 !important;margin-bottom:0 !important;margin-right:0 !important;margin-left:0 !important;padding-top:0 !important;padding-bottom:0 !important;padding-right:0 !important;padding-left:0 !important;"><div class="preview" style="display:none;font-size:1px;color:#333333;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">PREHEADER-MARKER lorem ipsum dolor sit amet</div><div class="preview" style="display:none;font-size:1px;color:#333333;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­͏ &nbsp;   ­</div><table class="email-body-container" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td></td><td class="content" width="550"></td><td></td></tr><tr><td></td><td class="content" width="550" align="left"><div style="font-size: 16px;line-height: 26px;max-width: 550px;width: 100%;margin: 0 auto;overflow-wrap: break-word;"><table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="right" style="height:20px;"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td style="vertical-align:middle;"><span class="pencraft pc-reset reset-sQQP4h pencraft color-secondary-a8v6Os font-text-xff2AD size-13-azVXAJ" style="list-style: none;text-decoration: unset;color: rgb(119,119,119);margin: 0;font-size: 13px;line-height: 20px;font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';"><div class="pencraft pc-reset align-right-N8_RBt size-12-kPBkhF reset-sQQP4h" style="list-style: none;color: unset;text-align: right;font-size: 12px;line-height: 16px;text-decoration: unset;margin: 0;"><span class="pencraft pc-reset reset-sQQP4h" translated="" style="list-style: none;color: unset;text-decoration: unset;margin: 0;">Aliqua enim ad? <a class="pencraft pc-reset decoration-underline-fEWf3v reset-sQQP4h" href="https://example.com/link/1" style="list-style: none;color: unset;text-decoration: unset;margin: 0;-webkit-text-decoration-line: underline;text-decoration-line: underline;">Minim veniam</a> quis nostrud</span></div></span></td></tr></tbody></table></td></tr></tbody></table><div class="post typography" dir="auto" style="--image-offset-margin: -120px;padding: 32px 0 0 0;font-size: 16px;line-height: 26px;"><div class="post-header" role="region" style="font-size: 16px;line-height: 26px;"><h1 class="post-title published title-X77sOw" dir="auto" style="direction: auto;text-align: start;unicode-bidi: isolate;color: rgb(54,55,55);overflow-wrap: anywhere;word-break: normal;font-family: 'SF Pro Display',-apple-system-headline,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';font-weight: bold;-webkit-font-smoothing: antialiased;-moz-osx-font-smoothing: antialiased;-webkit-appearance: optimizelegibility;-moz-appearance: optimizelegibility;appearance: optimizelegibility;margin: 0;line-height: 36px;font-size: 32px;">Fixture Newsletter: the issue title</h1><h3 class="subtitle subtitle-HEEcLo" dir="auto" style="direction: auto;text-align: start;unicode-bidi: isolate;font-family: 'SF Pro Display',-apple-system-headline,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';font-weight: normal;-webkit-font-smoothing: antialiased;-moz-osx-font-smoothing: antialiased;-webkit-appearance: optimizelegibility;-moz-appearance: optimizelegibility;appearance: optimizelegibility;margin: 4px 0 0;color: #777777;overflow-wrap: anywhere;word-break: normal;line-height: 24px;font-size: 18px;margin-top: 12px;">Aute, irure in reprehenderit voluptate velit esse cillum</h3><table class="post-meta" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 1em 0;height: 20px;align-items: center;"><tbody><tr><td><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td style="vertical-align:middle;"><div class="pencraft pc-reset color-primary-UAexPx line-height-20-wR7plc font-meta-NZcGrb size-11-iRrorw weight-medium-i9j4OC transform-uppercase-YyB3kL reset-sQQP4h meta-btwMND custom-css-email-post-author" style="list-style: none;font-size: 11px;line-height: 20px;text-decoration: unset;color: rgb(54,55,55);margin: 0;font-family: 'SF Compact',-apple-system,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';font-weight: 500;text-transform: uppercase;letter-spacing: .2px;"><a class="pencraft pc-reset color-primary-UAexPx line-height-20-wR7plc font-meta-NZcGrb size-11-iRrorw weight-medium-i9j4OC transform-uppercase-YyB3kL reset-sQQP4h meta-btwMND" style="list-style: none;color: rgb(54,55,55);margin: 0;font-size: 11px;line-height: 20px;font-family: 'SF Compact',-apple-system,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';font-weight: 500;text-transform: uppercase;letter-spacing: .2px;text-decoration: none" href="https://example.com/link/3">Fugiat Nulla</a></div></td></tr></tbody></table></td></tr><tr><td><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td style="vertical-align:middle;"><div class="pencraft pc-reset color-secondary-a8v6Os line-height-20-wR7plc font-meta-NZcGrb size-11-iRrorw weight-medium-i9j4OC transform-uppercase-YyB3kL reset-sQQP4h meta-btwMND" style="list-style: none;font-size: 11px;line-height: 20px;text-decoration: unset;color: rgb(119,119,119);margin: 0;font-family: 'SF Compact',-apple-system,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';font-weight: 500;text-transform: uppercase;letter-spacing: .2px;"><time datetime="2026-09-29T13:15:57.512Z">Pariatur 29</time></div></td></tr></tbody></table></td></tr></tbody></table></td><td align="right"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td style="vertical-align:middle;"><a href="https://example.com/link/3"><img class="custom-css-email-avatar avatar-QIQ5yR" src="https://example.com/image/4.png" style="box-sizing: border-box;max-width: 550px;border: none;vertical-align: middle;width: 40px;height: 40px;min-width: 40px;min-height: 40px;object-fit: cover;margin: 0px;display: inline;border-radius: 50%" width="40" height="40"></a></td></tr></tbody></table></td></tr></tbody></table><table class="email-ufi-2-top" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-top: 1px solid rgb(0,0,0,.1);border-bottom: 1px solid rgb(0,0,0,.1);min-width: 100%;"><tbody><tr height="16"><td height="16" style="font-size:0px;line-height:0;">&nbsp;</td></tr><tr><td><table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td style="vertical-align:middle;"><table role="presentation" width="38" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-icon-button" href="https://example.com/link/5" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 1;padding: 9px 0;text-decoration: none;color: rgb(119,119,119);min-width: 38px;box-sizing: border-box;width: 38px"><img class="icon" src="https://example.com/image/6.png" width="18" height="18" style="border: none;vertical-align: middle;max-width: 18px" alt=""></a></td></tr></tbody></table></td><td width="8" style="min-width:8px;"></td><td style="vertical-align:middle;"><table role="presentation" width="38" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-icon-button" href="https://example.com/link/7" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 1;padding: 9px 0;text-decoration: none;color: rgb(119,119,119);min-width: 38px;box-sizing: border-box;width: 38px"><img class="icon" src="https://example.com/image/8.png" width="18" height="18" style="border: none;vertical-align: middle;max-width: 18px" alt=""></a></td></tr></tbody></table></td><td width="8" style="min-width:8px;"></td><td style="vertical-align:middle;"><table role="presentation" width="38" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-icon-button" href="https://example.com/link/9" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 1;padding: 9px 0;text-decoration: none;color: rgb(119,119,119);min-width: 38px;box-sizing: border-box;width: 38px"><img class="icon" src="https://example.com/image/10.png" width="18" height="18" style="border: none;vertical-align: middle;max-width: 18px" alt=""></a></td></tr></tbody></table></td><td width="8" style="min-width:8px;"></td><td style="vertical-align:middle;"><table role="presentation" width="38" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-icon-button" href="https://example.com/link/11" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 1;padding: 9px 0;text-decoration: none;color: rgb(119,119,119);min-width: 38px;box-sizing: border-box;width: 38px"><img class="icon" src="https://example.com/image/12.png" width="18" height="18" alt="" style="max-width: 550px;border: none !important;vertical-align: middle;"></a></td></tr></tbody></table></td></tr></tbody></table></td><td align="right"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td style="vertical-align:middle;"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-button-outline" href="https://example.com/link/13" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 12px;padding: 9px 14px;text-decoration: none;color: rgb(119,119,119);"><div class="email-button-spacer" style="font-size: 16px;line-height: 26px;display: inline-block;vertical-align: middle;max-width: 0;min-height: 18px;"></div><span class="email-button-text" style="vertical-align: middle;margin-right: 4px">Excepteur Sint Occaecat</span><img class="icon text-icon" src="https://example.com/image/14.png" width="18" height="18" style="min-width: 18px;min-height: 18px;border: none;vertical-align: middle;margin-right: 0;margin-left: 0;max-width: 18px" alt=""></a></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></td></tr><tr height="16"><td height="16" style="font-size:0px;line-height:0;">&nbsp;</td></tr></tbody></table></div></div><div class="post typography" dir="auto" style="--image-offset-margin: -120px;padding: 32px 0 0 0;font-size: 16px;line-height: 26px;"><div class="body markup" dir="auto" style="text-align: initial;font-size: 16px;line-height: 26px;width: 100%;margin-bottom: 16px;hanging-punctuation: allow-end;overflow-wrap: anywhere;word-break: break-word;"><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;margin-top: 0;">BODY-START-MARKER <em><span> Cupidatat non, Proident Sunt. Culpa qui, Officia deserunt mollit anim id, est, laborum lorem ipsum. Dolor sit: </span><a href="https://example.com/link/15" style="color: rgb(54,55,55);text-decoration: underline;">Amet Consectetur</a><span> | </span><a href="https://example.com/link/16" style="color: rgb(54,55,55);text-decoration: underline;">Adipiscing</a><span> | </span><a href="https://example.com/link/17" style="color: rgb(54,55,55);text-decoration: underline;">Elit sed Do-Eiusmod Tempor</a><span> incididunt ut labore </span><a href="https://example.com/link/18" style="color: rgb(54,55,55);text-decoration: underline;">Et/Dolore magna</a></em></p><div class="subscribe-widget is-signed-up is-fully-subscribed" style="margin: 0 0 1em;direction: ltr;font-size: 16px;line-height: 26px;"><div class="pencraft pc-reset button-wrapper" style="text-decoration: unset;list-style: none;font-size: 16px;line-height: 26px;text-align: center;cursor: pointer;border-radius: 4px;"><a class="button subscribe-btn outline" href="https://example.com/link/19" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;box-sizing: border-box;cursor: pointer;border-radius: 8px;font-size: 14px;line-height: 20px;font-weight: 600;text-align: center;background-color: transparent;opacity: 1;outline: none;white-space: nowrap;text-decoration: none !important;border: 1px solid #f47c55;margin: 0 auto;background: transparent;color: #f47c55;padding: 12px 20px;height: auto;"><img class="check-icon static" src="https://example.com/image/20.png" width="20" height="20" style="border: none;vertical-align: middle;-ms-interpolation-mode: bicubic;height: auto;display: inline-block;margin: -2px 8px 0 0;max-width: 20px" alt=""><span style="text-decoration: none;">Aliqua</span></a></div></div><div style="font-size: 16px;line-height: 26px;"><hr style="margin: 32px 0;padding: 0;height: 1px;background: rgb(0,0,0,.1);border: none;"></div><div class="captioned-image-container-static" style="font-size: 16px;line-height: 26px;margin: 32px auto;"><figure style="width: 100%;margin: 0 auto;"><table class="image-wrapper" width="100%" border="0" cellspacing="0" cellpadding="0" style="mso-padding-alt: 1em 0 1.6em;"><tbody><tr><td style="text-align: center;"></td><td class="content" align="left" width="1456" style="text-align: center;"><a class="image-link" target="_blank" href="https://example.com/link/21" style="position: relative;flex-direction: column;align-items: center;padding: 0;width: auto;height: auto;border: none;text-decoration: none;display: block;margin: 0;"><img class="wide-image" alt="" width="550" height="366.7925824175824" src="https://example.com/image/22.png" style="border: none !important;vertical-align: middle;display: block;-ms-interpolation-mode: bicubic;height: auto;margin-bottom: 0;width: auto !important;max-width: 100% !important;margin: 0 auto;"></a></td><td style="text-align: center;"></td></tr></tbody></table></figure></div><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Enim ad minim veniam quis nostrud exercitation-ullamco laboris nisi aliquip ex Ea &amp; Commodo Consequat duis aute irure. In reprehenderit voluptate velit (esse cillum fugiat nulla):</span></p><ol style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/23" style="color: rgb(54,55,55);text-decoration: underline;"><span>Pariatur excepteur sint: occaecat cupidatat non proident, sunt, culpa qui officia Deserunt</span></a></strong><span> </span><em><span>(</span><a href="https://example.com/link/24" style="color: rgb(54,55,55);text-decoration: underline;"><span>Mollit Anim</span></a><span>, Id est Laborum lorem Ipsum)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/25" style="color: rgb(54,55,55);text-decoration: underline;">Dolor sit amet consectetur adipiscing elit sed do</a></strong><span> </span><em><span>(</span><a href="https://example.com/link/26" style="color: rgb(54,55,55);text-decoration: underline;">Eiusmod Tempor</a><span>, Incididunt ut Labore)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/27" style="color: rgb(54,55,55);text-decoration: underline;"><span>Et dolore magna</span></a></strong><span> </span><em><span>(</span><a href="https://example.com/link/28" style="color: rgb(54,55,55);text-decoration: underline;"><span>Aliqua Enim</span></a><span>, Ad Minim Veniam)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/29" style="color: rgb(54,55,55);text-decoration: underline;">Quis nostrud exercitation: ullamco laboris nisi aliquip Ex ea commodo consequat duis</a></strong><span> </span><em><span>(</span><a href="https://example.com/link/30" style="color: rgb(54,55,55);text-decoration: underline;">Aute Irure</a><span>, In reprehenderit Voluptate)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/31" style="color: rgb(54,55,55);text-decoration: underline;">Velit esse cillum—fugiat nulla</a></strong><span> </span><em><span>(</span><a href="https://example.com/link/32" style="color: rgb(54,55,55);text-decoration: underline;">Pariatur Excepteur</a><span>, Sint Occaecat cupidatat Non Proident sunt Culpa)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/33" style="color: rgb(54,55,55);text-decoration: underline;"><span>Qui officia deserunt: mollit anim id est laborum lorem ipsum Dolor sit</span></a></strong><span> </span><em><span>(</span><a href="https://example.com/link/34" style="color: rgb(54,55,55);text-decoration: underline;"><span>Amet Consectetur</span></a><span>, Adipiscing Elit, Sed Do)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/35" style="color: rgb(54,55,55);text-decoration: underline;">Eiusmod tempor-incididunt Ut labore</a></strong><span> </span><em><span>(</span><a href="https://example.com/link/36" style="color: rgb(54,55,55);text-decoration: underline;">Et Dolore</a><span>, Magna aliqua Enim ad Minim)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/37" style="color: rgb(54,55,55);text-decoration: underline;"><span>Veniam quis, nostrud exercitation</span></a></strong><span> </span><em><span>(</span><a href="https://example.com/link/38" style="color: rgb(54,55,55);text-decoration: underline;"><span>Ullamco Laboris</span></a><span>, Nisi)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/39" style="color: rgb(54,55,55);text-decoration: underline;"><span>Aliquip ex ea commodo consequat: duis aute irure in reprehenderit voluptate velit esse cillum fugiat</span></a></strong><span> </span><em><span>(</span><a href="https://example.com/link/40" style="color: rgb(54,55,55);text-decoration: underline;"><span>Nulla Pariatur</span></a><span>, Excepteur sint Occaecat)</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/41" style="color: rgb(54,55,55);text-decoration: underline;"><span>Cupidatat non</span></a></strong><span> proident </span><em><a href="https://example.com/link/42" style="color: rgb(54,55,55);text-decoration: underline;"><span>Sunt Culpa</span></a><span>, Qui, officia </span><a href="https://example.com/link/43" style="color: rgb(54,55,55);text-decoration: underline;"><span>Deserunt Mollit</span></a><span>, Anim id Est</span></em></p></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><strong><a href="https://example.com/link/44" style="color: rgb(54,55,55);text-decoration: underline;"><span>Laborum lorem</span></a></strong><span> ipsum </span><em><a href="https://example.com/link/45" style="color: rgb(54,55,55);text-decoration: underline;"><span>Dolor Sit</span></a><span>, Amet Consectetur, adipiscing </span><a href="https://example.com/link/46" style="color: rgb(54,55,55);text-decoration: underline;"><span>Elit Sed</span></a><span>, Do</span></em></p></li></ol><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Eiusmod tempor incididunt, </span><a href="https://example.com/link/47" style="color: rgb(54,55,55);text-decoration: underline;">ut labore et dolore-magna aliqua enim</a><span>.</span></p><div class="captioned-image-container-static" style="font-size: 16px;line-height: 26px;margin: 32px auto;"><figure style="width: 100%;margin: 0 auto;"><table class="image-wrapper" width="100%" border="0" cellspacing="0" cellpadding="0" style="mso-padding-alt: 1em 0 1.6em;"><tbody><tr><td style="text-align: center;"></td><td class="content" align="left" width="1456" style="text-align: center;"><a class="image-link" target="_blank" href="https://example.com/link/47" style="position: relative;flex-direction: column;align-items: center;padding: 0;width: auto;height: auto;border: none;text-decoration: none;display: block;margin: 0;"><img class="wide-image" alt="" width="550" height="427.6098901098901" src="https://example.com/image/48.png" style="border: none !important;vertical-align: middle;display: block;-ms-interpolation-mode: bicubic;height: auto;margin-bottom: 0;width: auto !important;max-width: 100% !important;margin: 0 auto;"></a></td><td style="text-align: center;"></td></tr></tbody></table></figure></div><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip, Ex ea </span><a href="https://example.com/link/49" style="color: rgb(54,55,55);text-decoration: underline;">commodo consequat duis aute irure</a><span>. In, reprehenderit voluptate velit. Esse cillum fugiat nulla.</span></p><div class="video-player-with-background is-static video-player-wrapper" role="region" style="flex-grow: 1;font-size: 16px;line-height: 26px;margin-top: 0.5em;"><a class="video-player video-player-with-background" href="https://example.com/link/50" style="position: relative;display: block;width: 100%;cursor: pointer;background-color: rgb(0,0,0);height: auto;border-radius: 8px;padding-bottom: 0"><img class="video-player-preview" width="550" src="https://example.com/image/51.png" alt="" style="border: none !important;vertical-align: middle;display: block;-ms-interpolation-mode: bicubic;max-width: 100%;height: auto;margin: 0 auto;top: 0;left: 0;width: 100%;max-height: 100%;background: black;cursor: pointer;object-fit: contain;position: relative;border-radius: 8px;"></a></div><h3 class="header-anchor-post" style="position: relative;font-family: 'SF Pro Display',-apple-system-headline,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';font-weight: bold;-webkit-font-smoothing: antialiased;-moz-osx-font-smoothing: antialiased;-webkit-appearance: optimizelegibility;-moz-appearance: optimizelegibility;appearance: optimizelegibility;margin: 1em 0 0.625em 0;color: rgb(54,55,55);line-height: 1.16em;font-size: calc(1.375em * 1);overflow-wrap: anywhere;word-break: normal;unicode-bidi: plaintext;"><strong>Pariatur excepteur sint</strong></h3><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Occaecat cupidatat non proident sunt culpa qui, Officia deserunt mollit anim id est laborum lorem ipsum. Dolor sit amet consectetur 5 adipiscing elit sed do eiusmod tempor:</span></p><ol style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;"><strong><span>Incididunt ut labore et dolore (magna) Aliqua enim ad minim. </span></strong><span>Veniam quis. Nostrud exercitation ullamco laboris nisi Aliquip ex ea Commodo consequat. Duis aute irure in reprehenderit voluptate velit esse cillum fugiat nulla pariatur, excepteur sint occaecat cupidatat non, proident sunt culpa qui officia deserunt mollit anim id est laborum lorem ipsum dolor. Sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt:</span></p><ul style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Ut labore et dolore magna, aliqua enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi aliquip ex.” —</span><a href="https://example.com/link/52" style="color: rgb(54,55,55);text-decoration: underline;">Ea Commodo</a></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Consequat duis aute irure in reprehenderit voluptate velit, esse cillum, fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt culpa qui officia, deserunt mollit anim id est laborum lorem ipsum.” —</span><a href="https://example.com/link/53" style="color: rgb(54,55,55);text-decoration: underline;"><span>Dolor Sit Amet</span></a></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Consectetur adipiscing elit sed do eiusmod tempor incididunt, ut labore et dolore magna aliqua enim ad minim veniam quis nostrud.” —Exercitation ullamco</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Laboris nisi aliquip ex ea commodo consequat duis aute irure in reprehenderit voluptate.” —</span><a href="https://example.com/link/54" style="color: rgb(54,55,55);text-decoration: underline;"><span>Velit Esse</span></a></em></p></li></ul></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;"><strong><span>Cillum fugiat nulla pariatur excepteur. </span></strong><span>Sint occaecat cupidatat non proident sunt? Culpa qui officia? Deserunt Mollit anim id est laborum? </span><span>Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. Incididunt ut labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation. Ullamco laboris nisi aliquip ex ea commodo consequat duis, aute irure in reprehenderit voluptate velit esse cillum fugiat. Nulla pariatur excepteur sint occaecat cupidatat non proident sunt:</span></p><ul style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Culpa qui officia deserunt mollit anim id est: laborum lorem. Ipsum dolor sit amet consectetur adipiscing elit sed. Do eiusmod tempor incididunt ut labore et dolore magna aliqua.” —</span><a href="https://example.com/link/32" style="color: rgb(54,55,55);text-decoration: underline;"><span>Enim </span><span>Ad</span></a><span>, Minim</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Veniam quis nostrud exercitation ullamco. Laboris nisi aliquip ex ea commodo consequat. Duis aute irure in reprehenderit voluptate. Velit esse cillum fugiat nulla pariatur excepteur sint.” —</span><a href="https://example.com/link/42" style="color: rgb(54,55,55);text-decoration: underline;"><span>Occaecat Cupidatat</span></a><span>, Non</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Proident sunt culpa qui officia. Deserunt mollit anim id est laborum lorem. Ipsum dolor sit 10 amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore. Et dolore magna aliqua enim ad minim veniam quis.” —</span><a href="https://example.com/link/34" style="color: rgb(54,55,55);text-decoration: underline;"><span>Nostrud Exercitation</span></a><span>, Ullamco Laboris</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Nisi aliquip ex ea commodo consequat duis aute. Irure in reprehenderit voluptate velit.” —</span><a href="https://example.com/link/24" style="color: rgb(54,55,55);text-decoration: underline;"><span>Esse Cillum</span></a><span>, Fugiat</span></em></p></li></ul></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;"><strong><span>Nulla pariatur excepteur sint occaecat cupidatat non proident sunt. </span></strong><span>Culpa qui officia deserunt, mollit anim id est laborum lorem, ipsum dolor sit amet consectetur, adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua enim. Ad minim veniam quis nostrud exercitation ullamco:</span></p><ul style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Laboris nisi aliquip ex ea commodo consequat duis aute, irure in reprehenderit voluptate.” —</span><a href="https://example.com/link/28" style="color: rgb(54,55,55);text-decoration: underline;">Velit Esse</a><span>, Cillum Fugiat Nulla</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Pariatur excepteur sint occaecat cupidatat non proident sunt culpa qui, officia deserunt mollit anim id est laborum lorem ipsum dolor sit amet consectetur Adipiscing elit sed do. Eiusmod tempor incididunt. Ut labore et dolore magna aliqua.” —</span><a href="https://example.com/link/34" style="color: rgb(54,55,55);text-decoration: underline;"><span>Enim Ad</span></a><span>, Minim Veniam</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Quis nostrud exercitation ullamco laboris nisi aliquip ex Ea.commodo consequat Duis aute 30 irure. In reprehenderit voluptate velit esse cillum fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt culpa qui officia deserunt.” —</span><a href="https://example.com/link/24" style="color: rgb(54,55,55);text-decoration: underline;"><span>Mollit Anim</span></a><span>, Id</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Est laborum lorem ipsum dolor sit. Amet consectetur adipiscing elit sed do eiusmod tempor.” —</span><a href="https://example.com/link/40" style="color: rgb(54,55,55);text-decoration: underline;"><span>Incididunt Ut</span></a><span>, Labore</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Et dolore magna aliqua enim ad minim veniam? Quis nostrud exercitation ullamco laboris nisi aliquip ex.” —</span><a href="https://example.com/link/26" style="color: rgb(54,55,55);text-decoration: underline;"><span>Ea Commodo</span></a><span>, Consequat</span></em></p></li></ul></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;"><strong><span>Duis Aute irure in reprehenderit, voluptate velit. </span></strong><span>Esse cillum fugiat Nulla, pariatur, excepteur sint occaecat cupidatat non Proident sunt culpa qui officia “deserunt,” mollit anim id est laborum lorem ipsum.</span></p><ul style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Dolor sit amet, consectetur adipiscing elit sed do. . . . Eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad.” —</span><a href="https://example.com/link/32" style="color: rgb(54,55,55);text-decoration: underline;"><span>Minim Veniam</span></a><span>, Quis</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat duis aute irure in reprehenderit voluptate velit esse, cillum fugiat nulla, pariatur excepteur sint, occaecat cupidatat non. Proident sunt culpa Qui, officia deserunt mollit anim id est laborum lorem ipsum dolor sit amet consectetur.” —</span><a href="https://example.com/link/55" style="color: rgb(54,55,55);text-decoration: underline;"><span>Adipiscing Elit</span></a><span>, </span><span>Sed</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Do eiusmod tempor incididunt ut labore et. Dolore magna aliqua, Enim ad minim veniam quis. Nostrud exercitation ullamco laboris nisi, Aliquip ex ea commodo, Consequat duis aute irure in reprehenderit.” —</span><a href="https://example.com/link/56" style="color: rgb(54,55,55);text-decoration: underline;"><span>Voluptate Velit</span></a><span>, Esse</span></em></p></li></ul></li><li style="margin: 8px 0 0 32px;unicode-bidi: plaintext;"><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;"><strong><span>Cillum fugiat nulla pariatur excepteur sint occaecat cupidatat—</span><span>non proident sunt culpa qui</span><span>.</span></strong><span> Officia deserunt mollit anim id est laborum lorem ipsum dolor sit, amet consectetur adipiscing elit sed do eiusmod tempor Incididunt, ut labore et dolore magna aliqua enim ad minim veniam quis nostrud, exercitation ullamco </span><em><span>laboris</span></em><span> nisi aliquip. Ex ea commodo consequat duis aute Irure in reprehenderit (voluptate velit esse) cillum fugiat nulla pariatur excepteur sint.</span></p><ul style="margin-top: 0;padding: 0;"><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Occaecat cupidatat non proident Sunt culpa qui officia deserunt mollit anim id est laborum lorem, ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. Incididunt ut labore et dolore magna aliqua, enim ad minim veniam.” —</span><a href="https://example.com/link/57" style="color: rgb(54,55,55);text-decoration: underline;"><span>Quis Nostrud</span></a><span>, Exercitation</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Ullamco laboris nisi aliquip ex ea commodo consequat duis aute irure in reprehenderit voluptate velit.” —</span><a href="https://example.com/link/46" style="color: rgb(54,55,55);text-decoration: underline;">Esse Cillum</a><span>, Fugiat</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em><span>“Nulla pariatur excepteur sint occaecat cupidatat non proident. . . . Sunt culpa qui Officia deserunt mollit anim id, est laborum, lorem ipsum dolor sit amet consectetur adipiscing elit sed?” —</span><a href="https://example.com/link/28" style="color: rgb(54,55,55);text-decoration: underline;">Do Eiusmod</a><span>, Tempor Incididunt Ut</span></em></p></li><li style="margin: 8px 0 0 32px;mso-special-format: bullet;unicode-bidi: plaintext;"><p style="color: rgb(54,55,55);line-height: 26px;margin-bottom: 0;box-sizing: border-box;padding-left: 4px;font-size: 16px;unicode-bidi: plaintext;margin: 0;"><em>“Labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat duis. Aute irure in reprehenderit voluptate velit esse cillum fugiat.” —Nulla pariatur</em></p></li></ul></li></ol><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;">Excepteur, sint occaecat cupidatat: non proident sunt culpa qui officia.</p><div class="captioned-image-container-static" style="font-size: 16px;line-height: 26px;margin: 32px auto;"><figure style="width: 100%;margin: 0 auto;"><table class="image-wrapper" width="100%" border="0" cellspacing="0" cellpadding="0" style="mso-padding-alt: 1em 0 1.6em;"><tbody><tr><td style="text-align: center;"></td><td class="content" align="left" width="1200" style="text-align: center;"><a class="image-link" target="_blank" href="https://example.com/link/58" style="position: relative;flex-direction: column;align-items: center;padding: 0;width: auto;height: auto;border: none;text-decoration: none;display: block;margin: 0;"><img class="wide-image" alt="" width="550" height="733.3333333333334" src="https://example.com/image/59.png" style="border: none !important;vertical-align: middle;display: block;-ms-interpolation-mode: bicubic;height: auto;margin-bottom: 0;width: auto !important;max-width: 100% !important;margin: 0 auto;"></a></td><td style="text-align: center;"></td></tr></tbody></table></figure></div><div class="static-he6Urp gallery-Phxj1j" style="cursor: grab;width: 100%;margin-inline: 0;position: relative;font-size: 16px;line-height: 26px;margin: 32px0;"><img src="https://example.com/image/60.png" alt="" style="border: none !important;vertical-align: middle;display: block;-ms-interpolation-mode: bicubic;max-width: 100%;height: auto;margin: 0 auto;"></div><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Deserunt </span><span>mollit,</span><span> </span><em><span>anim</span></em><span> id-est laborum lorem ipsum dolor sit, amet, consectetur adipiscing elit sed do eiusmod tempor incididunt ut. Labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco.</span></p><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Laboris nisi, aliquip ex-ea commodo-consequat duis aute Irure in. Reprehenderit voluptate velit esse cillum fugiat Nulla, pariatur excepteur sint occaecat cupidatat non proident sunt culpa qui officia. Deserunt mollit anim 1,000 id est </span><em><span>laborum</span></em><span> lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod. Tempor incididunt ut. Labore et dolore magna aliqua enim—ad minim veniam quis Nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat duis aute irure. In reprehenderit, Voluptate.</span></p><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Velit esse cillum!</span></p><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><span>Fugiat.Nulla. </span><a href="https://example.com/link/47" style="color: rgb(54,55,55);text-decoration: underline;"><span>Pariatur excepteur sint occaecat-cupidatat non proident sunt culpa qui</span></a><span>. Officia!</span></p><div class="captioned-image-container-static" style="font-size: 16px;line-height: 26px;margin: 32px auto;"><figure style="width: 100%;margin: 0 auto;"><table class="image-wrapper" width="100%" border="0" cellspacing="0" cellpadding="0" style="mso-padding-alt: 1em 0 1.6em;"><tbody><tr><td style="text-align: center;"></td><td class="content" align="left" width="1440" style="text-align: center;"><a class="image-link" target="_blank" href="https://example.com/link/61" style="position: relative;flex-direction: column;align-items: center;padding: 0;width: auto;height: auto;border: none;text-decoration: none;display: block;margin: 0;"><img class="wide-image" alt="" width="550" height="447.25694444444446" src="https://example.com/image/62.png" style="border: none !important;vertical-align: middle;display: block;-ms-interpolation-mode: bicubic;height: auto;margin-bottom: 0;width: auto !important;max-width: 100% !important;margin: 0 auto;"></a></td><td style="text-align: center;"></td></tr></tbody></table></figure></div><div style="font-size: 16px;line-height: 26px;"><hr style="margin: 32px 0;padding: 0;height: 1px;background: rgb(0,0,0,.1);border: none;"></div><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;"><strong><span>Deserunt mollit anim id est laborum, lorem ipsum dolor sit amet, consectetur adipiscing elit sed do eiusmod tempor. Incididunt ut </span><a href="https://example.com/link/63" style="color: rgb(54,55,55);text-decoration: underline;">labore et</a><span> dolore </span><a href="https://example.com/link/64" style="color: rgb(54,55,55);text-decoration: underline;">magna aliqua</a><span> enim.</span></strong> BODY-END-MARKER</p><div class="subscribe-widget is-signed-up is-fully-subscribed" style="margin: 0 0 1em;direction: ltr;font-size: 16px;line-height: 26px;"><div class="pencraft pc-reset button-wrapper" style="text-decoration: unset;list-style: none;font-size: 16px;line-height: 26px;text-align: center;cursor: pointer;border-radius: 4px;"><a class="button subscribe-btn outline" href="https://example.com/link/19" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;box-sizing: border-box;cursor: pointer;border-radius: 8px;font-size: 14px;line-height: 20px;font-weight: 600;text-align: center;background-color: transparent;opacity: 1;outline: none;white-space: nowrap;text-decoration: none !important;border: 1px solid #f47c55;margin: 0 auto;background: transparent;color: #f47c55;padding: 12px 20px;height: auto;"><img class="check-icon static" src="https://example.com/image/20.png" width="20" height="20" style="border: none;vertical-align: middle;-ms-interpolation-mode: bicubic;height: auto;display: inline-block;margin: -2px 8px 0 0;max-width: 20px" alt=""><span style="text-decoration: none;">Ad</span></a></div></div><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;">Minim,</p><p style="margin: 0 0 20px 0;color: rgb(54,55,55);line-height: 26px;font-size: 16px;unicode-bidi: plaintext;margin-bottom: 0;">Veniam </p></div></div><table class="email-ufi-2-bottom" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-top: 1px solid rgb(0,0,0,.1);border-bottom: 1px solid rgb(0,0,0,.1);min-width: 100%;"><tbody><tr height="16"><td height="16" style="font-size:0px;line-height:0;">&nbsp;</td></tr><tr><td><table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0" style="margin:0 auto;"><tbody><tr><td style="vertical-align:middle;"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-button-outline" href="https://example.com/link/5" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 12px;padding: 9px 14px;text-decoration: none;color: rgb(119,119,119);"><img class="icon" src="https://example.com/image/6.png" width="18" height="18" style="margin-right: 8px;min-width: 18px;min-height: 18px;border: none;vertical-align: middle;max-width: 18px" alt=""><span class="email-button-text" style="vertical-align: middle;">Quis</span></a></td></tr></tbody></table></td><td width="8" style="min-width:8px;"></td><td style="vertical-align:middle;"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-button-outline" href="https://example.com/link/7" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 12px;padding: 9px 14px;text-decoration: none;color: rgb(119,119,119);"><img class="icon" src="https://example.com/image/8.png" width="18" height="18" style="margin-right: 8px;min-width: 18px;min-height: 18px;border: none;vertical-align: middle;max-width: 18px" alt=""><span class="email-button-text" style="vertical-align: middle;">Nostrud</span></a></td></tr></tbody></table></td><td width="8" style="min-width:8px;"></td><td style="vertical-align:middle;"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr><td align="center"><a class="email-button-outline" href="https://example.com/link/11" style="font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol';display: inline-block;font-weight: 500;border: 1px solid rgb(0,0,0,.1);border-radius: 9999px;text-transform: uppercase;font-size: 12px;line-height: 12px;padding: 9px 14px;text-decoration: none;color: rgb(119,119,119);"><img class="icon" src="https://example.com/image/12.png" width="18" height="18" alt="" style="margin-right: 8px;min-width: 18px;min-height: 18px;max-width: 550px;border: none !important;vertical-align: middle;"><span class="email-button-text" style="vertical-align: middle;">Exercitation</span></a></td></tr></tbody></table></td></tr></tbody></table></td><td align="right"><table role="presentation" width="auto" border="0" cellspacing="0" cellpadding="0"><tbody><tr></tr></tbody></table></td></tr></tbody></table></td></tr><tr height="16"><td height="16" style="font-size:0px;line-height:0;">&nbsp;</td></tr></tbody></table><div class="footer footer-ZM59BM" style="color: rgb(119,119,119);text-align: center;font-size: 16px;line-height: 26px;padding: 24px 0;">FOOTER-MARKER lorem ipsum, 548 Example Street. Unsubscribe</div></div></td><td></td></tr></tbody></table><img src="https://example.com/open/pixel.gif" alt="" width="1" height="1" border="0" style="height:1px !important;width:1px !important;border-width:0 !important;margin-top:0 !important;margin-bottom:0 !important;margin-right:0 !important;margin-left:0 !important;padding-top:0 !important;padding-bottom:0 !important;padding-right:0 !important;padding-left:0 !important;"><img width="1" height="1" alt="" src="https://example.com/open/pixel.gif">
+</body></html>

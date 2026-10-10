@@ -4,6 +4,7 @@ import TurndownService from 'turndown'
 import pino from 'pino'
 import { preClean, postClean } from '../lib/cleaner/index.js'
 import { findBestContentBlock } from '../lib/cleaner/content-scorer.js'
+import { prepareEmailDocument } from '../lib/cleaner/email.js'
 import type { CleanerConfig } from '../lib/cleaner/selectors.js'
 import { markdownToExcerpt } from './markdown-utils.js'
 
@@ -48,6 +49,11 @@ export interface ParseHtmlInput {
   html: string
   articleUrl: string
   cleanerConfig?: CleanerConfig
+  /**
+   * Treat the document as HTML email delivered inline by a feed: unwrap
+   * layout tables and keep section headings regardless of their class names.
+   */
+  email?: boolean
 }
 
 export interface ParseHtmlResult {
@@ -80,10 +86,22 @@ export function parseHtml(input: ParseHtmlInput): ParseHtmlResult {
   } catch {
     // Fail-open: continue with original HTML if pre-clean fails
   }
+  if (input.email) {
+    try {
+      prepareEmailDocument(domForCleaning.window.document)
+    } catch {
+      // Fail-open: continue with the document as it is
+    }
+  }
 
   // Phase 2: Readability extraction (uses pre-cleaned HTML)
   const domForReadability = new JSDOM(domForCleaning.serialize(), { url: articleUrl, virtualConsole: vc })
-  let article = new Readability(domForReadability.window.document).parse()
+  // Newsletters carry link lists (reading lists, episode notes) as content;
+  // Readability's default link-density cut-off drops them.
+  // (linkDensityModifier exists since Readability 0.6.0 but is missing from its typings.)
+  const readabilityOptions: ConstructorParameters<typeof Readability<string>>[1] & { linkDensityModifier?: number } =
+    input.email ? { linkDensityModifier: 1 } : {}
+  let article = new Readability<string>(domForReadability.window.document, readabilityOptions).parse()
 
   let contentHtml = article?.content || null
   let readabilityTextLen = (article?.textContent || '').replace(/\s+/g, ' ').trim().length

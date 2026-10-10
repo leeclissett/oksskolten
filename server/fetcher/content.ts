@@ -214,6 +214,27 @@ export async function fetchFullText(articleUrl: string, options?: FetchFullTextO
   return result
 }
 
+const HTML_DOCUMENT_RE = /<(?:!doctype|html|head|body)[\s>]/i
+
+/**
+ * True when feed-supplied inline content is a whole HTML document rather than
+ * the usual fragment — in practice an HTML email relayed by a mail-to-feed
+ * bridge such as LetterFeed.
+ */
+export function isHtmlDocument(content: string): boolean {
+  return HTML_DOCUMENT_RE.test(content)
+}
+
+/**
+ * Run inline feed content that is a full HTML document through the same
+ * extraction pipeline as a fetched page (pre-clean → Readability → post-clean
+ * → Markdown), with email-specific preparation applied first. No network I/O.
+ */
+export async function parseInlineHtml(html: string, articleUrl: string): Promise<ParseHtmlResult> {
+  const input: ParseHtmlInput = { html, articleUrl, email: true }
+  return runWithTimeout(input, WORKER_TIMEOUT_MS)
+}
+
 /**
  * Detect garbage extraction: text that is mostly code/scripts with little natural prose.
  * Strips markdown code fences and checks if remaining text has enough prose sentences.

@@ -200,6 +200,19 @@ describe('removeEmptyElements', () => {
     expect(body.querySelectorAll('div')).toHaveLength(0)
   })
 
+  it('keeps the word break when a whitespace-only inline element separates two runs', () => {
+    const { body } = bodyEl('<p><strong>Title</strong><span> </span><em>(Author)</em></p>')
+    removeEmptyElements(body, ALLOWED_EMPTY_ELEMENTS)
+    expect(body.querySelectorAll('span')).toHaveLength(0)
+    expect(body.querySelector('p')!.textContent).toBe('Title (Author)')
+  })
+
+  it('does not add whitespace for an empty inline element or one at the edge of its parent', () => {
+    const { body } = bodyEl('<p><span> </span>Start<span></span>End<span> </span></p>')
+    removeEmptyElements(body, ALLOWED_EMPTY_ELEMENTS)
+    expect(body.querySelector('p')!.textContent).toBe('StartEnd')
+  })
+
   it('removes recursively (parent becomes empty after child removal)', () => {
     const { body } = bodyEl('<div><span></span></div><p>text</p>')
     removeEmptyElements(body, ALLOWED_EMPTY_ELEMENTS)

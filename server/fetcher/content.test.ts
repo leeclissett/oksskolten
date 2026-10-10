@@ -453,6 +453,14 @@ describe('convertHtmlToMarkdown', () => {
     expect(md).not.toContain('<br')
   })
 
+  it('drops <title>, <style>, <script> and <noscript> from a full HTML document', () => {
+    const html = `<html><head><title>Issue title</title><style>
+      @media (max-width: 1024px) { .typography .pullquote { float: none; } }
+    </style><script>track()</script></head><body><noscript>enable js</noscript><p>Hello reader</p></body></html>`
+    const md = convertHtmlToMarkdown(html)
+    expect(md).toBe('Hello reader')
+  })
+
   it('handles empty HTML', () => {
     const md = convertHtmlToMarkdown('')
     expect(md.trim()).toBe('')

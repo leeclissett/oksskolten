@@ -4,6 +4,10 @@ import TurndownService from 'turndown'
 // Unlike the worker-thread instance in contentWorker.ts, this skips custom rules
 // (barePreBlock, table keep) because RSS descriptions are simple HTML fragments.
 const fallbackTurndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+// Turndown emits the text of unknown elements, so a full HTML document (e.g. a
+// newsletter email relayed through a feed) would otherwise leak its <title>
+// and the entire <style> sheet into the article body.
+fallbackTurndown.remove(['style', 'script', 'title', 'noscript'])
 
 /** Check if a string contains HTML tags (not just plain text or Markdown). */
 const HTML_TAG_RE = /<[a-zA-Z][^>]*>/
@@ -16,7 +20,8 @@ const HTML_TAG_RE = /<[a-zA-Z][^>]*>/
  */
 export function convertHtmlToMarkdown(content: string): string {
   if (!HTML_TAG_RE.test(content)) return content
-  return fallbackTurndown.turndown(content)
+  // Removed elements leave their surrounding whitespace behind.
+  return fallbackTurndown.turndown(content).trim()
 }
 
 /**

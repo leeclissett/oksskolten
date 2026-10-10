@@ -157,3 +157,44 @@ describe('parseHtml', () => {
     expect(result.excerpt).toContain('Click here')
   })
 })
+
+// --- parseHtml with email: true (HTML email delivered inline by a feed) ---
+
+describe('parseHtml email mode', () => {
+  const para = '<p>' + 'A sentence of ordinary article prose, with a comma or two, that gives the extractor something to score. '.repeat(4) + '</p>'
+
+  function emailHtml(body: string): string {
+    return `<!DOCTYPE html><html><head><title>Issue</title><style>@media (max-width: 600px) { .post { width: 100%; } }</style></head>
+      <body><table role="presentation"><tr><td><div class="post"><div class="body">${body}</div></div></td></tr></table></body></html>`
+  }
+
+  it('keeps a link-heavy block that default extraction drops', () => {
+    const html = emailHtml(`${para}${para}
+      <div class="callout-block"><h4>Links from this episode:</h4><p>
+        <span>First workflow: </span><a href="https://example.com/a">https://example.com/workflows/the-first-workflow-walkthrough</a><br>
+        <span>Second workflow: </span><a href="https://example.com/b">https://example.com/workflows/the-second-workflow-walkthrough</a><br>
+        <span>Third workflow: </span><a href="https://example.com/c">https://example.com/workflows/the-third-workflow-walkthrough</a>
+      </p></div>${para}`)
+
+    expect(parseHtml({ html, articleUrl: BASE_URL }).fullText).not.toContain('the-first-workflow')
+
+    const result = parseHtml({ html, articleUrl: BASE_URL, email: true })
+    expect(result.fullText).toContain('#### Links from this episode:')
+    expect(result.fullText).toContain('[https://example.com/workflows/the-third-workflow-walkthrough](https://example.com/c)')
+  })
+
+  it('unwraps layout tables, keeps data tables, and preserves section headings', () => {
+    const html = emailHtml(`${para}
+      <h2 class="header-anchor-post"><span>Pricing</span></h2>${para}
+      <table class="image-wrapper"><tr><td></td><td><a href="https://example.com/full"><img src="https://example.com/chart.png" alt="Chart"></a></td><td></td></tr></table>
+      <table><tr><th>Plan</th><th>Price</th></tr><tr><td>Pro</td><td>$10</td></tr></table>${para}`)
+
+    const result = parseHtml({ html, articleUrl: BASE_URL, email: true })
+
+    expect(result.fullText).toContain('## Pricing')
+    expect(result.fullText).toContain('[![Chart](https://example.com/chart.png)](https://example.com/full)')
+    expect(result.fullText.match(/<table>/g)).toHaveLength(1)
+    expect(result.fullText).toContain('<th>Plan</th>')
+    expect(result.fullText).not.toContain('@media')
+  })
+})
