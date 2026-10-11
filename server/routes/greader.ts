@@ -26,7 +26,8 @@ import { allNamed, getDb, getNamed, getSetting } from '../db.js'
 import { getFeeds } from '../db/feeds.js'
 import { getCategories, markAllSeenByCategory } from '../db/categories.js'
 import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
-import { articleUrlToPath } from '../../shared/url.js'
+import { articleUrlToPath, isInlineEntryUrl } from '../../shared/url.js'
+import { publicationSiteOf } from '../lib/cleaner/email.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { logger } from '../logger.js'
 
@@ -215,6 +216,47 @@ function requestOrigin(request: FastifyRequest): string {
 }
 
 /**
+ * Website address for each feed made of inline entries (email newsletters
+ * relayed by a mail-to-feed bridge), keyed by feed ID.
+ *
+ * Every such feed lives on the bridge's host, so the default website (the
+ * feed's origin) is identical for all of them, and a reader app that tells
+ * sources apart by website folds them into one. Report the publication the
+ * feed's articles come from instead: the site most of their source URLs
+ * belong to. A feed with no known source URL gets its page on this server.
+ * The feed ID goes into the fragment, because several feeds can belong to one
+ * publication and each still has to be distinct; a fragment never reaches
+ * the site, so the address opens the same page.
+ *
+ * Feeds that are not inline are absent from the map and keep their origin.
+ */
+function inlineFeedSites(origin: string): Map<number, string> {
+  const rows = getDb().prepare(`
+    SELECT a.feed_id, a.url, a.source_url, f.rss_url
+    FROM active_articles a
+    JOIN feeds f ON a.feed_id = f.id
+    WHERE instr(a.url, '#') > 0 AND f.rss_url IS NOT NULL
+  `).all() as { feed_id: number; url: string; source_url: string | null; rss_url: string }[]
+
+  const siteCounts = new Map<number, Map<string, number>>()
+  for (const row of rows) {
+    if (!isInlineEntryUrl(row.url, row.rss_url)) continue
+    let counts = siteCounts.get(row.feed_id)
+    if (!counts) siteCounts.set(row.feed_id, counts = new Map())
+    const site = row.source_url ? publicationSiteOf(row.source_url) : null
+    if (site) counts.set(site, (counts.get(site) ?? 0) + 1)
+  }
+
+  const sites = new Map<number, string>()
+  for (const [feedId, counts] of siteCounts) {
+    // Most common site; ties broken alphabetically so the answer is stable.
+    const [publication] = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? []
+    sites.set(feedId, publication ? `${publication}/#feed-${feedId}` : `${origin}/feeds/${feedId}`)
+  }
+  return sites
+}
+
+/**
  * The link a reader app opens for an article. Inline feed entries (email
  * newsletters) have no page at their own URL, which is the feed address plus
  * a fragment and usually sits on a private network: use the original post
@@ -225,7 +267,7 @@ function articleLink(a: ArticleRow, origin: string): string {
   return sourceUrl ?? `${origin}${articleUrlToPath(a.article_url)}`
 }
 
-function articleToGReaderItem(a: ArticleRow, origin: string): Record<string, unknown> {
+function articleToGReaderItem(a: ArticleRow, origin: string, feedSites: Map<number, string>): Record<string, unknown> {
   const publishedSec = a.published_at ? Math.floor(new Date(a.published_at).getTime() / 1000) : 0
   const crawledSec = a.created_at
     ? Math.floor(new Date(a.created_at).getTime() / 1000)
@@ -263,7 +305,7 @@ function articleToGReaderItem(a: ArticleRow, origin: string): Record<string, unk
     origin: {
       streamId: `feed/${feedUrl}`,
       title: a.feed_name ?? '',
-      htmlUrl: feedOriginUrl(feedUrl),
+      htmlUrl: feedSites.get(a.feed_id) ?? feedOriginUrl(feedUrl),
     },
     categories,
   }
@@ -454,8 +496,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Subscription list ────────────────────────────────────────────────────────
 
-  app.get('/reader/api/0/subscription/list', async (_request, reply) => {
+  app.get('/reader/api/0/subscription/list', async (request, reply) => {
     const feeds = getFeeds().filter((f) => f.type !== 'clip')
+    const feedSites = inlineFeedSites(requestOrigin(request))
     const subscriptions = feeds.map((f) => {
       const feedUrl = f.rss_url ?? f.url
       const categories: { id: string; label: string }[] = f.category_id && f.category_name
@@ -465,7 +508,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
         id: `feed/${feedUrl}`,
         title: f.name,
         url: feedUrl,
-        htmlUrl: feedOriginUrl(feedUrl),
+        htmlUrl: feedSites.get(f.id) ?? feedOriginUrl(feedUrl),
         iconUrl: '',
         firstitemmsec: '0',
         categories,
@@ -592,7 +635,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
     const ids = body.i.slice(0, 100).map(decodeItemId).filter((id): id is number => id !== null)
     const rows = getEnrichedArticles(ids)
-    const items = rows.map((row) => articleToGReaderItem(row, requestOrigin(request)))
+    const origin = requestOrigin(request)
+    const feedSites = inlineFeedSites(origin)
+    const items = rows.map((row) => articleToGReaderItem(row, origin, feedSites))
 
     reply.header('Content-Type', 'application/json')
     return reply.send({ id: 'user/-/state/com.google/reading-list', updated: Math.floor(Date.now() / 1000), items })
@@ -628,7 +673,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     })
     const rows = getEnrichedArticles(refs.map((ref) => ref.id))
 
-    const items = rows.map((row) => articleToGReaderItem(row, requestOrigin(request)))
+    const origin = requestOrigin(request)
+    const feedSites = inlineFeedSites(origin)
+    const items = rows.map((row) => articleToGReaderItem(row, origin, feedSites))
     const nextOffset = offset + limit
     const continuation = nextOffset < total ? Buffer.from(String(nextOffset)).toString('base64') : undefined
 

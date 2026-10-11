@@ -121,3 +121,25 @@ const SUBSTACK_POST_RE = /href="(https:\/\/open\.substack\.com\/pub\/[\w-]+\/p\/
 export function extractEmailSourceUrl(html: string): string | null {
   return SUBSTACK_POST_RE.exec(html)?.[1] ?? null
 }
+
+const SUBSTACK_PUBLICATION_PATH_RE = /^\/pub\/([a-z0-9-]+)/i
+
+/**
+ * The website of the publication a source URL (see extractEmailSourceUrl)
+ * belongs to. Substack's open.substack.com links name the publication in the
+ * path; every publication is also reachable at <name>.substack.com, which is
+ * a host of its own. Any other URL belongs to its origin.
+ */
+export function publicationSiteOf(sourceUrl: string): string | null {
+  try {
+    const url = new URL(sourceUrl)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    if (url.hostname === 'open.substack.com') {
+      const publication = SUBSTACK_PUBLICATION_PATH_RE.exec(url.pathname)?.[1]
+      if (publication) return `https://${publication.toLowerCase()}.substack.com`
+    }
+    return url.origin
+  } catch {
+    return null
+  }
+}

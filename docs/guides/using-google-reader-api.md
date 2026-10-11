@@ -65,4 +65,6 @@ In `unread-count`, `newestItemTimestampUsec` is the time a feed's newest article
 
 Each item's `canonical` and `alternate` link is the article's page on the web. Inline feed entries such as email newsletters have no page at their own URL, so the link is the original post when Oksskolten found one, and otherwise the article's page on this server (built from the host the client connected to).
 
+A feed's website (`htmlUrl`, on the subscription and on each item's `origin`) is normally the origin of its feed URL. Feeds made of inline entries all live on the mail-to-feed bridge's host, and a reader app that tells sources apart by website would fold them into one, so each of those reports the publication its articles come from instead (for Substack, `https://<publication>.substack.com`), or its page on this server when no post address is known. The feed ID is added as a fragment so that two feeds of the same publication stay distinct.
+
 An explicit `com.google/read` edit records the article as actually read in Oksskolten (`read_at` and `seen_at`). Removing that state clears both timestamps. Bulk mark-all operations only set `seen_at`, because they represent clearing a stream rather than opening every article.

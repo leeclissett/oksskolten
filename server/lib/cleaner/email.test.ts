@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { JSDOM } from 'jsdom'
 import { Readability } from '@mozilla/readability'
-import { extractEmailSourceUrl, isLayoutTable, prepareEmailDocument, protectHeadings, unwrapLayoutTables } from './email.js'
+import { extractEmailSourceUrl, publicationSiteOf, isLayoutTable, prepareEmailDocument, protectHeadings, unwrapLayoutTables } from './email.js'
 
 function docOf(html: string): Document {
   return new JSDOM(`<!DOCTYPE html><html><body>${html}</body></html>`).window.document
@@ -162,5 +162,22 @@ describe('extractEmailSourceUrl', () => {
 
   it('returns null for an email with no recognisable post address', () => {
     expect(extractEmailSourceUrl('<html><body><a href="https://news.example.com/view-in-browser/123">View in browser</a></body></html>')).toBeNull()
+  })
+})
+
+describe('publicationSiteOf', () => {
+  it("maps a Substack post link to the publication's own host", () => {
+    expect(publicationSiteOf('https://open.substack.com/pub/growthgems/p/growth-gems-149')).toBe('https://growthgems.substack.com')
+    expect(publicationSiteOf('https://open.substack.com/pub/TheSkip/p/a-post')).toBe('https://theskip.substack.com')
+  })
+
+  it('uses the origin for any other address', () => {
+    expect(publicationSiteOf('https://news.example.com/issues/42?x=1')).toBe('https://news.example.com')
+    expect(publicationSiteOf('https://open.substack.com/about')).toBe('https://open.substack.com')
+  })
+
+  it('returns null for something that is not a web address', () => {
+    expect(publicationSiteOf('not a url')).toBeNull()
+    expect(publicationSiteOf('mailto:someone@example.com')).toBeNull()
   })
 })

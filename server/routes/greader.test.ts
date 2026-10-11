@@ -571,3 +571,97 @@ describe('article links for reader apps', () => {
     expect(canonical).toBe(alternate)
   })
 })
+
+// ── Feed websites ────────────────────────────────────────────────────────────
+
+describe('feed website (htmlUrl) for newsletter feeds sharing one host', () => {
+  const BRIDGE = 'http://192.168.1.50:3100'
+
+  function newsletterFeed(slug: string, name: string) {
+    return createFeed({ name, url: `${BRIDGE}/api/feeds/${slug}`, rss_url: `${BRIDGE}/api/feeds/${slug}` })
+  }
+
+  function issue(feed: { id: number; rss_url: string | null }, n: number, sourceUrl?: string): number {
+    return insertArticle({
+      feed_id: feed.id,
+      title: `Issue ${n}`,
+      url: `${feed.rss_url}#urn:letterfeed:entry:${feed.id}-${n}`,
+      published_at: '2025-01-01T00:00:00Z',
+      source_url: sourceUrl,
+    })
+  }
+
+  async function subscriptions(): Promise<Map<string, string>> {
+    const { auth } = await clientLogin()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reader/api/0/subscription/list?output=json',
+      headers: { authorization: `GoogleLogin auth=${auth}`, host: 'rss.example.com' },
+    })
+    expect(res.statusCode).toBe(200)
+    return new Map(res.json().subscriptions.map((sub: { title: string; htmlUrl: string }) => [sub.title, sub.htmlUrl]))
+  }
+
+  it('gives every newsletter feed its own website instead of the shared bridge host', async () => {
+    seedUser()
+    const gems = newsletterFeed('growth-gems', 'Growth Gems')
+    const lenny = newsletterFeed('lenny', "Lenny's Newsletter")
+    const howIAi = newsletterFeed('how-i-ai', 'How I AI')
+    const plain = newsletterFeed('other', 'No Post Links')
+    issue(gems, 1, 'https://open.substack.com/pub/growthgems/p/one')
+    issue(lenny, 1, 'https://open.substack.com/pub/lenny/p/one')
+    issue(lenny, 2, 'https://open.substack.com/pub/lenny/p/two')
+    issue(lenny, 3, 'https://open.substack.com/pub/theskip/p/a-cross-post')
+    issue(howIAi, 1, 'https://open.substack.com/pub/lenny/p/how-i-ai-one')
+    issue(plain, 1)
+
+    const sites = await subscriptions()
+
+    expect(sites.get('Growth Gems')).toBe(`https://growthgems.substack.com/#feed-${gems.id}`)
+    // The publication most of the feed's articles come from, not the cross-post's.
+    expect(sites.get("Lenny's Newsletter")).toBe(`https://lenny.substack.com/#feed-${lenny.id}`)
+    // Same publication as another feed, still a distinct address.
+    expect(sites.get('How I AI')).toBe(`https://lenny.substack.com/#feed-${howIAi.id}`)
+    // No post link known: this server's page for the feed, never the bridge.
+    expect(sites.get('No Post Links')).toBe(`http://rss.example.com/feeds/${plain.id}`)
+
+    expect(new Set(sites.values()).size).toBe(4)
+    for (const site of sites.values()) expect(site).not.toContain('192.168.1.50')
+  })
+
+  it('leaves ordinary feeds on their origin, including anchor-link feeds', async () => {
+    seedUser()
+    const blog = createFeed({ name: 'Blog', url: 'https://blog.example.com', rss_url: 'https://blog.example.com/feed.xml' })
+    const changelog = createFeed({ name: 'Changelog', url: 'https://example.com/changelog', rss_url: 'https://example.com/changelog.xml' })
+    insertArticle({ feed_id: blog.id, title: 'Post', url: 'https://blog.example.com/post', published_at: '2025-01-01T00:00:00Z' })
+    insertArticle({ feed_id: changelog.id, title: '2.1.74', url: 'https://example.com/changelog#2-1-74', published_at: '2025-01-01T00:00:00Z' })
+
+    const sites = await subscriptions()
+
+    expect(sites.get('Blog')).toBe('https://blog.example.com')
+    expect(sites.get('Changelog')).toBe('https://example.com')
+  })
+
+  it("reports the same website on each article's origin as on its subscription", async () => {
+    seedUser()
+    const gems = newsletterFeed('growth-gems', 'Growth Gems')
+    const articleId = issue(gems, 1, 'https://open.substack.com/pub/growthgems/p/one')
+    const sites = await subscriptions()
+    const { auth } = await clientLogin()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reader/api/0/stream/items/contents',
+      headers: {
+        authorization: `GoogleLogin auth=${auth}`,
+        'content-type': 'application/x-www-form-urlencoded',
+        host: 'rss.example.com',
+      },
+      payload: `i=${articleId}`,
+    })
+
+    const [item] = res.json().items
+    expect(item.origin.htmlUrl).toBe(sites.get('Growth Gems'))
+    expect(item.origin.streamId).toBe(`feed/${gems.rss_url}`)
+  })
+})
