@@ -1,4 +1,4 @@
-FROM node:22-slim AS base
+FROM node:22.23.4-slim AS base
 
 ENV TZ=UTC
 RUN apt-get update -qq && apt-get install -y -qq ca-certificates curl tzdata \
