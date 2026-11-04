@@ -29,6 +29,7 @@ import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead
 import { articleUrlToPath, isInlineEntryUrl } from '../../shared/url.js'
 import { publicationSiteOf } from '../lib/cleaner/email.js'
 import { parseOrBadRequest } from '../lib/validation.js'
+import { routedPath } from '../lib/routed-path.js'
 import { logger } from '../logger.js'
 
 declare module 'fastify' {
@@ -466,7 +467,8 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   // ── All /reader/api/0/* routes require GReader auth ─────────────────────────
 
   app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!request.url.startsWith('/reader/api/')) return
+    // Match on the routed path: request.url is still percent-encoded.
+    if (!routedPath(request).startsWith('/reader/api/')) return
     const email = await verifyGReaderAuth(request, reply, app)
     if (!email) return // reply already sent
     request.greaderEmail = email

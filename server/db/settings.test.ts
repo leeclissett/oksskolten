@@ -75,6 +75,14 @@ describe('getOrCreateJwtSecret', () => {
     expect(secret).toBe('my-preset-secret')
   })
 
+  it.each(['', '   ', '\t\n'])('replaces a blank stored secret (%j) instead of returning it', (blank) => {
+    upsertSetting('system.jwt_secret', blank)
+    const secret = getOrCreateJwtSecret()
+    expect(secret.trim()).not.toBe('')
+    expect(secret.length).toBeGreaterThanOrEqual(32)
+    expect(getSetting('system.jwt_secret')).toBe(secret)
+  })
+
   it('generates a base64url-encoded secret', () => {
     const secret = getOrCreateJwtSecret()
     // base64url uses only [A-Za-z0-9_-]

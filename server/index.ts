@@ -10,6 +10,8 @@ import cron, { type ScheduledTask } from 'node-cron'
 import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, recalculateScores, purgeExpiredArticles, shrinkMemory, recoverStuckTranslationJobs } from './db.js'
 import { logger } from './logger.js'
 import { findProjectRoot } from './paths.js'
+import { validateJwtSecret } from './jwt-secret.js'
+import { isRateLimitExempt } from './lib/routed-path.js'
 
 const log = logger
 import { getDb } from './db/connection.js'
@@ -44,19 +46,34 @@ if (process.env.NODE_ENV === 'development') {
   seedDevData()
 }
 
+// --- JWT secret ---
+// Precedence: env var > DB value > auto-generated (persisted to the DB).
+// An empty JWT_SECRET counts as unset; a whitespace-only one is fatal. A blank
+// DB value is replaced by getOrCreateJwtSecret. Never sign or verify tokens
+// with an empty HMAC key.
+const envSecret = process.env.JWT_SECRET
+let jwtSecret: string
+try {
+  const validated = validateJwtSecret(
+    envSecret || getOrCreateJwtSecret(),
+    envSecret ? 'the JWT_SECRET env var' : 'the database (system.jwt_secret)',
+  )
+  if (validated.warning) log.warn(validated.warning)
+  jwtSecret = validated.secret
+} catch (err) {
+  log.error(`FATAL: ${(err as Error).message}. Refusing to start. Unset JWT_SECRET to use the generated secret stored in the database, or set it to a long random value.`)
+  process.exit(1)
+}
+
 // Migrate JWT_SECRET from env var to DB so existing tokens remain valid
 // even after removing the env var
-const envSecret = process.env.JWT_SECRET
 if (envSecret) {
   const dbSecret = getSetting('system.jwt_secret')
-  if (!dbSecret) {
+  if (!dbSecret?.trim()) {
     upsertSetting('system.jwt_secret', envSecret)
     log.info('Migrated JWT_SECRET from env var to database')
   }
 }
-
-// Precedence: env var > DB value > auto-generated
-const jwtSecret = process.env.JWT_SECRET || getOrCreateJwtSecret()
 
 // --- Fastify ---
 const isDev = process.env.NODE_ENV === 'development'
@@ -85,7 +102,7 @@ await app.register(jwt, {
 await app.register(rateLimit, {
   max: RATE_LIMIT_MAX,
   timeWindow: RATE_LIMIT_WINDOW,
-  allowList: (req) => !req.url.startsWith('/api') && !req.url.startsWith('/reader') && !req.url.startsWith('/accounts'),
+  allowList: isRateLimitExempt,
 })
 await app.register(multipart, {
   limits: { fileSize: MULTIPART_MAX_FILE_SIZE },
