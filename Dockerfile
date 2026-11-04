@@ -1,4 +1,11 @@
-FROM node:22.23.4-slim AS base
+# Base image pinned by tag AND multi-arch index digest, so rebuilds can't pick
+# up a silently re-pushed tag. The digest wins; the tag is for humans/Dependabot.
+# To bump (e.g. a Node 22.x security release), replace both on this one line.
+# Get the index digest with any of:
+#   docker buildx imagetools inspect node:22.X.Y-slim      # "Digest:" line
+#   crane digest node:22.X.Y-slim
+#   curl -s https://hub.docker.com/v2/repositories/library/node/tags/22.X.Y-slim | jq -r .digest
+FROM node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS base
 
 ENV TZ=UTC
 RUN apt-get update -qq && apt-get install -y -qq ca-certificates curl tzdata \
