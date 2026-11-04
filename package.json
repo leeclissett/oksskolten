@@ -107,9 +107,17 @@
     "vitest": "^4.0.18"
   },
   "overrides": {
+    "@fastify/ajv-compiler": {
+      "fast-uri": "^3.1.9"
+    },
     "@fastify/busboy": "^3.2.2",
+    "@fastify/fast-json-stringify-compiler": {
+      "fast-uri": "^3.1.9"
+    },
+    "ajv": {
+      "fast-uri": "^3.1.9"
+    },
     "fast-jwt": "^6.3.4",
-    "fast-uri": "^3.1.9",
     "find-my-way": "^9.7.0",
     "hono": "^4.13.11",
     "path-to-regexp": "^8.4.0",
