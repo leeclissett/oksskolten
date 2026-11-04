@@ -10,6 +10,7 @@ import cron, { type ScheduledTask } from 'node-cron'
 import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, recalculateScores, purgeExpiredArticles, shrinkMemory, recoverStuckTranslationJobs } from './db.js'
 import { logger } from './logger.js'
 import { findProjectRoot } from './paths.js'
+import { validateJwtSecret } from './jwt-secret.js'
 
 const log = logger
 import { getDb } from './db/connection.js'
@@ -44,9 +45,26 @@ if (process.env.NODE_ENV === 'development') {
   seedDevData()
 }
 
+// --- JWT secret ---
+// Precedence: env var > DB value > auto-generated (persisted to the DB).
+// An empty JWT_SECRET counts as unset. A blank (whitespace-only) secret from
+// any source is fatal: never sign or verify tokens with an empty HMAC key.
+const envSecret = process.env.JWT_SECRET
+let jwtSecret: string
+try {
+  const validated = validateJwtSecret(
+    envSecret || getOrCreateJwtSecret(),
+    envSecret ? 'the JWT_SECRET env var' : 'the database (system.jwt_secret)',
+  )
+  if (validated.warning) log.warn(validated.warning)
+  jwtSecret = validated.secret
+} catch (err) {
+  log.error(`FATAL: ${(err as Error).message}. Refusing to start. Unset JWT_SECRET to use the generated secret stored in the database, or set it to a long random value.`)
+  process.exit(1)
+}
+
 // Migrate JWT_SECRET from env var to DB so existing tokens remain valid
 // even after removing the env var
-const envSecret = process.env.JWT_SECRET
 if (envSecret) {
   const dbSecret = getSetting('system.jwt_secret')
   if (!dbSecret) {
@@ -54,9 +72,6 @@ if (envSecret) {
     log.info('Migrated JWT_SECRET from env var to database')
   }
 }
-
-// Precedence: env var > DB value > auto-generated
-const jwtSecret = process.env.JWT_SECRET || getOrCreateJwtSecret()
 
 // --- Fastify ---
 const isDev = process.env.NODE_ENV === 'development'
