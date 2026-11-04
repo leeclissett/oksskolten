@@ -48,8 +48,9 @@ if (process.env.NODE_ENV === 'development') {
 
 // --- JWT secret ---
 // Precedence: env var > DB value > auto-generated (persisted to the DB).
-// An empty JWT_SECRET counts as unset. A blank (whitespace-only) secret from
-// any source is fatal: never sign or verify tokens with an empty HMAC key.
+// An empty JWT_SECRET counts as unset; a whitespace-only one is fatal. A blank
+// DB value is replaced by getOrCreateJwtSecret. Never sign or verify tokens
+// with an empty HMAC key.
 const envSecret = process.env.JWT_SECRET
 let jwtSecret: string
 try {
@@ -68,7 +69,7 @@ try {
 // even after removing the env var
 if (envSecret) {
   const dbSecret = getSetting('system.jwt_secret')
-  if (!dbSecret) {
+  if (!dbSecret?.trim()) {
     upsertSetting('system.jwt_secret', envSecret)
     log.info('Migrated JWT_SECRET from env var to database')
   }

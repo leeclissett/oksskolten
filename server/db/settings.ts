@@ -19,9 +19,15 @@ export function deleteSetting(key: string): void {
 
 export function getOrCreateJwtSecret(): string {
   const existing = getSetting('system.jwt_secret')
-  if (existing) return existing
+  if (existing?.trim()) return existing
+  // A blank stored value (older builds copied a whitespace JWT_SECRET into the
+  // DB) is treated as missing: never sign with it, replace it.
   const secret = randomBytes(64).toString('base64url')
   upsertSetting('system.jwt_secret', secret)
-  log.info('Generated new JWT secret and persisted to database')
+  if (existing !== undefined) {
+    log.warn('Stored JWT secret was blank; generated a new one (existing sessions must sign in again)')
+  } else {
+    log.info('Generated new JWT secret and persisted to database')
+  }
   return secret
 }
