@@ -63,6 +63,18 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(res.body).toContain('Error=NeedsBrowser')
   })
 
+  it.each([
+    '/api/greader.php/%72eader/api/0/user-info',
+    '/api/greader.php/reader/%61pi/0/subscription/list?output=json',
+    '/api/greader%2Ephp/reader/api/0/user-info',
+    '/%61pi/greader.php/reader/api/0/stream/contents/user/-/state/com.google/reading-list',
+  ])('protects prefixed reader endpoints reached through a percent-encoded path: %s', async (url) => {
+    const res = await app.inject({ method: 'GET', url })
+
+    expect(res.statusCode).toBe(401)
+    expect(res.body).toContain('Error=NeedsBrowser')
+  })
+
   it('serves authenticated reader endpoints under the FreshRSS base URL', async () => {
     seedUser()
     createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })

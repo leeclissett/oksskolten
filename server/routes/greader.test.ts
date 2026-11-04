@@ -124,6 +124,27 @@ describe('/reader/api/0/* auth', () => {
     expect(res.body).toContain('Error=TokenExpired')
   })
 
+  // request.url keeps percent-encoding, but routing decodes it: "/%72eader/..."
+  // reaches the "/reader/..." handler. The auth check must not be fooled.
+  it.each([
+    ['GET', '/%72eader/api/0/user-info'],
+    ['GET', '/reader/%61pi/0/subscription/list?output=json'],
+    ['GET', '/%72eader/api/0/stream/contents/user/-/state/com.google/reading-list'],
+    ['GET', '/%72eader/api/0/stream/items/ids?output=json'],
+    ['POST', '/%72eader/api/0/edit-tag'],
+    ['POST', '/%72eader/api/0/mark-all-as-read'],
+  ])('returns 401 for unauthenticated %s %s (percent-encoded path)', async (method, url) => {
+    seedUser()
+    const res = await app.inject({
+      method: method as 'GET' | 'POST',
+      url,
+      headers: method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {},
+      payload: method === 'POST' ? 'i=1&a=user/-/state/com.google/read&s=user/-/state/com.google/reading-list' : undefined,
+    })
+    expect(res.statusCode).toBe(401)
+    expect(res.body).toContain('Error=NeedsBrowser')
+  })
+
   it('returns 401 when token_version is bumped', async () => {
     seedUser()
     const { auth } = await clientLogin()

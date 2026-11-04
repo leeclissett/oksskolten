@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getDb } from '../db.js'
 import { logger } from '../logger.js'
+import { routedPath } from '../lib/routed-path.js'
 import { greaderRoutes } from './greader.js'
 
 const log = logger.child('greader-freshrss')
@@ -48,11 +49,12 @@ async function verifyFreshRssAuth(
  * GReader implementation under that prefix while preserving the root routes.
  */
 export async function freshRssGreaderRoutes(app: FastifyInstance): Promise<void> {
-  // greaderRoutes' own auth hook matches root `/reader/api/*` paths. Because
-  // Fastify keeps the plugin prefix in request.url, protect the prefixed reader
-  // routes here before delegating to the existing handlers.
+  // greaderRoutes' own auth hook matches root `/reader/api/*` routes. Because
+  // the routed path includes the plugin prefix, protect the prefixed reader
+  // routes here before delegating to the existing handlers. Match on the
+  // routed path, not request.url, which is still percent-encoded.
   app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!request.url.startsWith(`${FRESHRSS_GREADER_PREFIX}/reader/api/`)) return
+    if (!routedPath(request).startsWith(`${FRESHRSS_GREADER_PREFIX}/reader/api/`)) return
 
     const email = await verifyFreshRssAuth(request, reply, app)
     if (!email) return
