@@ -12,6 +12,7 @@ import { logger } from './logger.js'
 import { findProjectRoot } from './paths.js'
 import { validateJwtSecret } from './jwt-secret.js'
 import { isRateLimitExempt } from './lib/routed-path.js'
+import { clientIp, rateLimitKey } from './lib/client-ip.js'
 
 const log = logger
 import { getDb } from './db/connection.js'
@@ -103,6 +104,10 @@ await app.register(rateLimit, {
   max: RATE_LIMIT_MAX,
   timeWindow: RATE_LIMIT_WINDOW,
   allowList: isRateLimitExempt,
+  // Key on Cloudflare's CF-Connecting-IP, not request.ip: trustProxy makes
+  // request.ip the client-chosen leftmost X-Forwarded-For entry. Route-level
+  // limits (login endpoints) inherit this key.
+  keyGenerator: rateLimitKey,
 })
 await app.register(multipart, {
   limits: { fileSize: MULTIPART_MAX_FILE_SIZE },
@@ -119,7 +124,7 @@ app.addHook('onResponse', (req, reply, done) => {
       statusCode: reply.statusCode,
       responseTime: Math.round(reply.elapsedTime),
       contentLength: reply.getHeader('content-length') || 0,
-      remoteAddress: req.ip,
+      remoteAddress: clientIp(req),
     })
   }
   done()
