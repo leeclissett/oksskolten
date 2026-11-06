@@ -22,7 +22,7 @@ import { z } from 'zod'
 import { compareSync } from 'bcryptjs'
 import { marked } from 'marked'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { allNamed, getDb, getNamed, getSetting } from '../db.js'
+import { allNamed, getDb, getSetting } from '../db.js'
 import { getFeeds } from '../db/feeds.js'
 import { getCategories, markAllSeenByCategory } from '../db/categories.js'
 import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
@@ -50,7 +50,10 @@ const log = logger.child('greader')
  */
 const GREADER_TOKEN_EXPIRY = '3650d'
 
-/** Maximum SQLite bound parameters per query (hard limit is 999). */
+/**
+ * Bound parameters per `IN (...)` chunk. libsql (SQLite 3.45) allows 32766;
+ * staying under the historical 999 keeps each statement and its CASE small.
+ */
 const MAX_SQL_PARAMS = 900
 
 /** Extract the origin (scheme + host) from a feed URL, falling back to the raw URL. */
@@ -101,7 +104,7 @@ function pickCredentials(source: unknown): { Email?: unknown; Passwd?: unknown }
   }
 }
 
-const StreamItemsContentsBody = z.object({ i: ids })
+const StreamItemsContentsBody = z.object({ i: ids, r: scalar.optional() })
 
 const EditTagBody = z.object({
   i: ids,
@@ -358,11 +361,62 @@ interface StreamArticleRef {
   created_at: string
 }
 
+/** Default page size of stream/items/ids and stream/contents when `n` is absent (FreshRSS and Google). */
+const DEFAULT_PAGE_SIZE = 20
+/** Largest `n` on stream/items/ids, as in FreshRSS; reader apps ask for up to 10000. */
+const MAX_ITEM_IDS_PAGE_SIZE = 10000
+/**
+ * Largest `n` on stream/contents. FreshRSS has no cap; this is a deliberate
+ * one, because each item carries its full body. 1000 is the largest page any
+ * audited client asks for, so no client is cut short by it.
+ */
+const MAX_CONTENTS_PAGE_SIZE = 1000
+
 /** Read a positive integer query parameter (first value if repeated). */
 function positiveIntParam(value: string | string[] | undefined): number | null {
   if (value === undefined) return null
   const n = Number(Array.isArray(value) ? value[0] : value)
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+}
+
+/** The page size `n`: DEFAULT_PAGE_SIZE when absent or invalid, at most `max`. */
+function pageSizeParam(value: string | string[] | undefined, max: number): number {
+  const n = positiveIntParam(value)
+  return n === null || n < 1 ? DEFAULT_PAGE_SIZE : Math.min(n, max)
+}
+
+/**
+ * Position in a stream: the (arrival time, id) of the last item already sent.
+ * Streams are ordered on that pair, so the next page starts strictly after it
+ * whatever arrived in the meantime — no repeats and no gaps, unlike an offset.
+ */
+interface StreamCursor {
+  createdAt: string
+  id: number
+}
+
+/** Opaque continuation token for the page that follows `ref`. base64url, so clients that do not percent-encode `c=` still send it back intact. */
+function encodeContinuation(ref: StreamArticleRef): string {
+  return Buffer.from(`${ref.id}:${ref.created_at}`).toString('base64url')
+}
+
+/**
+ * Decode a continuation token. Anything else (including the base64 offsets
+ * issued before cursors existed) yields null, i.e. the first page, as an
+ * unreadable offset did before.
+ */
+function decodeContinuation(value: string | string[] | undefined): StreamCursor | null {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (!raw) return null
+  const match = /^(\d{1,16}):(.+)$/.exec(Buffer.from(raw, 'base64url').toString('utf8'))
+  if (!match) return null
+  const id = Number(match[1])
+  return Number.isSafeInteger(id) ? { id, createdAt: match[2] } : null
+}
+
+/** Continuation for a page: present whenever the page is full (FreshRSS), never an empty string. */
+function continuationFor(refs: StreamArticleRef[], limit: number): string | undefined {
+  return refs.length > 0 && refs.length >= limit ? encodeContinuation(refs[refs.length - 1]) : undefined
 }
 
 /**
@@ -375,13 +429,16 @@ function positiveIntParam(value: string | string[] | undefined): number | null {
  * arrives with a backlog whose publication dates can be weeks old, so ordering
  * or filtering by publication date hides those articles from every such sync
  * and the new feed never shows up in the app.
+ *
+ * Pages are keyed on (created_at, id) — the sort key — so `cursor` resumes
+ * strictly after the last item of the previous page, in either direction.
  */
 function listStreamArticles(
   filter: ReturnType<typeof buildArticleOpts>,
-  page: { limit: number; offset: number; startSec?: number | null; stopSec?: number | null; ascending?: boolean },
-): { refs: StreamArticleRef[]; total: number } {
+  page: { limit: number; cursor?: StreamCursor | null; startSec?: number | null; stopSec?: number | null; ascending?: boolean },
+): StreamArticleRef[] {
   const conditions: string[] = []
-  const params: Record<string, number> = {}
+  const params: Record<string, number | string> = {}
 
   if (filter.feedId) {
     conditions.push('a.feed_id = @feedId')
@@ -402,20 +459,32 @@ function listStreamArticles(
     conditions.push("a.created_at <= datetime(@stopSec, 'unixepoch')")
     params.stopSec = page.stopSec
   }
+  if (page.cursor) {
+    conditions.push(`(a.created_at, a.id) ${page.ascending ? '>' : '<'} (@cursorCreatedAt, @cursorId)`)
+    params.cursorCreatedAt = page.cursor.createdAt
+    params.cursorId = page.cursor.id
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
   const direction = page.ascending ? 'ASC' : 'DESC'
 
-  const total = getNamed<{ n: number }>(`SELECT COUNT(*) AS n FROM active_articles a ${where}`, params).n
-  const refs = allNamed<StreamArticleRef>(`
+  return allNamed<StreamArticleRef>(`
     SELECT a.id, a.created_at
     FROM active_articles a
     ${where}
     ORDER BY a.created_at ${direction}, a.id ${direction}
-    LIMIT @limit OFFSET @offset
-  `, { ...params, limit: page.limit, offset: page.offset })
+    LIMIT @limit
+  `, { ...params, limit: page.limit })
+}
 
-  return { refs, total }
+/** Order article rows by arrival (created_at, then id), newest first unless `ascending`. */
+function byArrival(ascending: boolean): (a: ArticleRow, b: ArticleRow) => number {
+  return (a, b) => {
+    const at = a.created_at ?? ''
+    const bt = b.created_at ?? ''
+    const order = at < bt ? -1 : at > bt ? 1 : a.id - b.id
+    return ascending ? order : -order
+  }
 }
 
 // --- Route registration ---
@@ -432,10 +501,15 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     (_req: FastifyRequest, body: string, done: (err: Error | null, body?: unknown) => void) => {
       const params = new URLSearchParams(body)
       const parsed: Record<string, string | string[]> = {}
+      // Linear in the number of fields: stream/items/contents bodies repeat `i`
+      // thousands of times, and this parser runs before the auth hook, so
+      // copying the array on every repeat would let any client spend minutes
+      // of CPU on one 1 MiB body.
       for (const [k, v] of params.entries()) {
-        if (k in parsed) {
+        if (Object.hasOwn(parsed, k)) {
           const existing = parsed[k]
-          parsed[k] = Array.isArray(existing) ? [...existing, v] : [existing, v]
+          if (Array.isArray(existing)) existing.push(v)
+          else parsed[k] = [existing, v]
         } else {
           parsed[k] = v
         }
@@ -647,13 +721,10 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const q = request.query as Record<string, string | string[]>
     const stream = Array.isArray(q.s) ? q.s[0] : (q.s ?? 'user/-/state/com.google/reading-list')
     const exclude = Array.isArray(q.xt) ? q.xt[0] : (q.xt ?? '')
-    const limit = (() => {
-      const n = Number(q.n ?? 10000)
-      return Number.isFinite(n) && n >= 1 ? Math.min(n, 10000) : 10000
-    })()
-    const { refs } = listStreamArticles(buildArticleOpts(stream, exclude), {
+    const limit = pageSizeParam(q.n, MAX_ITEM_IDS_PAGE_SIZE)
+    const refs = listStreamArticles(buildArticleOpts(stream, exclude), {
       limit,
-      offset: 0,
+      cursor: decodeContinuation(q.c),
       startSec: positiveIntParam(q.ot),
       stopSec: positiveIntParam(q.nt),
       ascending: (Array.isArray(q.r) ? q.r[0] : q.r) === 'o',
@@ -664,8 +735,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       directStreamIds: [],
       timestampUsec: String(dateToTimestampUsec(ref.created_at)),
     }))
+    const continuation = continuationFor(refs, limit)
     reply.header('Content-Type', 'application/json')
-    return reply.send({ itemRefs })
+    return reply.send({ itemRefs, ...(continuation ? { continuation } : {}) })
   })
 
   // ── Fetch specific items ─────────────────────────────────────────────────────
@@ -674,8 +746,13 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const body = parseOrBadRequest(StreamItemsContentsBody, request.body, reply)
     if (!body) return
 
-    const ids = body.i.slice(0, 100).map(decodeItemId).filter((id): id is number => id !== null)
-    const rows = getEnrichedArticles(ids)
+    // No cap on the number of IDs, as in FreshRSS: Fastify's 1 MiB bodyLimit
+    // bounds the request. Items come back in stream order (newest arrival
+    // first, oldest first with r=o), not request order, as in FreshRSS.
+    const q = request.query as Record<string, string | string[] | undefined>
+    const order = (Array.isArray(q.r) ? q.r[0] : q.r) ?? body.r
+    const ids = [...new Set(body.i.map(decodeItemId).filter((id): id is number => id !== null))]
+    const rows = getEnrichedArticles(ids).sort(byArrival(order === 'o'))
     const origin = requestOrigin(request)
     const feedSites = inlineFeedSites(origin)
     const items = rows.map((row) => articleToGReaderItem(row, origin, feedSites))
@@ -693,21 +770,11 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   ): Promise<FastifyReply> {
     const q = request.query as Record<string, string | string[]>
     const exclude = Array.isArray(q.xt) ? q.xt[0] : (q.xt ?? '')
-    const limit = (() => {
-      const raw = Array.isArray(q.n) ? q.n[0] : q.n
-      const n = Number(raw ?? 20)
-      return Number.isFinite(n) && n >= 1 ? Math.min(n, 100) : 20
-    })()
-    const offset = (() => {
-      if (!q.c) return 0
-      const raw = Array.isArray(q.c) ? q.c[0] : q.c
-      const decoded = Number(Buffer.from(raw, 'base64').toString())
-      return Number.isFinite(decoded) && decoded >= 0 ? decoded : 0
-    })()
+    const limit = pageSizeParam(q.n, MAX_CONTENTS_PAGE_SIZE)
 
-    const { refs, total } = listStreamArticles(buildArticleOpts(stream, exclude), {
+    const refs = listStreamArticles(buildArticleOpts(stream, exclude), {
       limit,
-      offset,
+      cursor: decodeContinuation(q.c),
       startSec: positiveIntParam(q.ot),
       stopSec: positiveIntParam(q.nt),
       ascending: (Array.isArray(q.r) ? q.r[0] : q.r) === 'o',
@@ -717,8 +784,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const origin = requestOrigin(request)
     const feedSites = inlineFeedSites(origin)
     const items = rows.map((row) => articleToGReaderItem(row, origin, feedSites))
-    const nextOffset = offset + limit
-    const continuation = nextOffset < total ? Buffer.from(String(nextOffset)).toString('base64') : undefined
+    const continuation = continuationFor(refs, limit)
 
     reply.header('Content-Type', 'application/json')
     return reply.send({

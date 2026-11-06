@@ -335,6 +335,22 @@ describe('/reader/api/0/* auth', () => {
     expect(res.body).toContain('Error=NeedsBrowser')
   })
 
+  // The form parser runs before the auth hook. Copying the value array on
+  // every repeated key made a ~240 KB body of `i=1&i=1&...` cost ~20 s of CPU
+  // (1 MiB, the body limit, several minutes); parsing must stay linear.
+  it.each(['', '/api/greader.php'])('parses a large repeated-field body in linear time before rejecting it unauthenticated (%s)', async (base) => {
+    const payload = Array.from({ length: 60_000 }, () => 'i=1').join('&')
+    const started = Date.now()
+    const res = await app.inject({
+      method: 'POST',
+      url: `${base}/reader/api/0/stream/items/contents`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload,
+    })
+    expect(res.statusCode).toBe(401)
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
   it('returns 401 when token_version is bumped', async () => {
     seedUser()
     const { auth } = await clientLogin()
@@ -653,17 +669,28 @@ describe('stream ordering and time filters', () => {
     const seen: string[] = []
     let continuation: string | undefined
     let pages = 0
+    let lateTitle = ''
     do {
       const c = continuation ? `&c=${continuation}` : ''
       const body = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=100${c}`, auth)
       seen.push(...body.items.map((item: { id: string }) => item.id))
       continuation = body.continuation
       pages++
+      if (pages === 1) {
+        // A new article reaches the server while the app is between pages.
+        const feed = createFeed({ name: 'Late', url: 'https://example.com/late', rss_url: 'https://example.com/late/rss' })
+        lateTitle = 'Arrived between pages'
+        insertArticle({ feed_id: feed.id, title: lateTitle, url: 'https://example.com/late/1', published_at: null })
+      }
     } while (continuation && pages < 10)
 
     expect(pages).toBe(2)
     expect(seen).toHaveLength(153)
     expect(new Set(seen).size).toBe(153)
+    // The late article is newer than the walk's start, so it belongs to the next sync's head.
+    const head = await get(`/reader/api/0/stream/contents?output=json&s=${READING_LIST}&n=1`, auth)
+    expect(head.items[0].title).toBe(lateTitle)
+    expect(seen).not.toContain(head.items[0].id)
   })
 
   it('applies ot and nt to arrival time, on both stream endpoints', async () => {
@@ -709,6 +736,203 @@ describe('stream ordering and time filters', () => {
 
     const feedStream = await get(`/reader/api/0/stream/contents?output=json&s=${encodeURIComponent('feed/https://example.com/new/rss')}&n=100`, auth)
     expect(feedStream.items).toHaveLength(3)
+  })
+})
+
+// ── Pagination and caps (WP2) ────────────────────────────────────────────────
+
+describe.each([
+  { label: 'root', base: '' },
+  { label: '/api/greader.php', base: '/api/greader.php' },
+])('pagination and caps ($label)', ({ base }) => {
+  const READING_LIST = 'user/-/state/com.google/reading-list'
+  const API = `${base}/reader/api/0`
+  const BASE_SEC = Date.UTC(2026, 9, 2) / 1000
+
+  /**
+   * `count` articles in one feed. Arrival times advance one second every
+   * three articles, so ties on created_at exercise the id tiebreak.
+   */
+  function seedArticles(count: number, opts: { feedId?: number; startSec?: number; tag?: string } = {}): number[] {
+    const feedId = opts.feedId ?? createFeed({ name: 'Bulk', url: 'https://bulk.example.com', rss_url: 'https://bulk.example.com/rss' }).id
+    const startSec = opts.startSec ?? BASE_SEC
+    const tag = opts.tag ?? 'a'
+    const db = getDb()
+    const setArrival = db.prepare("UPDATE articles SET created_at = datetime(?, 'unixepoch') WHERE id = ?")
+    return db.transaction(() => Array.from({ length: count }, (_, i) => {
+      const id = insertArticle({ feed_id: feedId, title: `Bulk ${tag}${i}`, url: `https://bulk.example.com/${tag}/${i}`, published_at: '2021-01-01T00:00:00Z' })
+      setArrival.run(startSec + Math.floor(i / 3), id)
+      return id
+    }))()
+  }
+
+  /** All article ids ordered by arrival, newest first (or oldest first). */
+  function arrivalOrder(ascending = false): number[] {
+    const dir = ascending ? 'ASC' : 'DESC'
+    return (getDb().prepare(`SELECT id FROM articles ORDER BY created_at ${dir}, id ${dir}`).all() as { id: number }[]).map((r) => r.id)
+  }
+
+  let auth: string | null = null
+  beforeEach(async () => {
+    seedUser()
+    auth = (await clientLogin()).auth
+  })
+
+  async function get(path: string) {
+    const res = await app.inject({ method: 'GET', url: `${API}${path}`, headers: { authorization: `GoogleLogin auth=${auth}` } })
+    expect(res.statusCode).toBe(200)
+    return res.json()
+  }
+
+  async function postItems(ids: string[], query = '') {
+    const res = await app.inject({
+      method: 'POST',
+      url: `${API}/stream/items/contents${query}`,
+      headers: { authorization: `GoogleLogin auth=${auth}`, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: ids.map((id) => `i=${encodeURIComponent(id)}`).join('&'),
+    })
+    expect(res.statusCode).toBe(200)
+    return res.json()
+  }
+
+  const itemNumericId = (item: { id: string }) => parseInt(item.id.split('/').pop()!, 16)
+
+  type Endpoint = { name: string; path: string; ids: (body: Record<string, unknown>) => number[] }
+  const ENDPOINTS: Endpoint[] = [
+    {
+      name: 'stream/items/ids',
+      path: `/stream/items/ids?output=json&s=${READING_LIST}`,
+      ids: (body) => (body.itemRefs as { id: string }[]).map((ref) => Number(ref.id)),
+    },
+    {
+      name: 'stream/contents',
+      path: `/stream/contents?output=json&s=${READING_LIST}`,
+      ids: (body) => (body.items as { id: string }[]).map(itemNumericId),
+    },
+  ]
+
+  /** Follow continuations from the first page; `between` runs after each page. */
+  async function walk(endpoint: Endpoint, query: string, between?: (page: number) => void) {
+    const pages: { ids: number[]; continuation: unknown; hasKey: boolean }[] = []
+    let continuation: string | undefined
+    do {
+      const c = continuation ? `&c=${encodeURIComponent(continuation)}` : ''
+      const body = await get(`${endpoint.path}${query}${c}`)
+      pages.push({ ids: endpoint.ids(body), continuation: body.continuation, hasKey: 'continuation' in body })
+      continuation = body.continuation as string | undefined
+      between?.(pages.length)
+    } while (continuation && pages.length < 20)
+    return pages
+  }
+
+  describe.each(ENDPOINTS)('$name', (endpoint) => {
+    it('pages 2,500 articles at n=1000 as 1000/1000/500, with a continuation on the first two pages only', async () => {
+      seedArticles(2500)
+      const pages = await walk(endpoint, '&n=1000')
+      expect(pages.map((p) => p.ids.length)).toEqual([1000, 1000, 500])
+      expect(pages.map((p) => p.hasKey)).toEqual([true, true, false])
+      for (const p of pages.slice(0, 2)) expect(p.continuation).toEqual(expect.stringMatching(/.+/))
+      expect(pages.flatMap((p) => p.ids)).toEqual(arrivalOrder())
+    }, 30_000)
+
+    it('ends a stream of exactly n=1000 with an empty page that has no continuation', async () => {
+      seedArticles(1000)
+      const pages = await walk(endpoint, '&n=1000')
+      expect(pages.map((p) => p.ids.length)).toEqual([1000, 0])
+      expect(pages[0].continuation).toEqual(expect.stringMatching(/.+/))
+      expect(pages[1].hasKey).toBe(false)
+    })
+
+    it('neither repeats nor skips an item when articles arrive between pages (newest first)', async () => {
+      const feedId = createFeed({ name: 'Bulk', url: 'https://bulk.example.com', rss_url: 'https://bulk.example.com/rss' }).id
+      seedArticles(45, { feedId })
+      const expected = arrivalOrder()
+      // Newer arrivals after page 1, and one sharing the arrival second of the
+      // page-1 boundary (it gets a higher id, so it sorts before the cursor).
+      const pages = await walk(endpoint, '&n=20', (page) => {
+        if (page !== 1) return
+        seedArticles(5, { feedId, startSec: BASE_SEC + 3600, tag: 'late' })
+        const boundary = getDb().prepare('SELECT created_at FROM articles WHERE id = ?').get(expected[19]) as { created_at: string }
+        const tie = insertArticle({ feed_id: feedId, title: 'Tie', url: 'https://bulk.example.com/tie', published_at: null })
+        getDb().prepare('UPDATE articles SET created_at = ? WHERE id = ?').run(boundary.created_at, tie)
+      })
+      const seen = pages.flatMap((p) => p.ids)
+      expect(seen).toEqual(expected)
+      expect(pages.map((p) => p.ids.length)).toEqual([20, 20, 5])
+    })
+
+    it('walks oldest first with r=o, with the same guarantees, and picks up later arrivals at the end', async () => {
+      const feedId = createFeed({ name: 'Bulk', url: 'https://bulk.example.com', rss_url: 'https://bulk.example.com/rss' }).id
+      seedArticles(40, { feedId })
+      const expected = arrivalOrder(true)
+      let late: number[] = []
+      const pages = await walk(endpoint, '&n=20&r=o', (page) => {
+        if (page === 1) late = seedArticles(3, { feedId, startSec: BASE_SEC + 3600, tag: 'late' })
+      })
+      const seen = pages.flatMap((p) => p.ids)
+      expect(seen).toEqual([...expected, ...late])
+      expect(new Set(seen).size).toBe(43)
+      expect(pages.map((p) => p.ids.length)).toEqual([20, 20, 3])
+      expect(pages[2].hasKey).toBe(false)
+    })
+
+    it('defaults n to 20', async () => {
+      seedArticles(25)
+      const first = await get(endpoint.path)
+      expect(endpoint.ids(first)).toEqual(arrivalOrder().slice(0, 20))
+      expect(first.continuation).toEqual(expect.stringMatching(/.+/))
+    })
+
+    it('never emits an empty-string continuation, and treats an unreadable one as the first page', async () => {
+      seedArticles(3)
+      const body = await get(`${endpoint.path}&n=20`)
+      expect(body).not.toHaveProperty('continuation')
+      // A pre-cursor offset token ("MTAw" = base64 of "100") restarts the stream.
+      const legacy = await get(`${endpoint.path}&n=20&c=MTAw`)
+      expect(endpoint.ids(legacy)).toEqual(arrivalOrder())
+    })
+  })
+
+  it('honours n up to 10000 on stream/items/ids', async () => {
+    seedArticles(10_001)
+    const all = await get(`${ENDPOINTS[0].path}&n=10000`)
+    expect(all.itemRefs).toHaveLength(10_000)
+    expect(all.continuation).toEqual(expect.stringMatching(/.+/))
+    const capped = await get(`${ENDPOINTS[0].path}&n=20000`)
+    expect(capped.itemRefs).toHaveLength(10_000)
+    const rest = await get(`${ENDPOINTS[0].path}&n=10000&c=${encodeURIComponent(all.continuation)}`)
+    expect(rest.itemRefs).toHaveLength(1)
+    expect(rest).not.toHaveProperty('continuation')
+  }, 30_000) // seeding 10,001 articles takes a few seconds
+
+  it('honours n=1000 on stream/contents and caps n=5000 to 1000', async () => {
+    seedArticles(1200)
+    expect((await get(`${ENDPOINTS[1].path}&n=1000`)).items).toHaveLength(1000)
+    const capped = await get(`${ENDPOINTS[1].path}&n=5000`)
+    expect(capped.items).toHaveLength(1000)
+    expect(capped.continuation).toEqual(expect.stringMatching(/.+/))
+  })
+
+  it.each([250, 1500])('returns every item of a %i-ID stream/items/contents request, newest arrival first', async (count) => {
+    const ids = seedArticles(count)
+    // Request in an unrelated order, tag form for half of them.
+    const request = [...ids].reverse().map((id, i) => (i % 2 === 0
+      ? `tag:google.com,2005:reader/item/${id.toString(16).padStart(16, '0')}`
+      : String(id)))
+    const body = await postItems(request)
+    expect(body.items.map(itemNumericId)).toEqual(arrivalOrder())
+  }, 30_000)
+
+  it('returns stream/items/contents oldest arrival first with r=o', async () => {
+    const ids = seedArticles(300)
+    const body = await postItems(ids.map(String), '?r=o')
+    expect(body.items.map(itemNumericId)).toEqual(arrivalOrder(true))
+  })
+
+  it('returns each item once when stream/items/contents repeats an ID', async () => {
+    const [first, second] = seedArticles(2)
+    const body = await postItems([String(first), String(second), String(first)])
+    expect(body.items.map(itemNumericId)).toEqual([second, first])
   })
 })
 

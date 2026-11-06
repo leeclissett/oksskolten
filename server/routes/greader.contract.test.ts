@@ -550,7 +550,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/items/ids ($label)', ({ base }
     expect((await ids(`s=${enc(READING_LIST)}&n=5`)).json().itemRefs).toHaveLength(5)
   })
 
-  it.skip('WP2: defaults n to 20 and pages with a continuation until the last page, which has none', async () => {
+  it('WP2: defaults n to 20 and pages with a continuation until the last page, which has none', async () => {
     const { beta } = seedWorld()
     seedMany(beta.id, 42) // 45 in total
     const first = (await ids(`s=${enc(READING_LIST)}`)).json()
@@ -584,7 +584,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/items/ids ($label)', ({ base }
     }
   })
 
-  it.skip('WP2: paging is stable when articles arrive between pages', async () => {
+  it('WP2: paging is stable when articles arrive between pages', async () => {
     const { beta } = seedWorld()
     seedMany(beta.id, 37) // 40 in total
     const first = (await ids(`s=${enc(READING_LIST)}&n=20`)).json()
@@ -705,21 +705,22 @@ describe.each(PREFIXES)('POST /reader/api/0/stream/items/contents ($label)', ({ 
     expect(tagged.title).toBe('Article 4096')
   })
 
-  it.skip('WP2: returns every item of a 250-ID request (Capy Reader batch size)', async () => {
+  it('WP2: returns every item of a 250-ID request (Capy Reader batch size)', async () => {
     const { beta } = seedWorld()
     const bulk = seedMany(beta.id, 250)
     const body = (await contents(bulk.map(String))).json()
     expect(body.items).toHaveLength(250)
   })
 
-  it.skip('WP2: rejects more than 1000 IDs with 400 Bad Request!', async () => {
-    seedWorld()
-    const res = await contents(Array.from({ length: 1001 }, (_, n) => String(n + 1)))
-    expect(res.statusCode).toBe(400)
-    expect(res.body).toBe('Bad Request!')
-  })
+  // FreshRSS has no ID cap (§3a #12): only the 1 MiB body limit bounds the request.
+  it('WP2: has no ID cap, returning every item of a 1,500-ID request', async () => {
+    const { beta } = seedWorld()
+    const bulk = seedMany(beta.id, 1500)
+    const body = (await contents(bulk.map(String))).json()
+    expect(body.items).toHaveLength(1500)
+  }, 30_000)
 
-  it.skip('WP2: orders items like FreshRSS (newest arrival first; oldest first with r=o), whatever the request order', async () => {
+  it('WP2: orders items like FreshRSS (newest arrival first; oldest first with r=o), whatever the request order', async () => {
     const { unreadId, readId, starredId } = seedWorld()
     const request = [String(readId), String(unreadId), String(starredId)]
     const desc = (await contents(request)).json().items.map(itemNumericId)
@@ -788,7 +789,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/contents ($label)', ({ base })
     expect(new Set(all).size).toBe(25)
   })
 
-  it.skip('WP2: paging is stable when articles arrive between pages', async () => {
+  it('WP2: paging is stable when articles arrive between pages', async () => {
     const { beta } = seedWorld()
     seedMany(beta.id, 37) // 40 in total
     const first = (await get(`?s=${enc(READING_LIST)}&n=20`)).json()
@@ -799,7 +800,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/contents ($label)', ({ base })
     expect(new Set(all).size).toBe(40)
   })
 
-  it.skip('WP2: honours n up to 1000 (default 20)', async () => {
+  it('WP2: honours n up to 1000 (default 20)', async () => {
     const { beta } = seedWorld()
     seedMany(beta.id, 147) // 150 in total
     expect((await get(`?s=${enc(READING_LIST)}`)).json().items).toHaveLength(20)
