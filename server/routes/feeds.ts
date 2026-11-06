@@ -479,8 +479,9 @@ export function importOpmlEntries(entries: ParsedFeed[]): { imported: number; sk
 
   for (const entry of entries) {
     try {
-      // Check for duplicate by url or rss_url
-      if (getFeedByUrl(entry.url)) {
+      // A duplicate is an entry whose site URL is a feed's site URL, or whose
+      // RSS URL is a feed's RSS URL (as subscribeToFeedUrl checks).
+      if (getFeedByUrl(entry.url) || (entry.rssUrl && feedWithRssUrl(entry.rssUrl))) {
         skipped++
         continue
       }
@@ -530,6 +531,11 @@ export class AlreadySubscribedError extends Error {
     super(`Already subscribed! ${url}`)
     this.name = 'AlreadySubscribedError'
   }
+}
+
+/** The feed whose RSS URL is `rssUrl`, if any. */
+function feedWithRssUrl(rssUrl: string): Feed | undefined {
+  return getDb().prepare('SELECT * FROM feeds WHERE rss_url = ? LIMIT 1').get(rssUrl) as Feed | undefined
 }
 
 /** The feed whose RSS URL or site URL is `url`, if any. */

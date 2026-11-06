@@ -8,10 +8,10 @@
  * FreshRSS prefix (`/api/greader.php/reader/api/0/...`).
  *
  * Conventions:
- * - Tests for behaviour `main` already matches run and must pass.
- * - Tests for behaviour a later work package implements are kept in full but
- *   registered with `it.skip('WP<n>: ...')` (or `it.todo` where the body needs
- *   network mocking). Each WP un-skips its own.
+ * - Every test runs and must pass. A `WP<n>:` prefix names
+ *   the work package that brought the behaviour in (WP0–WP5, all merged).
+ * - Behaviour the fork deliberately does differently from greader.php is
+ *   listed in docs/greader-compat.md ("Deliberate deviations").
  * - The fork deliberately emits Google-era keys FreshRSS omits
  *   (`itemRefs[].directStreamIds`, `itemRefs[].timestampUsec`, per-item
  *   `updated`, `subscriptions[].firstitemmsec`), and accepts input FreshRSS
@@ -291,7 +291,7 @@ describe.each(PREFIXES)('POST /accounts/ClientLogin ($label)', ({ base }) => {
     expect(res.statusCode).toBe(400)
   })
 
-  it.skip('WP5: success body is exactly SID=<t>\\nLSID=null\\nAuth=<t>\\n, text/plain; charset=UTF-8', async () => {
+  it('WP5: success body is exactly SID=<t>\\nLSID=null\\nAuth=<t>\\n, text/plain; charset=UTF-8', async () => {
     seedUser()
     const res = await login({ Email: EMAIL, Passwd: PASSWORD })
     expect(res.headers['content-type']).toMatch(TEXT_CT_EXACT)
@@ -299,7 +299,7 @@ describe.each(PREFIXES)('POST /accounts/ClientLogin ($label)', ({ base }) => {
     expect(res.body).toBe(`SID=${token}\nLSID=null\nAuth=${token}\n`)
   })
 
-  it.skip('WP5: a wrong password returns 401 Unauthorized! with Google-Bad-Token: true', async () => {
+  it('WP5: a wrong password returns 401 Unauthorized! with Google-Bad-Token: true', async () => {
     seedUser()
     const res = await login({ Email: EMAIL, Passwd: 'wrong' })
     expect(res.statusCode).toBe(401)
@@ -308,7 +308,7 @@ describe.each(PREFIXES)('POST /accounts/ClientLogin ($label)', ({ base }) => {
     expect(res.body).toBe('Unauthorized!')
   })
 
-  it.skip('WP5: a request without Passwd returns 400 Bad Request! as plain text', async () => {
+  it('WP5: a request without Passwd returns 400 Bad Request! as plain text', async () => {
     seedUser()
     const res = await login({ Email: EMAIL })
     expect(res.statusCode).toBe(400)
@@ -316,8 +316,7 @@ describe.each(PREFIXES)('POST /accounts/ClientLogin ($label)', ({ base }) => {
     expect(res.body).toBe('Bad Request!')
   })
 
-  // Owned by WP1 (developed in parallel); un-skip once WP1 is merged.
-  it.skip('WP1: accepts GET with Email and Passwd in the query string', async () => {
+  it('WP1: accepts GET with Email and Passwd in the query string', async () => {
     seedUser()
     const res = await client(base).get(`/accounts/ClientLogin?Email=${enc(EMAIL)}&Passwd=${enc(PASSWORD)}`, { auth: false })
     expect(res.statusCode).toBe(200)
@@ -380,7 +379,7 @@ describe.each(PREFIXES)('reader route authentication ($label)', ({ base }) => {
     expect(res.statusCode).toBe(401)
   })
 
-  it.skip.each([...READER_ROUTES, ...WP4_ROUTES])('WP5: $method $path auth failure is 401 Unauthorized! with Google-Bad-Token: true', async (route) => {
+  it.each([...READER_ROUTES, ...WP4_ROUTES])('WP5: $method $path auth failure is 401 Unauthorized! with Google-Bad-Token: true', async (route) => {
     seedUser()
     for (const authorization of [undefined, 'GoogleLogin auth=not-a-token']) {
       const res = await request(route, authorization)
@@ -391,7 +390,7 @@ describe.each(PREFIXES)('reader route authentication ($label)', ({ base }) => {
     }
   })
 
-  it.skip('WP5: a token whose token_version was bumped gets the same 401 Unauthorized!', async () => {
+  it('WP5: a token whose token_version was bumped gets the same 401 Unauthorized!', async () => {
     seedUser()
     getDb().prepare('UPDATE users SET token_version = token_version + 1').run()
     const res = await client(base).get(`${API}/user-info`)
@@ -929,7 +928,7 @@ describe.each(PREFIXES)('POST /reader/api/0/edit-tag ($label)', ({ base }) => {
     expect(state(1000).liked_at).toBeNull()
   })
 
-  it.skip('WP5: OK is text/plain; charset=UTF-8 with no trailing newline', async () => {
+  it('WP5: OK is text/plain; charset=UTF-8 with no trailing newline', async () => {
     const { unreadId } = seedWorld()
     const res = await editTag({ i: String(unreadId), a: READ })
     expect(res.headers['content-type']).toMatch(TEXT_CT_EXACT)
@@ -987,7 +986,7 @@ describe.each(PREFIXES)('POST /reader/api/0/mark-all-as-read ($label)', ({ base 
     expect(state(unreadId).seen_at).toBeNull()
   })
 
-  it.skip('WP5: OK is text/plain; charset=UTF-8', async () => {
+  it('WP5: OK is text/plain; charset=UTF-8', async () => {
     seedWorld()
     const res = await markAll({ s: READING_LIST })
     expect(res.headers['content-type']).toMatch(TEXT_CT_EXACT)
@@ -1202,7 +1201,7 @@ describe.each(PREFIXES)('GET /check/compatibility ($label)', ({ base }) => {
 // ── Error conventions (WP5) ──────────────────────────────────────────────────
 
 describe.each(PREFIXES)('unknown paths ($label)', ({ base }) => {
-  it.skip('WP5: an unknown authenticated reader path answers 400 Bad Request! as plain text', async () => {
+  it('WP5: an unknown authenticated reader path answers 400 Bad Request! as plain text', async () => {
     seedUser()
     for (const path of [`${API}/no-such-endpoint`, `${API}/stream/nothing`, `${API}/subscription/nothing`]) {
       const res = await client(base).get(path)
@@ -1214,7 +1213,7 @@ describe.each(PREFIXES)('unknown paths ($label)', ({ base }) => {
 })
 
 describe('unknown paths under /api/greader.php', () => {
-  it.skip('WP5: answer 400 Bad Request!, never the SPA or the JSON 404', async () => {
+  it('WP5: answer 400 Bad Request!, never the SPA or the JSON 404', async () => {
     seedUser()
     for (const url of ['/api/greader.php/nothing', '/api/greader.php/reader/nothing/here']) {
       const res = await app.inject({ method: 'GET', url })

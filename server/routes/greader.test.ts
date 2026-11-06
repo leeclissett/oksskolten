@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { getDb, createCategory, createFeed, getCategories, insertArticle } from '../db.js'
+import { getDb, createCategory, createFeed, getCategories, insertArticle, upsertSetting } from '../db.js'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
 import { clientLoginAttempts } from '../lib/login-attempts.js'
 import { isRateLimitExempt } from '../lib/routed-path.js'
 import { rateLimitKey } from '../lib/client-ip.js'
 import { decodeItemId } from './greader.js'
+import { registerSpaFallback } from '../lib/spa-fallback.js'
 
 // Subscribing discovers and fetches the feed over the network; mock both, as
 // server/routes/feeds.test.ts does.
@@ -79,11 +80,11 @@ afterEach(() => {
 // ── ClientLogin ──────────────────────────────────────────────────────────────
 
 describe('POST /accounts/ClientLogin', () => {
-  it('returns 403 for bad credentials', async () => {
+  it('returns 401 Unauthorized! for bad credentials', async () => {
     seedUser()
     const { res } = await clientLogin('test@example.com', 'wrongpassword')
-    expect(res.statusCode).toBe(403)
-    expect(res.body).toContain('Error=BadAuthentication')
+    expect(res.statusCode).toBe(401)
+    expect(res.body).toBe('Unauthorized!')
   })
 
   it('returns token on valid credentials', async () => {
@@ -169,7 +170,7 @@ describe.each([
   async function failTimes(n: number, email = 'test@example.com', ip?: string) {
     for (let i = 0; i < n; i++) {
       const res = await postLogin(email, 'wrongpassword', ip)
-      expect(res.statusCode).toBe(403)
+      expect(res.statusCode).toBe(401)
     }
   }
 
@@ -262,8 +263,8 @@ describe.each([
   it('GET with a wrong password fails like POST and counts toward the same limit', async () => {
     seedUser()
     const res = await getLogin('test@example.com', 'wrongpassword')
-    expect(res.statusCode).toBe(403)
-    expect(res.body).toContain('Error=BadAuthentication')
+    expect(res.statusCode).toBe(401)
+    expect(res.body).toBe('Unauthorized!')
     await failTimes(9)
     expectTooManyRequests(await getLogin('test@example.com', 'password123'))
   })
@@ -333,7 +334,7 @@ describe('/reader/api/0/* auth', () => {
   it('returns 401 with no auth header', async () => {
     const res = await app.inject({ method: 'GET', url: '/reader/api/0/user-info' })
     expect(res.statusCode).toBe(401)
-    expect(res.body).toContain('Error=NeedsBrowser')
+    expect(res.body).toBe('Unauthorized!')
   })
 
   it('returns 401 with invalid token', async () => {
@@ -343,7 +344,7 @@ describe('/reader/api/0/* auth', () => {
       headers: { authorization: 'GoogleLogin auth=not-a-valid-token' },
     })
     expect(res.statusCode).toBe(401)
-    expect(res.body).toContain('Error=TokenExpired')
+    expect(res.body).toBe('Unauthorized!')
   })
 
   // request.url keeps percent-encoding, but routing decodes it: "/%72eader/..."
@@ -364,7 +365,7 @@ describe('/reader/api/0/* auth', () => {
       payload: method === 'POST' ? 'i=1&a=user/-/state/com.google/read&s=user/-/state/com.google/reading-list' : undefined,
     })
     expect(res.statusCode).toBe(401)
-    expect(res.body).toContain('Error=NeedsBrowser')
+    expect(res.body).toBe('Unauthorized!')
   })
 
   // The form parser runs before the auth hook. Copying the value array on
@@ -396,7 +397,7 @@ describe('/reader/api/0/* auth', () => {
       headers: { authorization: `GoogleLogin auth=${auth}` },
     })
     expect(res.statusCode).toBe(401)
-    expect(res.body).toContain('Error=TokenExpired')
+    expect(res.body).toBe('Unauthorized!')
   })
 })
 
@@ -1842,5 +1843,345 @@ describe.each([
       expect(fail.statusCode).toBe(200)
       expect(fail.body).toBe('FAIL get HTTP Authorization header! Wrong Web server configuration.')
     })
+  })
+})
+
+// ── FreshRSS error and response conventions (WP5, both prefixes) ────────────
+
+describe.each([
+  ['root', ''],
+  ['FreshRSS prefix', '/api/greader.php'],
+])('FreshRSS response conventions (%s)', (_name, prefix) => {
+  const API = `${prefix}/reader/api/0`
+  const TEXT = 'text/plain; charset=UTF-8'
+
+  function expectUnauthorized(res: { statusCode: number; headers: Record<string, unknown>; body: string }) {
+    expect(res.statusCode).toBe(401)
+    expect(res.headers['content-type']).toBe(TEXT)
+    expect(res.headers['google-bad-token']).toBe('true')
+    expect(res.body).toBe('Unauthorized!')
+  }
+
+  function expectBadRequest(res: { statusCode: number; headers: Record<string, unknown>; body: string }) {
+    expect(res.statusCode).toBe(400)
+    expect(res.headers['content-type']).toBe(TEXT)
+    expect(res.body).toBe('Bad Request!')
+  }
+
+  function login(form: string) {
+    return app.inject({
+      method: 'POST',
+      url: `${prefix}/accounts/ClientLogin`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: form,
+    })
+  }
+
+  async function token(): Promise<string> {
+    const res = await login('Email=test%40example.com&Passwd=password123')
+    return res.body.match(/^Auth=(.+)$/m)![1]
+  }
+
+  function post(path: string, payload: string, auth: string | null, contentType = 'application/x-www-form-urlencoded') {
+    return app.inject({
+      method: 'POST',
+      url: `${API}${path}`,
+      headers: { 'content-type': contentType, ...(auth ? { authorization: `GoogleLogin auth=${auth}` } : {}) },
+      payload,
+    })
+  }
+
+  function get(path: string, auth: string | null) {
+    return app.inject({
+      method: 'GET',
+      url: `${API}${path}`,
+      headers: auth ? { authorization: `GoogleLogin auth=${auth}` } : {},
+    })
+  }
+
+  describe('unknown reader paths', () => {
+    const UNKNOWN = ['/nope', '/stream/nothing', '/subscription/nothing', '/', '/user-info/extra']
+
+    it.each(UNKNOWN)('%s without a token is 401 Unauthorized! (auth is checked first)', async (path) => {
+      seedUser()
+      expectUnauthorized(await get(path, null))
+      expectUnauthorized(await get(path, 'not-a-token'))
+    })
+
+    it.each(UNKNOWN)('%s with a valid token is 400 Bad Request!', async (path) => {
+      seedUser()
+      expectBadRequest(await get(path, await token()))
+    })
+
+    it.each(['POST', 'PUT', 'DELETE', 'PATCH'] as const)('any method: %s on an unknown path is 400 with a token, 401 without', async (method) => {
+      seedUser()
+      const auth = await token()
+      const withToken = await app.inject({ method, url: `${API}/nope`, headers: { authorization: `GoogleLogin auth=${auth}` } })
+      expectBadRequest(withToken)
+      expectUnauthorized(await app.inject({ method, url: `${API}/nope` }))
+    })
+
+    it('a known path with the wrong method is 400 (e.g. DELETE user-info)', async () => {
+      seedUser()
+      expectBadRequest(await app.inject({ method: 'DELETE', url: `${API}/user-info`, headers: { authorization: `GoogleLogin auth=${await token()}` } }))
+    })
+
+    it('real routes still win over the catch-all', async () => {
+      seedUser()
+      const auth = await token()
+      expect((await get('/user-info', auth)).statusCode).toBe(200)
+      expect((await get('/stream/contents/user/-/state/com.google/reading-list', auth)).statusCode).toBe(200)
+      expect((await get('/stream/contents', auth)).statusCode).toBe(200)
+      expect((await get('/stream/items/ids', auth)).statusCode).toBe(200)
+      expect((await get('/subscription/export', auth)).statusCode).toBe(200)
+    })
+  })
+
+  describe('auth failures', () => {
+    it('missing Authorization header', async () => {
+      seedUser()
+      expectUnauthorized(await get('/user-info', null))
+    })
+
+    it('Authorization header that is not GoogleLogin', async () => {
+      seedUser()
+      expectUnauthorized(await app.inject({ method: 'GET', url: `${API}/user-info`, headers: { authorization: 'Bearer abc' } }))
+    })
+
+    it('a token signed with another secret', async () => {
+      seedUser()
+      const forged = (await token()).replace(/\.[^.]+$/, '.AAAA')
+      expectUnauthorized(await get('/user-info', forged))
+    })
+
+    it('an expired token', async () => {
+      seedUser()
+      const expired = app.jwt.sign({ email: 'test@example.com', token_version: 0 }, { expiresIn: '1s' })
+      vi.useFakeTimers({ now: Date.now() + 60_000, toFake: ['Date'] })
+      try {
+        expectUnauthorized(await get('/user-info', expired))
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('a bumped token_version', async () => {
+      seedUser()
+      const auth = await token()
+      getDb().prepare('UPDATE users SET token_version = token_version + 1').run()
+      expectUnauthorized(await get('/user-info', auth))
+    })
+
+    it('a token for an account that no longer exists', async () => {
+      seedUser()
+      const auth = await token()
+      getDb().prepare('DELETE FROM users').run()
+      expectUnauthorized(await get('/user-info', auth))
+    })
+
+    it('ClientLogin with a wrong password', async () => {
+      seedUser()
+      const res = await login('Email=test%40example.com&Passwd=wrong')
+      expectUnauthorized(res)
+      expect(res.body).not.toMatch(/Auth=/)
+    })
+
+    it('ClientLogin with an unknown email', async () => {
+      seedUser()
+      expectUnauthorized(await login('Email=nobody%40example.com&Passwd=password123'))
+    })
+
+    it('ClientLogin when password login is disabled (passkey-only account)', async () => {
+      seedUser()
+      upsertSetting('auth.password_enabled', '0')
+      expectUnauthorized(await login('Email=test%40example.com&Passwd=password123'))
+    })
+
+    it('ClientLogin without Passwd is 400 Bad Request!', async () => {
+      seedUser()
+      expectBadRequest(await login('Email=test%40example.com'))
+    })
+
+    it('the failure limiter still answers 429 before the password is checked', async () => {
+      seedUser()
+      for (let i = 0; i < 10; i++) expectUnauthorized(await login('Email=test%40example.com&Passwd=wrong'))
+      const res = await login('Email=test%40example.com&Passwd=password123')
+      expect(res.statusCode).toBe(429)
+      expect(res.headers['content-type']).toBe(TEXT)
+      expect(res.body).toBe('Too Many Requests\n')
+    })
+  })
+
+  describe('success bodies', () => {
+    it('ClientLogin success is exactly SID=<t>\\nLSID=null\\nAuth=<t>\\n', async () => {
+      seedUser()
+      const res = await login('Email=test%40example.com&Passwd=password123')
+      expect(res.statusCode).toBe(200)
+      expect(res.headers['content-type']).toBe(TEXT)
+      const auth = res.body.match(/^Auth=(.+)$/m)![1]
+      expect(auth).toMatch(/^[^\s=]+$/)
+      expect(res.body).toBe(`SID=${auth}\nLSID=null\nAuth=${auth}\n`)
+    })
+
+    it('token is text/plain; charset=UTF-8', async () => {
+      seedUser()
+      const res = await get('/token', await token())
+      expect(res.headers['content-type']).toBe(TEXT)
+      expect(res.body).toMatch(/^[0-9a-fZ]{57}\n$/)
+    })
+
+    it('every OK endpoint answers exactly OK, text/plain; charset=UTF-8', async () => {
+      seedUser()
+      const auth = await token()
+      const cat = createCategory('News')
+      createCategory('Old')
+      const feed = createFeed({ name: 'Alpha', url: 'https://alpha.example.com', rss_url: 'https://alpha.example.com/feed', category_id: cat.id })
+      const articleId = insertArticle({ feed_id: feed.id, title: 'A', url: 'https://alpha.example.com/1', published_at: null })
+      const opml = '<?xml version="1.0"?><opml version="2.0"><body><outline type="rss" text="Beta" xmlUrl="https://beta.example.com/feed" htmlUrl="https://beta.example.com"/></body></opml>'
+
+      const responses = [
+        await post('/edit-tag', `i=${articleId}&a=user%2F-%2Fstate%2Fcom.google%2Fread`, auth),
+        await post('/mark-all-as-read', 's=user%2F-%2Fstate%2Fcom.google%2Freading-list', auth),
+        await post('/subscription/edit', `ac=edit&s=feed%2F${feed.id}&t=Alpha2`, auth),
+        await post('/rename-tag', 's=user%2F-%2Flabel%2FNews&dest=user%2F-%2Flabel%2FNews2', auth),
+        await post('/disable-tag', 's=user%2F-%2Flabel%2FOld', auth),
+        await post('/subscription/import', opml, auth, 'text/xml'),
+      ]
+      for (const res of responses) {
+        expect(res.statusCode).toBe(200)
+        expect(res.headers['content-type']).toBe(TEXT)
+        expect(res.body).toBe('OK')
+        expect(res.rawPayload.equals(Buffer.from('OK'))).toBe(true)
+      }
+    })
+
+    it('JSON responses are application/json; charset=utf-8, export application/xml', async () => {
+      seedUser()
+      const auth = await token()
+      for (const path of ['/user-info', '/tag/list', '/subscription/list', '/unread-count', '/stream/items/ids', '/stream/contents']) {
+        expect((await get(path, auth)).headers['content-type']).toBe('application/json; charset=utf-8')
+      }
+      expect((await get('/subscription/export', auth)).headers['content-type']).toMatch(/^application\/xml/)
+    })
+
+    it('user-info has exactly userId, userName, userProfileId and userEmail, all the email', async () => {
+      seedUser()
+      const body = (await get('/user-info', await token())).json()
+      expect(Object.keys(body).sort()).toEqual(['userEmail', 'userId', 'userName', 'userProfileId'])
+      for (const value of Object.values(body)) expect(value).toBe('test@example.com')
+    })
+  })
+
+  describe('stream/contents wrapper and unknown streams', () => {
+    function seedStream() {
+      const cat = createCategory('News')
+      const feed = createFeed({ name: 'Alpha', url: 'https://alpha.example.com', rss_url: 'https://alpha.example.com/feed', category_id: cat.id })
+      const id = insertArticle({ feed_id: feed.id, title: 'A', url: 'https://alpha.example.com/1', published_at: null })
+      getDb().prepare("UPDATE articles SET liked_at = datetime('now') WHERE id = ?").run(id)
+      return { feed, id }
+    }
+
+    it('wrapper id is the reading list for a feed, a label and starred, path and query forms', async () => {
+      seedUser()
+      const { feed } = seedStream()
+      const auth = await token()
+      for (const stream of [`feed/${feed.id}`, 'user/-/label/News', 'user/-/state/com.google/starred']) {
+        for (const path of [`/stream/contents/${stream}`, `/stream/contents?s=${encodeURIComponent(stream)}`]) {
+          const body = (await get(path, auth)).json()
+          expect(body.id).toBe('user/-/state/com.google/reading-list')
+          expect(body.items).toHaveLength(1)
+          expect(typeof body.updated).toBe('number')
+        }
+      }
+    })
+
+    it('an unknown label is an empty page on stream/items/ids and stream/contents', async () => {
+      seedUser()
+      seedStream()
+      const auth = await token()
+      const ids = await get(`/stream/items/ids?s=${encodeURIComponent('user/-/label/Nope')}`, auth)
+      expect(ids.statusCode).toBe(200)
+      expect(ids.json()).toEqual({ itemRefs: [] })
+      for (const path of ['/stream/contents/user/-/label/Nope', `/stream/contents?s=${encodeURIComponent('user/-/label/Nope')}`]) {
+        const res = await get(path, auth)
+        expect(res.statusCode).toBe(200)
+        expect(res.json().items).toEqual([])
+        expect(res.json()).not.toHaveProperty('continuation')
+      }
+    })
+
+    it('output=json is accepted and ignored; T is not validated', async () => {
+      seedUser()
+      const { id } = seedStream()
+      const auth = await token()
+      for (const path of ['/tag/list', '/subscription/list', '/unread-count', '/stream/items/ids']) {
+        const plain = await get(path, auth)
+        const json = await get(`${path}?output=json`, auth)
+        expect(plain.statusCode).toBe(200)
+        expect(json.statusCode).toBe(200)
+        expect(Object.keys(json.json())).toEqual(Object.keys(plain.json()))
+      }
+      for (const T of ['', 'x', 'garbage-token']) {
+        const res = await post('/edit-tag', `T=${T}&i=${id}&a=user%2F-%2Fstate%2Fcom.google%2Fread`, auth)
+        expect(res.statusCode).toBe(200)
+        expect(res.body).toBe('OK')
+      }
+      expect((await post('/edit-tag', `i=${id}&r=user%2F-%2Fstate%2Fcom.google%2Fread`, auth)).body).toBe('OK')
+    })
+  })
+})
+
+// ── Unknown paths and the SPA fallback (server/index.ts) ────────────────────
+
+describe('SPA fallback alongside the reader routes', () => {
+  let distDir: string
+
+  beforeEach(async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oksskolten-dist-'))
+    fs.writeFileSync(path.join(distDir, 'index.html'), '<!doctype html><title>SPA</title>')
+    await app.close()
+    app = await buildApp()
+    await registerSpaFallback(app, distDir)
+  })
+
+  afterEach(async () => {
+    const fs = await import('node:fs')
+    fs.rmSync(distDir, { recursive: true, force: true })
+  })
+
+  it.each(['/', '/some-page', '/feeds/12', '/reader/other', '/reader/api/1/x'])('serves index.html for %s', async (url) => {
+    const res = await app.inject({ method: 'GET', url })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toMatch(/^text\/html/)
+    expect(res.body).toContain('<title>SPA</title>')
+  })
+
+  it('keeps the JSON 404 for unknown /api paths outside greader.php', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/nothing-here' })
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'Not found' })
+  })
+
+  it.each(['', '/api/greader.php'])('never serves the SPA for an unknown reader path (%s)', async (prefix) => {
+    seedUser()
+    const noToken = await app.inject({ method: 'GET', url: `${prefix}/reader/api/0/nope` })
+    expect(noToken.statusCode).toBe(401)
+    expect(noToken.body).toBe('Unauthorized!')
+    const { auth } = await clientLogin()
+    const withToken = await app.inject({ method: 'GET', url: `${prefix}/reader/api/0/nope`, headers: { authorization: `GoogleLogin auth=${auth}` } })
+    expect(withToken.statusCode).toBe(400)
+    expect(withToken.body).toBe('Bad Request!')
+  })
+
+  it('never serves the SPA or the JSON 404 under /api/greader.php/', async () => {
+    for (const url of ['/api/greader.php/', '/api/greader.php/nothing', '/api/greader.php/reader/nothing/here']) {
+      const res = await app.inject({ method: 'GET', url })
+      expect(res.statusCode).toBe(400)
+      expect(res.headers['content-type']).toBe('text/plain; charset=UTF-8')
+      expect(res.body).toBe('Bad Request!')
+    }
   })
 })

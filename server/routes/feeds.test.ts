@@ -698,4 +698,26 @@ describe('POST /api/opml with selectedUrls', () => {
     expect(data.imported).toBe(1)
     expect(data.skipped).toBe(1)
   })
+
+  it('skips an entry whose RSS URL is already a feed, even when its site URL differs', async () => {
+    seedFeed({ name: 'HN', url: 'https://hn.example.org', rss_url: 'https://news.ycombinator.com/rss' })
+
+    const { body, contentType } = buildMultipart({
+      file: { filename: 'feeds.opml', content: sampleOpml },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/opml',
+      headers: { 'content-type': contentType },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json()
+    expect(data.imported).toBe(2)
+    expect(data.skipped).toBe(1)
+    const { getFeeds } = await import('../db.js')
+    expect(getFeeds().filter((f: { rss_url: string | null }) => f.rss_url === 'https://news.ycombinator.com/rss')).toHaveLength(1)
+  })
 })

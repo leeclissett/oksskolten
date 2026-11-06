@@ -2,7 +2,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import Fastify from 'fastify'
-import fastifyStatic from '@fastify/static'
 import jwt from '@fastify/jwt'
 import rateLimit from '@fastify/rate-limit'
 import multipart from '@fastify/multipart'
@@ -14,6 +13,7 @@ import { validateJwtSecret } from './jwt-secret.js'
 import { isRateLimitExempt } from './lib/routed-path.js'
 import { clientIp, rateLimitKey } from './lib/client-ip.js'
 import { redactUrlSecrets } from './lib/redact-url.js'
+import { registerSpaFallback } from './lib/spa-fallback.js'
 
 const log = logger
 import { getDb } from './db/connection.js'
@@ -166,19 +166,7 @@ registerChatApi(app)
 // SPA static serving (production)
 const distDir = path.join(projectRoot, 'dist')
 if (fs.existsSync(distDir)) {
-  await app.register(fastifyStatic, {
-    root: distDir,
-    wildcard: false,
-  })
-
-  // SPA fallback: serve index.html for non-API routes
-  app.setNotFoundHandler((req, reply) => {
-    if (req.url.startsWith('/api')) {
-      reply.status(404).send({ error: 'Not found' })
-    } else {
-      reply.sendFile('index.html')
-    }
-  })
+  await registerSpaFallback(app, distDir)
 }
 
 // --- Cron ---

@@ -8,9 +8,9 @@ target is to be indistinguishable from FreshRSS's `p/api/greader.php`.
 
 This document is the fork's specification of that dialect. It is written for an
 agent doing an upstream sync or touching `server/routes/greader*.ts`. The
-executable form is `server/routes/greader.contract.test.ts`: tests marked
-`it.skip('WP<n>: …')` / `it.todo('WP<n>: …')` describe target behaviour that a
-pending work package (WP) implements; everything else must stay green.
+executable form is `server/routes/greader.contract.test.ts`; every test in it
+runs and must stay green. A `WP<n>:` prefix on a test names the work package
+(WP0–WP5, all merged) that brought the behaviour in.
 
 - **Oracle:** FreshRSS `p/api/greader.php` (1357 lines) and
   `FreshRSS_Entry::toGReader()` in `app/Models/Entry.php`, edge branch at commit
@@ -35,9 +35,11 @@ Every change is a **superset** of what a generic Google Reader client needs:
   `stream/items/ids` (defaults to the reading list), GET or POST login.
 - **Never drop a Google-era response key** just because FreshRSS omits it. The
   fork keeps emitting `itemRefs[].directStreamIds`, `itemRefs[].timestampUsec`,
-  per-item `updated`, `subscriptions[].firstitemmsec` and `userInfoUrl`. Every
-  decoder audited in §4 ignores unknown keys. The contract tests therefore
-  assert required keys and types, never exact key sets.
+  per-item `updated` and `subscriptions[].firstitemmsec`. Every decoder
+  audited in §4 ignores unknown keys. The contract tests therefore assert
+  required keys and types, not exact key sets — except `user-info`, which is
+  exactly FreshRSS's four keys (WP5 dropped the fork's extra `userInfoUrl`,
+  which no audited client reads).
 - **Deliberate client-visible transitions** (each in its WP): feed IDs change
   from `feed/<url>` to `feed/<int>` (WP4, one-time re-sync in every app; per-item
   read/starred state survives); a bad login becomes `401 Unauthorized!` instead
@@ -56,7 +58,10 @@ Every change is a **superset** of what a generic Google Reader client needs:
 | `stream/contents` has no `n` cap | `n` capped at 1000 (WP2) | Largest value any client sends; each item carries its full body. |
 | `ot`/`nt` also match an entry's `lastModified` | Arrival time (`created_at`) only | The fork has no per-item modification time; equivalent for an article whose content never changes. |
 | Continuation is the decimal ID of the last item | Opaque base64url of `<id>:<created_at>` of the last item | Same keyset semantics on the fork's `(created_at, id)` sort key; clients treat it as opaque. |
-| Several responses carry PHP's default `Content-Type` (see A.2) | Explicit `text/plain; charset=UTF-8` / `application/json; charset=UTF-8` (WP5) | Clients do not check; an explicit type is safer. |
+| Several responses carry PHP's default `Content-Type` (see A.2) | Every plain-text response (`OK`, `token`, ClientLogin, errors, `check/compatibility`) is `text/plain; charset=UTF-8`; every JSON response `application/json; charset=utf-8`; `subscription/export` `application/xml; charset=UTF-8` (WP5) | Clients do not check; an explicit type is safer (§3a #1). |
+| `ClientLogin` with a syntactically invalid username → `400` | Any email is looked up; unknown → `401 Unauthorized!` | Oksskolten's usernames are emails; same outcome for a client (bad credentials). |
+| No passkey-only accounts | `auth.password_enabled = 0` (passkey-only) → `ClientLogin` answers `401 Unauthorized!`, and the server logs why | Clients see an ordinary bad login; the operator can tell the cause from the log. |
+| Unknown paths under `/api/greader.php/` outside `/reader/api/0/` are checked against a `<user>/<hash>` `Authorization` header first (bad one → `401`) | `400 Bad Request!` whatever the credentials | The fork's tokens (JWTs) have no `/`, which greader.php ignores as "no credentials" and answers `400` too. |
 | `edit-tag` `a=user/-/state/com.google/kept-unread` is ignored (no case for it, L924-962) | Marks unread; `r=…/kept-unread` marks read (behaviour kept from before WP3) | Harmless; some Google-era clients send it. |
 | `edit-tag` `a=user/-/label/<x>` tags the item (FreshRSS has per-item labels) | Accepted and ignored, still `OK` | Oksskolten has no per-article labels. |
 | State tags match `user/-/state/com.google/<state>` exactly (`edit-tag`, `it`, `xt`, `s`) | Any user segment: `user/<anything>/state/com.google/<state>` | Google-era clients may send their numeric user ID instead of `-`. |
@@ -105,9 +110,10 @@ alter the LetterFeed inline-entry link logic or translated-article handling.
 
 ## 3. The dialect, verified from greader.php
 
-Legend: **Fork** = state of `main` at `0c5fe8f`, updated where a merged WP
-changed it ("Fork (WP<n>)"); **Target** = what the named WP
-delivers. "verified L*n*–*m*" cites greader.php unless another file is named.
+Legend: **Fork** = the fork's behaviour after WP0–WP5 ("Fork (WP<n>)" names
+the work package that changed it; before WP2 the base was `main` at
+`0c5fe8f`). "verified L*n*–*m*" cites greader.php unless another file is
+named.
 
 ### A.1 Paths and dispatch
 
@@ -132,10 +138,23 @@ delivers. "verified L*n*–*m*" cites greader.php unless another file is named.
   a known endpoint with missing required parameters (e.g. `subscription/edit`
   without `s`/`ac`, `stream/items/contents` without `i`, `quickadd` without
   `quickadd`, `subscription/import` with an empty body).
-- Fork: root unknown paths fall to the SPA (`index.html`, 200), prefixed ones to
-  `{"error":"Not found"}` (404). Target (WP5): `400 Bad Request!` for unknown
-  paths under `/reader/api/0/` and `/api/greader.php/`. CORS/CSP headers and
-  `OPTIONS` are not planned (browser clients only; none audited).
+- Fork (WP5): any path under `/reader/api/0/` that no route serves, with any
+  method (including a known path with an unsupported method), answers
+  `400 Bad Request!` — under the root and under `/api/greader.php`. These are
+  served by a catch-all route `/reader/api/0/*` registered last in
+  `greaderRoutes`; the router prefers every real route over it, and the auth
+  hook runs first, so without a valid token the answer is `401 Unauthorized!`
+  (greader.php also checks the token before dispatching). Any other path under
+  `/api/greader.php/` (including `/api/greader.php/` itself) answers
+  `400 Bad Request!` whatever the credentials (catch-all
+  `/api/greader.php/*` in `freshRssGreaderRoutes`); `/api/greader.php` with
+  no path and no query string answers `200 OK`, as greader.php does. None of
+  these reach the SPA's `index.html` or the web app's JSON 404
+  (`server/lib/spa-fallback.ts`), which still serve every other path. Before
+  WP5 root unknown reader paths got `index.html` (200) and prefixed ones
+  `{"error":"Not found"}` (404). Root paths outside `/reader/api/0/` (e.g.
+  `/accounts/<other>`) remain the web app's. CORS/CSP headers and `OPTIONS`
+  are not planned (browser clients only; none audited).
 
 ### A.2 Errors and content types
 
@@ -159,8 +178,8 @@ and every `exit('OK')` (`edit-tag`, `mark-all-as-read`, `rename-tag`,
 ClientLogin and `check/compatibility` `text/plain; charset=UTF-8`; `tag/list`,
 `subscription/list`, `unread-count`, `stream/contents`, `stream/items/contents`
 `application/json; charset=UTF-8`; `subscription/export`
-`application/xml; charset=UTF-8`. No client checks the type; the fork's target
-(WP5) is the explicit type for every response.
+`application/xml; charset=UTF-8`. No client checks the type; the fork (WP5) sets
+an explicit type on every response (below).
 
 `exit('OK')` emits exactly the two bytes `OK` with status 200 — **no trailing
 newline**. JSON bodies from `tag/list`, `subscription/list`, `unread-count` and
@@ -168,11 +187,20 @@ newline**. JSON bodies from `tag/list`, `subscription/list`, `unread-count` and
 streamed `stream/contents`/`stream/items/contents` bodies are pretty-printed
 with tabs and end with `}\n`.
 
-Fork: JSON responses already carry `application/json; charset=utf-8` (Fastify
-appends the charset; passing tests assert it). Text responses carry bare
-`text/plain` (target WP5: `text/plain; charset=UTF-8`). Auth failures are
-`401 Error=NeedsBrowser` / `401 Error=TokenExpired` without
-`Google-Bad-Token` (target WP5).
+Fork (WP5): JSON responses carry `application/json; charset=utf-8` (Fastify
+appends the charset). Every plain-text response — `OK`, `token`, ClientLogin,
+`check/compatibility`, `400 Bad Request!`, `401 Unauthorized!` and the login
+limiter's `429 Too Many Requests\n` — is `text/plain; charset=UTF-8`, built by
+one helper (`sendText` in `greader.ts`). Every `OK` is exactly the two bytes
+`OK` (`sendOk`). Every auth failure on a reader route (no or malformed
+`Authorization` header, a bad, forged or expired token, a bumped
+`token_version`, a deleted account) and every failed ClientLogin is
+`401`, `Google-Bad-Token: true`, `Unauthorized!` (`unauthorized()`); a
+request whose parameters fail validation (e.g. ClientLogin without `Passwd`,
+`edit-tag` with a malformed body) is `400 Bad Request!` as plain text. Before
+WP5 auth failures were `401 Error=NeedsBrowser` / `401 Error=TokenExpired`
+without the header, a bad login `403 Error=BadAuthentication`, and validation
+errors a JSON `{"error": …}`.
 
 ### A.3 Login, auth header, tokens
 
@@ -181,13 +209,18 @@ appends the charset; passing tests assert it). Text responses carry bare
 - `ClientLogin`: `Email` and `Passwd` from POST body **or** query string (GET is
   accepted with a deprecation log line). Either missing → falls through to
   `400`. A syntactically invalid username → `400`; unknown user or wrong
-  password → `401 Unauthorized!` (+ `Google-Bad-Token`).
+  password → `401 Unauthorized!` (+ `Google-Bad-Token`). Fork (WP5): missing
+  `Email`/`Passwd` → `400 Bad Request!`; unknown email, wrong password or a
+  passkey-only account → `401 Unauthorized!` with `Google-Bad-Token: true`
+  (was `403 Error=BadAuthentication` / `403 Error=PasswordAuthDisabled`). The
+  WP1 failure limiter (`429 Too Many Requests\n`, `Retry-After`) is checked
+  before the password.
 - Success: `200`, `text/plain; charset=UTF-8`, body exactly
   `SID=<auth>\nLSID=null\nAuth=<auth>\n` where `<auth>` is
-  `<user>/<sha1>`. Fork: `SID=<jwt>\nLSID=<jwt>\nAuth=<jwt>\n` with
-  `Content-Type: text/plain` (target WP5: `LSID=null` and the charset). A JWT
-  contains no `=` or whitespace, which NNW and Capy need because they split on
-  `=`.
+  `<user>/<sha1>`. Fork (WP5): exactly `SID=<jwt>\nLSID=null\nAuth=<jwt>\n`,
+  `text/plain; charset=UTF-8` (before WP5 `LSID` repeated the token and the
+  type had no charset). A JWT contains no `=` or whitespace, which NNW and
+  Capy need because they split on `=`.
 - Requests authenticate with `Authorization: GoogleLogin auth=<auth>`. A header
   value without `/` is ignored, so the request is unauthenticated (`401`).
 - `token`: `str_pad(sha1(salt . user . apiPasswordHash), 57, 'Z')` followed by
@@ -200,9 +233,10 @@ appends the charset; passing tests assert it). Text responses carry bare
   `T` (see §1).
 - `user-info`: exactly `{userId, userName, userProfileId, userEmail}`;
   **`userId`, `userName` and `userProfileId` are all the username**, `userEmail`
-  is the account's login mail. Fork: `userId`/`userProfileId` = email,
-  `userName` = email local part, plus `userInfoUrl` (kept; Oksskolten has no
-  separate username).
+  is the account's login mail. Fork (WP5): exactly those four keys, all four
+  the account's email (Oksskolten's username is the email; §3a #4). Before
+  WP5 `userName` was the email's local part and an extra `userInfoUrl` was
+  emitted.
 
 ### A.4 Item IDs
 
@@ -286,7 +320,9 @@ appends the charset; passing tests assert it). Text responses carry bare
   clients that encode twice; the router has already decoded the path once).
   The clip feed is never matched. **An unknown feed is an empty stream** (an
   empty page, `200`, no continuation) — before WP4 it silently served the whole
-  reading list. Limits of the URL form: a raw (unencoded) `&` or `#` in `s=`
+  reading list. Fork (WP5): likewise an unknown `user/-/label/<name>` is an
+  empty stream on `stream/items/ids` and `stream/contents` (before WP5 it
+  served the whole reading list). Limits of the URL form: a raw (unencoded) `&` or `#` in `s=`
   cannot reach the server intact (the query string splits on `&`; `#` is never
   sent), and neither can a raw `?` or `#` in the path form; such feeds are only
   reachable unencoded through their numeric ID, which is what the server emits.
@@ -314,7 +350,10 @@ appends the charset; passing tests assert it). Text responses carry bare
 - Wrapper: `{"id": "user/-/state/com.google/reading-list", "updated": <unix
   seconds int>, "items": [...]}` plus `"continuation"` on `stream/contents`.
   The wrapper `id` is **always** the reading list, whatever stream was asked
-  for. Fork: echoes the requested stream (see §5).
+  for. Fork (WP5): the same on `stream/contents` (path and query forms) and
+  `stream/items/contents` (§3a #24); before WP5 `stream/contents` echoed the
+  requested stream, as Google did. No audited client reads it beyond
+  requiring a string.
 - Item, compat mode (`toGReader('compat')`):
   - `id` — tag form (A.4);
   - `crawlTimeMsec` — string, arrival ms; `timestampUsec` — string, arrival µs
@@ -462,8 +501,9 @@ FeedDAO.php L414-426; AlreadySubscribedException.php L7.*
     otherwise `400`.
   - `subscription/import`: raw OPML body (`text/xml`, `application/xml`,
     `text/x-opml` or `text/plain`) imported with the web app's OPML import
-    (`importOpmlEntries`: entries whose site URL is already a feed are skipped,
-    categories matched case-insensitively or created, new feeds fetched in the
+    (`importOpmlEntries`: an entry is skipped when its site URL is a feed's
+    site URL or, since WP5, its RSS URL is a feed's RSS URL, as
+    `subscribeToFeedUrl` checks; categories matched case-insensitively or created, new feeds fetched in the
     background) → `OK`; an empty or unparsable body → `400`.
     `subscription/export`: the web app's OPML export,
     `application/xml; charset=UTF-8`, `Content-Disposition: attachment`.
@@ -543,9 +583,6 @@ Fluent Reader (`src/scripts/models/services/greader.ts`).
 
 ## 5. Open questions
 
-- **Wrapper `id` of `stream/contents`.** greader.php always says
-  `user/-/state/com.google/reading-list`; Google echoed the requested stream,
-  as the fork does. No WP is assigned; the contract only asserts a string.
 - **Per-article author.** Oksskolten does not store the author of an
   article, so `author` is always omitted. Emitting it would need a schema
   column and the fetcher to fill it.
