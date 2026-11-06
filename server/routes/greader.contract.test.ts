@@ -21,18 +21,49 @@
  *   requests authenticate with a token signed directly, so these tests do not
  *   depend on how ClientLogin is limited.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
 import { createCategory, createFeed, getDb, insertArticle } from '../db.js'
 
+// Adding a feed discovers it over the network and fetches it; mock both, as
+// server/routes/feeds.test.ts does.
+const { mockDiscoverRssUrl, mockFetchSingleFeed, mockQueryRssBridge } = vi.hoisted(() => ({
+  mockDiscoverRssUrl: vi.fn(),
+  mockFetchSingleFeed: vi.fn(),
+  mockQueryRssBridge: vi.fn(),
+}))
+
+vi.mock('../fetcher.js', async () => {
+  const { EventEmitter } = await import('events')
+  return {
+    fetchAllFeeds: vi.fn(),
+    fetchSingleFeed: (...args: unknown[]) => mockFetchSingleFeed(...args),
+    discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
+    summarizeArticle: vi.fn(),
+    streamSummarizeArticle: vi.fn(),
+    translateArticle: vi.fn(),
+    streamTranslateArticle: vi.fn(),
+    fetchProgress: new EventEmitter(),
+    getFeedState: vi.fn(),
+  }
+})
+
+vi.mock('../rss-bridge.js', () => ({
+  queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
+  inferCssSelectorBridge: vi.fn().mockResolvedValue(null),
+}))
+
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
 
 beforeEach(async () => {
   setupTestDb()
+  mockDiscoverRssUrl.mockReset().mockResolvedValue({ rssUrl: null, title: null, usedFlareSolverr: false })
+  mockFetchSingleFeed.mockReset().mockResolvedValue(undefined)
+  mockQueryRssBridge.mockReset().mockResolvedValue(null)
   app = await buildApp()
   savedAuthDisabled = process.env.AUTH_DISABLED
   delete process.env.AUTH_DISABLED
@@ -343,7 +374,7 @@ describe.each(PREFIXES)('reader route authentication ($label)', ({ base }) => {
     expect(res.statusCode).toBe(401)
   })
 
-  it.skip.each(WP4_ROUTES)('WP4: $method $path returns 401 without credentials', async (route) => {
+  it.each(WP4_ROUTES)('WP4: $method $path returns 401 without credentials', async (route) => {
     seedUser()
     const res = await request(route)
     expect(res.statusCode).toBe(401)
@@ -459,13 +490,17 @@ describe.each(PREFIXES)('GET /reader/api/0/subscription/list ($label)', ({ base 
     expect(byTitle.get(beta.name)!.categories).toEqual([])
   })
 
-  it.skip('WP4: feed stream IDs are feed/<numeric id>, and iconUrl is never an empty string', async () => {
+  // §3a #14: iconUrl is always present, as in FreshRSS — a real icon URL when
+  // the server has one, else "". Oksskolten serves no feed icons, so it is "".
+  // (WP0 asserted an http(s) URL; the fork deliberately deviates.)
+  it('WP4: feed stream IDs are feed/<numeric id>, and iconUrl is always present', async () => {
     const { alpha, beta } = seedWorld()
     const res = await client(base).get(`${API}/subscription/list?output=json`)
     const subs = res.json().subscriptions as Record<string, unknown>[]
     expect(subs.map((s) => s.id).sort()).toEqual([`feed/${alpha.id}`, `feed/${beta.id}`].sort())
     for (const sub of subs) {
-      if ('iconUrl' in sub) expect(sub.iconUrl).toEqual(expect.stringMatching(/^https?:\/\/.+/))
+      expect(sub).toHaveProperty('iconUrl')
+      expect(sub.iconUrl === '' || /^https?:\/\/.+/.test(sub.iconUrl as string)).toBe(true)
     }
   })
 
@@ -503,7 +538,7 @@ describe.each(PREFIXES)('GET /reader/api/0/unread-count ($label)', ({ base }) =>
     )
   })
 
-  it.skip('WP4: feed rows use feed/<numeric id>, matching subscription/list', async () => {
+  it('WP4: feed rows use feed/<numeric id>, matching subscription/list', async () => {
     const { alpha, beta } = seedWorld()
     const res = await client(base).get(`${API}/unread-count?output=json`)
     const ids = (res.json().unreadcounts as { id: string }[]).map((row) => row.id).filter((id) => id.startsWith('feed/'))
@@ -614,7 +649,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/items/ids ($label)', ({ base }
     expect(refIds((await ids(`s=${enc(READING_LIST)}&xt=${enc(STARRED)}`)).json())).toEqual([readId, unreadId])
   })
 
-  it.skip('WP4: accepts feed/<numeric id> as well as feed/<url>', async () => {
+  it('WP4: accepts feed/<numeric id> as well as feed/<url>', async () => {
     const { readId, unreadId, alpha } = seedWorld()
     expect(refIds((await ids(`s=${enc(`feed/${alpha.id}`)}`)).json())).toEqual([readId, unreadId])
     expect(refIds((await ids(`s=${enc(`feed/${alpha.rss_url}`)}`)).json())).toEqual([readId, unreadId])
@@ -730,7 +765,7 @@ describe.each(PREFIXES)('POST /reader/api/0/stream/items/contents ($label)', ({ 
     expect(asc).toEqual([unreadId, readId, starredId])
   })
 
-  it.skip('WP4: origin.streamId is feed/<numeric id>', async () => {
+  it('WP4: origin.streamId is feed/<numeric id>', async () => {
     const { unreadId, alpha } = seedWorld()
     const [item] = (await contents(String(unreadId))).json().items
     expect(item.origin.streamId).toBe(`feed/${alpha.id}`)
@@ -816,7 +851,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/contents ($label)', ({ base })
     expect(titles((await get(`?s=${enc(READING_LIST)}&it=${enc(STARRED)}`)).json())).toEqual(['Starred one'])
   })
 
-  it.skip('WP4: accepts feed/<numeric id> in the path and in s=, and feed/<url> containing ?, & and #', async () => {
+  it('WP4: accepts feed/<numeric id> in the path and in s=, and feed/<url> containing ?, & and #', async () => {
     const { alpha } = seedWorld()
     const odd = createFeed({ name: 'Odd', url: 'https://odd.example.com', rss_url: 'https://odd.example.com/feed/?a=1&b=2#x' })
     insertArticle({ feed_id: odd.id, title: 'Odd one', url: 'https://odd.example.com/1', published_at: null })
@@ -945,7 +980,7 @@ describe.each(PREFIXES)('POST /reader/api/0/mark-all-as-read ($label)', ({ base 
     expect(state(unreadId).seen_at).toBeNull()
   })
 
-  it.skip('WP4: accepts feed/<numeric id>', async () => {
+  it('WP4: accepts feed/<numeric id>', async () => {
     const { unreadId, starredId, beta } = seedWorld()
     expect((await markAll({ s: `feed/${beta.id}` })).body).toBe('OK')
     expect(state(starredId).seen_at).not.toBeNull()
@@ -968,7 +1003,7 @@ describe.each(PREFIXES)('POST /reader/api/0/subscription/edit ($label)', ({ base
     id: string; title: string; categories: { id: string; label: string }[]
   }[]
 
-  it.skip('WP4: ac=edit with t= renames the feed', async () => {
+  it('WP4: ac=edit with t= renames the feed', async () => {
     const { alpha } = seedWorld()
     const res = await edit({ ac: 'edit', s: `feed/${alpha.id}`, t: 'Alpha renamed' })
     expect(res.statusCode).toBe(200)
@@ -976,7 +1011,7 @@ describe.each(PREFIXES)('POST /reader/api/0/subscription/edit ($label)', ({ base
     expect((await subscriptions()).map((s) => s.title)).toContain('Alpha renamed')
   })
 
-  it.skip('WP4: ac=edit with a=user/-/label/<new> creates the category and moves the feed (a= alone replaces)', async () => {
+  it('WP4: ac=edit with a=user/-/label/<new> creates the category and moves the feed (a= alone replaces)', async () => {
     const { alpha } = seedWorld()
     expect((await edit({ ac: 'edit', s: `feed/${alpha.id}`, a: 'user/-/label/Brand New' })).body).toBe('OK')
     const sub = (await subscriptions()).find((s) => s.id === `feed/${alpha.id}`)!
@@ -985,25 +1020,25 @@ describe.each(PREFIXES)('POST /reader/api/0/subscription/edit ($label)', ({ base
     expect(tags.map((t) => t.id)).toContain('user/-/label/Brand New')
   })
 
-  it.skip('WP4: ac=edit with r=user/-/label/<current> and no a= removes the feed from its category', async () => {
+  it('WP4: ac=edit with r=user/-/label/<current> and no a= removes the feed from its category', async () => {
     const { alpha, news } = seedWorld()
     expect((await edit({ ac: 'edit', s: `feed/${alpha.id}`, r: `user/-/label/${news.name}` })).body).toBe('OK')
     expect((await subscriptions()).find((s) => s.id === `feed/${alpha.id}`)!.categories).toEqual([])
   })
 
-  it.skip('WP4: accepts feed/<url> and repeated s=', async () => {
+  it('WP4: accepts feed/<url> and repeated s=', async () => {
     const { alpha, beta } = seedWorld()
     expect((await edit({ ac: 'edit', s: [`feed/${alpha.rss_url}`, `feed/${beta.id}`], a: 'user/-/label/Both' })).body).toBe('OK')
     for (const sub of await subscriptions()) expect(sub.categories).toEqual([{ id: 'user/-/label/Both', label: 'Both' }])
   })
 
-  it.skip('WP4: ac=unsubscribe deletes the feed', async () => {
+  it('WP4: ac=unsubscribe deletes the feed', async () => {
     const { alpha } = seedWorld()
     expect((await edit({ ac: 'unsubscribe', s: `feed/${alpha.id}` })).body).toBe('OK')
     expect((await subscriptions()).map((s) => s.id)).not.toContain(`feed/${alpha.id}`)
   })
 
-  it.skip.each([
+  it.each([
     { label: 'no s', form: { ac: 'edit', t: 'x' } },
     { label: 'no ac', form: { s: 'feed/1' } },
     { label: 'an unknown ac', form: { ac: 'rename', s: 'feed/1' } },
@@ -1016,14 +1051,34 @@ describe.each(PREFIXES)('POST /reader/api/0/subscription/edit ($label)', ({ base
     expect(res.body).toBe('Bad Request!')
   })
 
-  it.todo('WP4: ac=subscribe with s=feed/<url> adds the feed through the add-feed path, then applies t= and a= (needs fetch mocking)')
-  it.todo('WP4: ac=subscribe for a feed that is already subscribed answers 400 Bad Request! (greader.php behaviour)')
+  it('WP4: ac=subscribe with s=feed/<url> adds the feed through the add-feed path, then applies t= and a=', async () => {
+    seedWorld()
+    const url = 'https://gamma.example.com/feed/?format=rss'
+    mockDiscoverRssUrl.mockResolvedValue({ rssUrl: url, title: 'Discovered Gamma', usedFlareSolverr: false })
+    const res = await edit({ ac: 'subscribe', s: `feed/${url}`, t: 'Gamma', a: 'user/-/label/Fresh' })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe('OK')
+    expect(mockDiscoverRssUrl).toHaveBeenCalledWith(url)
+    expect(mockFetchSingleFeed).toHaveBeenCalledTimes(1)
+    const sub = (await subscriptions()).find((s) => s.title === 'Gamma')!
+    expect(sub.id).toMatch(/^feed\/\d+$/)
+    expect(sub.categories).toEqual([{ id: 'user/-/label/Fresh', label: 'Fresh' }])
+  })
+
+  it('WP4: ac=subscribe for a feed that is already subscribed answers 400 Bad Request! (greader.php behaviour)', async () => {
+    const { alpha } = seedWorld()
+    const res = await edit({ ac: 'subscribe', s: `feed/${alpha.rss_url}` })
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toBe('Bad Request!')
+    expect(mockDiscoverRssUrl).not.toHaveBeenCalled()
+    expect(await subscriptions()).toHaveLength(2)
+  })
 })
 
 // ── subscription/quickadd (WP4) ──────────────────────────────────────────────
 
 describe.each(PREFIXES)('POST /reader/api/0/subscription/quickadd ($label)', ({ base }) => {
-  it.skip('WP4: an already-subscribed URL gives numResults 0 and an error starting "Already subscribed!"', async () => {
+  it('WP4: an already-subscribed URL gives numResults 0 and an error starting "Already subscribed!"', async () => {
     const { alpha } = seedWorld()
     const res = await client(base).post(`${API}/subscription/quickadd`, { quickadd: alpha.rss_url! })
     expect(res.statusCode).toBe(200)
@@ -1032,8 +1087,27 @@ describe.each(PREFIXES)('POST /reader/api/0/subscription/quickadd ($label)', ({ 
     expect(body.error).toEqual(expect.stringMatching(/^Already subscribed!/))
   })
 
-  it.todo('WP4: success gives {numResults: 1, query: <feed url>, streamId: "feed/<id>", streamName: <title>} (needs fetch mocking)')
-  it.todo('WP4: quickadd is also read from the query string and accepts a feed/ prefix')
+  it('WP4: success gives {numResults: 1, query: <feed url>, streamId: "feed/<id>", streamName: <title>}', async () => {
+    seedWorld()
+    mockDiscoverRssUrl.mockResolvedValue({ rssUrl: 'https://gamma.example.com/rss', title: 'Gamma', usedFlareSolverr: false })
+    const res = await client(base).post(`${API}/subscription/quickadd`, { quickadd: 'https://gamma.example.com' })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toMatch(JSON_CT)
+    const body = res.json()
+    expect(body).toEqual({ numResults: 1, query: 'https://gamma.example.com/rss', streamId: expect.stringMatching(/^feed\/\d+$/), streamName: 'Gamma' })
+    const subs = (await client(base).get(`${API}/subscription/list?output=json`)).json().subscriptions as { id: string }[]
+    expect(subs.map((s) => s.id)).toContain(body.streamId)
+  })
+
+  it('WP4: quickadd is also read from the query string and accepts a feed/ prefix', async () => {
+    seedWorld()
+    mockDiscoverRssUrl.mockImplementation(async (url: string) => ({ rssUrl: url, title: 'Delta', usedFlareSolverr: false }))
+    const url = 'https://delta.example.com/atom.xml'
+    const res = await client(base).post(`${API}/subscription/quickadd?quickadd=${enc(`feed/${url}`)}`, {})
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ numResults: 1, query: url, streamName: 'Delta' })
+    expect(mockDiscoverRssUrl).toHaveBeenCalledWith(url)
+  })
 })
 
 // ── rename-tag and disable-tag (WP4) ─────────────────────────────────────────
@@ -1041,7 +1115,7 @@ describe.each(PREFIXES)('POST /reader/api/0/subscription/quickadd ($label)', ({ 
 describe.each(PREFIXES)('POST /reader/api/0/rename-tag and disable-tag ($label)', ({ base }) => {
   const tagIds = async () => ((await client(base).get(`${API}/tag/list?output=json`)).json().tags as { id: string }[]).map((t) => t.id)
 
-  it.skip('WP4: rename-tag renames the category', async () => {
+  it('WP4: rename-tag renames the category', async () => {
     const { news } = seedWorld()
     const res = await client(base).post(`${API}/rename-tag`, { s: `user/-/label/${news.name}`, dest: 'user/-/label/Headlines' })
     expect(res.statusCode).toBe(200)
@@ -1051,7 +1125,7 @@ describe.each(PREFIXES)('POST /reader/api/0/rename-tag and disable-tag ($label)'
     expect(ids).not.toContain(`user/-/label/${news.name}`)
   })
 
-  it.skip('WP4: rename-tag of an unknown label, or without the user/-/label/ prefix, answers 400 Bad Request!', async () => {
+  it('WP4: rename-tag of an unknown label, or without the user/-/label/ prefix, answers 400 Bad Request!', async () => {
     seedWorld()
     for (const form of [{ s: 'user/-/label/Nope', dest: 'user/-/label/X' }, { s: 'News', dest: 'Headlines' }]) {
       const res = await client(base).post(`${API}/rename-tag`, form)
@@ -1060,7 +1134,7 @@ describe.each(PREFIXES)('POST /reader/api/0/rename-tag and disable-tag ($label)'
     }
   })
 
-  it.skip('WP4: disable-tag deletes the category and keeps its feeds without a category', async () => {
+  it('WP4: disable-tag deletes the category and keeps its feeds without a category', async () => {
     const { news, alpha } = seedWorld()
     const res = await client(base).post(`${API}/disable-tag`, { s: `user/-/label/${news.name}` })
     expect(res.statusCode).toBe(200)
@@ -1070,7 +1144,7 @@ describe.each(PREFIXES)('POST /reader/api/0/rename-tag and disable-tag ($label)'
     expect(subs.find((s) => s.title === alpha.name)!.categories).toEqual([])
   })
 
-  it.skip('WP4: disable-tag of an unknown label answers 400 Bad Request!', async () => {
+  it('WP4: disable-tag of an unknown label answers 400 Bad Request!', async () => {
     seedWorld()
     const res = await client(base).post(`${API}/disable-tag`, { s: 'user/-/label/Nope' })
     expect(res.statusCode).toBe(400)
@@ -1081,7 +1155,7 @@ describe.each(PREFIXES)('POST /reader/api/0/rename-tag and disable-tag ($label)'
 // ── subscription/import and export (WP4) ─────────────────────────────────────
 
 describe.each(PREFIXES)('subscription/import and subscription/export ($label)', ({ base }) => {
-  it.skip('WP4: GET subscription/export returns OPML as XML', async () => {
+  it('WP4: GET subscription/export returns OPML as XML', async () => {
     const { alpha } = seedWorld()
     const res = await client(base).get(`${API}/subscription/export`)
     expect(res.statusCode).toBe(200)
@@ -1090,20 +1164,35 @@ describe.each(PREFIXES)('subscription/import and subscription/export ($label)', 
     expect(res.body).toContain(alpha.rss_url)
   })
 
-  it.todo('WP4: POST subscription/import with an OPML body imports the feeds and answers OK (needs fetch mocking)')
+  it('WP4: POST subscription/import with an OPML body imports the feeds and answers OK', async () => {
+    seedWorld()
+    const opml = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>t</title></head><body>
+  <outline text="Imported"><outline type="rss" text="Epsilon" xmlUrl="https://epsilon.example.com/rss" htmlUrl="https://epsilon.example.com"/></outline>
+</body></opml>`
+    const res = await client(base).post(`${API}/subscription/import`, opml, { headers: { 'content-type': 'text/xml' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe('OK')
+    const subs = (await client(base).get(`${API}/subscription/list?output=json`)).json().subscriptions as { title: string; url: string; categories: unknown[] }[]
+    expect(subs.find((s) => s.title === 'Epsilon')).toMatchObject({
+      url: 'https://epsilon.example.com/rss',
+      categories: [{ id: 'user/-/label/Imported', label: 'Imported' }],
+    })
+    expect(mockFetchSingleFeed).toHaveBeenCalledTimes(1)
+  })
 })
 
 // ── check/compatibility (WP4) ────────────────────────────────────────────────
 
 describe.each(PREFIXES)('GET /check/compatibility ($label)', ({ base }) => {
-  it.skip('WP4: answers PASS when an Authorization: GoogleLogin auth=... header reaches the server (no auth check)', async () => {
+  it('WP4: answers PASS when an Authorization: GoogleLogin auth=... header reaches the server (no auth check)', async () => {
     const res = await client(base).get('/check/compatibility', { auth: false, headers: { authorization: 'GoogleLogin auth=anything' } })
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toMatch(TEXT_CT)
     expect(res.body).toBe('PASS')
   })
 
-  it.skip('WP4: answers the FAIL message with 200 when no Authorization header arrives', async () => {
+  it('WP4: answers the FAIL message with 200 when no Authorization header arrives', async () => {
     const res = await client(base).get('/check/compatibility', { auth: false })
     expect(res.statusCode).toBe(200)
     expect(res.body).toBe('FAIL get HTTP Authorization header! Wrong Web server configuration.')

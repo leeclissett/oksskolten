@@ -63,6 +63,14 @@ Every change is a **superset** of what a generic Google Reader client needs:
 | `user/-/state/com.google/read`/`unread` as the stream work on `stream/items/ids` only; `stream/contents` → `400` (L799-806) | Served on both endpoints (WP3) | Superset (§3a #8). |
 | `mark-all-as-read` `feed/<int>` of an unknown feed marks nothing; `feed/<url>` → `400` | Either form; an unknown feed marks nothing, `OK` | Superset. |
 | Hex item IDs above `0x7fff…` become a float and match nothing; a non-hex string decodes to `0` | Any ID that is not a positive safe integer (≤ 2⁵³−1) is dropped | Same outcome; the fork's IDs are small positives. |
+| `subscription/list` emits `frss:priority` | Not emitted | Oksskolten has no feed priorities; no audited client reads it (§3a #14). |
+| `iconUrl` is FreshRSS's favicon URL | Always present, `""` (WP4) | Oksskolten serves no feed icons (the web app uses a third-party favicon service), so there is no URL on this server to report (§3a #14). |
+| `tag/list` lists `user/-/state/org.freshrss/{main,important}` | Not listed | No feed priorities (§3a #15). |
+| Every feed has a category (the default one) | A feed may have none: `categories: []` in `subscription/list`; its `unread-count` row comes after every category's rows, before the reading list; `r=label` without `a=`, and `disable-tag`, leave the feed with no category | The fork has no default category. |
+| `subscription/edit` with several `s` applies them one by one and stops with `400` at the first unknown feed (earlier ones already changed) | `edit`/`unsubscribe` check every named feed first; one unknown → `400` and nothing changes | Atomic is safer; same status. |
+| `subscription/edit` `t`, `a`, `r`: `a`/`r` keep PHP's last value when repeated | `t` paired with `s` by position as in FreshRSS; repeated `a`/`r` keep the **first** value | Plan decision (§3a #17); clients send one. |
+| `subscribe`/`quickadd` add through FreshRSS's feed controller (SimplePie discovery) | Through the web app's add-feed steps: RSS auto-discovery, then RSS-Bridge; the LLM CSS-selector step is **not** run | That step scrapes a page, is slow enough to time a reader app out and spends LLM credits without the user seeing the choice. |
+| `check/compatibility` also fails on 32-bit PHP without GMP | Only the header check | Not applicable. |
 
 ## 2. How to add or change a route
 
@@ -78,7 +86,9 @@ Security invariants from PRs #15/#16 that every change must keep:
    (`server/routes/greader-freshrss.ts`), `/api/greader.php/…`. Auth is enforced
    by the `preHandler` hooks in both plugins, which match on the routed path —
    a route outside `/reader/api/` is **not** authenticated (correct only for
-   `/accounts/ClientLogin` and `/check/compatibility`). Every new route gets a
+   `/accounts/ClientLogin` and `/check/compatibility`, which WP4 registers in
+   `greaderRoutes` as `/check/compatibility`, so it is served at the root and
+   under `/api/greader.php`). Every new route gets a
    test under each prefix; the contract tests are parameterised over
    `PREFIXES` for this reason, and the auth tests iterate over `READER_ROUTES`
    (add new routes there).
@@ -87,7 +97,10 @@ Security invariants from PRs #15/#16 that every change must keep:
 
 Other rules: form bodies are parsed by the plugin-scoped
 `application/x-www-form-urlencoded` parser in `greaderRoutes`, which turns a
-repeated key into an array — declare such fields scalar-or-array in zod. Do not
+repeated key into an array — declare such fields scalar-or-array in zod.
+`text/xml`, `application/xml` and `text/x-opml` bodies (OPML for
+`subscription/import`; NetNewsWire sends `text/xml`) are read as a string by a
+second plugin-scoped parser; Fastify reads `text/plain` as a string itself. Do not
 alter the LetterFeed inline-entry link logic or translated-article handling.
 
 ## 3. The dialect, verified from greader.php
@@ -228,6 +241,8 @@ appends the charset; passing tests assert it). Text responses carry bare
 (parameter parsing); EntryDAO.php L1004-1027 (time filters).*
 
 - Stream IDs: `feed/<int>`; `user/-/label/<name>` (category, else per-item tag);
+  FreshRSS also looks `feed/<url>` up by URL (`searchByUrl`) where it accepts
+  it;
   `user/-/state/com.google/{reading-list,starred,read,unread}`; FreshRSS adds
   `user/-/state/org.freshrss/{main,important}` (not needed).
 - Parameters (all from the query string): `n` count, default **20**, no upper
@@ -261,6 +276,21 @@ appends the charset; passing tests assert it). Text responses carry bare
   articles arriving between pages cause neither repeats nor gaps, in both
   directions (`r=o` too). An unreadable `c` (e.g. a pre-WP2 offset) restarts
   at the first page.
+- Fork (WP4), feed streams: output is `feed/<feed id>` everywhere (subscription
+  list, item `origin.streamId`, `unread-count`, `quickadd`). Input accepts
+  `feed/<id>` and `feed/<url>` on the `stream/contents/*` path, `s=` of
+  `stream/contents` and `stream/items/ids`, `mark-all-as-read` and
+  `subscription/edit` (`findFeedByStream`): repeated `feed/` prefixes are
+  stripped, then the value is looked up as a numeric ID, then as the RSS URL,
+  then as the site URL — first as given, then percent-decoded once more (for
+  clients that encode twice; the router has already decoded the path once).
+  The clip feed is never matched. **An unknown feed is an empty stream** (an
+  empty page, `200`, no continuation) — before WP4 it silently served the whole
+  reading list. Limits of the URL form: a raw (unencoded) `&` or `#` in `s=`
+  cannot reach the server intact (the query string splits on `&`; `#` is never
+  sent), and neither can a raw `?` or `#` in the path form; such feeds are only
+  reachable unencoded through their numeric ID, which is what the server emits.
+  A raw `/feed/` or `?` inside `s=` works.
 
 ### A.6 `stream/contents` and `stream/items/contents`
 
@@ -313,9 +343,10 @@ appends the charset; passing tests assert it). Text responses carry bare
   `author` is omitted: Oksskolten does not store an article author (before WP3
   it was the feed name). `categories` is `reading-list`, `read` when read,
   `starred` when starred, then `user/-/label/<category>` when the feed has
-  one (no feed tags). Remaining differences: `origin.streamId` is `feed/<url>`
-  (target WP4); `updated`, `summary.direction` and `alternate[0].type` are
-  extra Google-era keys (kept, §1).
+  one (no feed tags). Fork (WP4): `origin.streamId` is `feed/<int>`, equal to
+  the feed's `subscription/list` `id`. Remaining differences: `updated`,
+  `summary.direction` and `alternate[0].type` are extra Google-era keys (kept,
+  §1).
 
 ### A.7 Subscriptions, tags, unread counts
 
@@ -328,18 +359,23 @@ FeedDAO.php L414-426; AlreadySubscribedException.php L7.*
   "frss:priority"}]}`. In FreshRSS every feed has exactly one category; hidden
   feeds are omitted. **`sortid` and `firstitemmsec` are not emitted** (both
   commented out, L360-361). `iconUrl` is always present (FreshRSS's favicon
-  URL). Fork: `feed/<url>` IDs (target WP4), `categories: []` for feeds without
-  a category (kept), `iconUrl: ""` (target WP4: omit unless a real icon URL
-  exists), extra `firstitemmsec: "0"` (kept).
+  URL). Fork (WP4): `{id: "feed/<int>", title, categories, url, htmlUrl,
+  iconUrl, firstitemmsec}` — `url` is the feed URL (RSS URL, else site URL),
+  `categories: []` for a feed without a category, `iconUrl` always present and
+  `""` (no feed icons on this server, §1), extra `firstitemmsec: "0"` (kept);
+  no `frss:priority`, no `sortid`. Feeds listed in name order; the clip feed is
+  not a subscription.
 - **`tag/list`** → `{"tags": [...]}` in this order:
   `{id: "user/-/state/com.google/starred"}` — **no `type` key**;
   `{id: "user/-/state/com.google/reading-list"}`;
   `{id: "user/-/state/org.freshrss/main"}`, `{id: "…/important"}`; one
   `{id: "user/-/label/<category>", type: "folder"}` per category, empty ones
   included; one `{id: "user/-/label/<tag>", type: "tag", unread_count}` per item
-  label. Fork: emits `type: "tag"` on the starred entry (extra key, kept) and no
-  `org.freshrss` entries; all categories including empty ones appear (passing
-  test).
+  label. Fork (WP4): `{id: "user/-/state/com.google/starred"}` without `type`,
+  `{id: "user/-/state/com.google/reading-list"}`, then every category from
+  `getCategories()` (sort order, then name) as `{id: "user/-/label/<name>",
+  type: "folder"}`, empty ones included; no `org.freshrss` entries (no feed
+  priorities). Before WP4 the starred entry carried `type: "tag"`.
 - **`unread-count`** → `{"max": <total unread int>, "unreadcounts": [...]}`.
   For each category: one row per feed `{id: "feed/<int>", count: int,
   newestItemTimestampUsec: string}`, then the category row
@@ -347,9 +383,12 @@ FeedDAO.php L414-426; AlreadySubscribedException.php L7.*
   item label; then `{id: "user/-/state/com.google/reading-list", count: total,
   newestItemTimestampUsec}` **last**. `newestItemTimestampUsec` is
   `MAX(id)` per feed — the newest arrival, **read or unread** — and `"0"` for an
-  empty feed; `max` equals the reading-list count. Fork: matches, except feed
-  rows come first and category rows after them (order is not significant to any
-  audited client) and feed IDs are `feed/<url>` (target WP4).
+  empty feed; `max` equals the reading-list count. Fork (WP4): the same order —
+  per category (in `getCategories()` order) its feed rows (name order) then its
+  row; then the feeds with no category (the fork only); the reading list last.
+  Feed IDs `feed/<int>`; `newestItemTimestampUsec` is the newest arrival
+  (`created_at`) in that stream, read or not, `"0"` when empty; `max` is the
+  total unread count. The clip feed has no row.
 - **`subscription/edit`** (POST or GET; requires both `s` and `ac`, else `400`):
   - `s` repeatable in the POST body (`multiplePosts`), or a single `s` in the
     query; `t` likewise, paired with `s` by position. `a` and `r` are
@@ -393,9 +432,44 @@ FeedDAO.php L414-426; AlreadySubscribedException.php L7.*
   non-empty `GoogleLogin auth=` value reached PHP (the value is not checked),
   else `FAIL get HTTP Authorization header! Wrong Web server configuration.`
   (also `200`). Any method.
-- Fork: `subscription/edit`, `quickadd`, `rename-tag`, `disable-tag`,
-  `subscription/import`, `subscription/export` and `check/compatibility` do not
-  exist (target WP4).
+- Fork (WP4), all registered in `greaderRoutes` (both base URLs; the
+  `/reader/api/0/…` ones behind the auth hooks):
+  - `subscription/edit` (GET or POST; query fields overridden by body fields):
+    `ac` must be `edit`, `subscribe` or `unsubscribe` and at least one `s`
+    given, else `400 Bad Request!`; non-`feed/` streams are skipped. `edit`:
+    `t` renames (paired with `s` by position); `a=user/-/label/<name>` sets
+    the category, creating it if no category has that exact name, and replaces
+    the current one (Capy Reader moves with `a=` alone); `r=user/-/label/…`
+    without a label `a=` clears the category whichever it was; an empty label
+    name in `a=` also clears it. `unsubscribe` deletes the feed and its
+    articles (the web app's delete). Any unknown feed → `400`, nothing changed.
+    `subscribe`: `s=feed/<url>`, numeric IDs skipped (FreshRSS); already
+    subscribed (URL equals a feed's RSS or site URL, before or after
+    discovery), a non-http(s) URL, or no feed found → `400`; else the feed is
+    created with name `t` (else the discovered title, else the host) and
+    category `a`, and fetched in the background. Success → `OK`.
+  - `subscription/quickadd` (GET or POST, `quickadd` from body or query; one
+    leading `feed/` stripped): `200` JSON in every outcome, `{"numResults":1,
+    "query":"<feed url>","streamId":"feed/<id>","streamName":"<name>"}` or
+    `{"numResults":0,"error":"<message>"}` — `Already subscribed! <url>` with
+    the URL as sent, `RSS could not be detected for this URL`, or
+    `Only http:// or https:// URLs are allowed`. A missing `quickadd` → `400`
+    (FreshRSS falls through to its `400` as well).
+  - `rename-tag`: `s` and `dest` must be `user/<any>/label/<name>` with a
+    non-empty new name, and `s` an existing category (exact name), else `400`;
+    renames it → `OK`. `disable-tag`: the first `s` only; an existing category
+    → deleted, its feeds and their articles stay with no category → `OK`;
+    otherwise `400`.
+  - `subscription/import`: raw OPML body (`text/xml`, `application/xml`,
+    `text/x-opml` or `text/plain`) imported with the web app's OPML import
+    (`importOpmlEntries`: entries whose site URL is already a feed are skipped,
+    categories matched case-insensitively or created, new feeds fetched in the
+    background) → `OK`; an empty or unparsable body → `400`.
+    `subscription/export`: the web app's OPML export,
+    `application/xml; charset=UTF-8`, `Content-Disposition: attachment`.
+  - `check/compatibility` (GET or POST, no auth): `200`,
+    `text/plain; charset=UTF-8`, `PASS` when `Authorization: GoogleLogin
+    auth=<non-empty>` is present, else the FreshRSS `FAIL …` line above.
 
 ### A.8 `edit-tag` and `mark-all-as-read`
 

@@ -1,13 +1,41 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { getDb, createCategory, createFeed, insertArticle } from '../db.js'
+import { getDb, createCategory, createFeed, getCategories, insertArticle } from '../db.js'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
 import { clientLoginAttempts } from '../lib/login-attempts.js'
 import { isRateLimitExempt } from '../lib/routed-path.js'
 import { rateLimitKey } from '../lib/client-ip.js'
 import { decodeItemId } from './greader.js'
+
+// Subscribing discovers and fetches the feed over the network; mock both, as
+// server/routes/feeds.test.ts does.
+const { mockDiscoverRssUrl, mockFetchSingleFeed, mockQueryRssBridge } = vi.hoisted(() => ({
+  mockDiscoverRssUrl: vi.fn(),
+  mockFetchSingleFeed: vi.fn(),
+  mockQueryRssBridge: vi.fn(),
+}))
+
+vi.mock('../fetcher.js', async () => {
+  const { EventEmitter } = await import('events')
+  return {
+    fetchAllFeeds: vi.fn(),
+    fetchSingleFeed: (...args: unknown[]) => mockFetchSingleFeed(...args),
+    discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
+    summarizeArticle: vi.fn(),
+    streamSummarizeArticle: vi.fn(),
+    translateArticle: vi.fn(),
+    streamTranslateArticle: vi.fn(),
+    fetchProgress: new EventEmitter(),
+    getFeedState: vi.fn(),
+  }
+})
+
+vi.mock('../rss-bridge.js', () => ({
+  queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
+  inferCssSelectorBridge: vi.fn().mockResolvedValue(null),
+}))
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -31,6 +59,9 @@ async function clientLogin(email = 'test@example.com', password = 'password123')
 beforeEach(async () => {
   setupTestDb()
   clientLoginAttempts.clear()
+  mockDiscoverRssUrl.mockReset().mockResolvedValue({ rssUrl: null, title: null, usedFlareSolverr: false })
+  mockFetchSingleFeed.mockReset().mockResolvedValue(undefined)
+  mockQueryRssBridge.mockReset().mockResolvedValue(null)
   app = await buildApp()
   // Remove AUTH_DISABLED so greader JWT auth is exercised properly
   savedAuthDisabled = process.env.AUTH_DISABLED
@@ -386,7 +417,7 @@ describe('GET /reader/api/0/subscription/list', () => {
 
   it('returns feeds as subscriptions', async () => {
     seedUser()
-    createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
+    const feed = createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
     const { auth } = await clientLogin()
     const res = await app.inject({
       method: 'GET',
@@ -396,7 +427,7 @@ describe('GET /reader/api/0/subscription/list', () => {
     expect(res.statusCode).toBe(200)
     const { subscriptions } = res.json()
     expect(subscriptions).toHaveLength(1)
-    expect(subscriptions[0].id).toBe('feed/https://example.com/rss')
+    expect(subscriptions[0].id).toBe(`feed/${feed.id}`)
     expect(subscriptions[0].title).toBe('My Feed')
   })
 })
@@ -454,8 +485,8 @@ describe('GET /reader/api/0/unread-count', () => {
     expect(body.max).toBe(2)
 
     const counts = new Map(body.unreadcounts.map((entry: { id: string }) => [entry.id, entry]))
-    expect(counts.get('feed/https://example.com/categorized/rss')).toEqual({
-      id: 'feed/https://example.com/categorized/rss',
+    expect(counts.get(`feed/${categorizedFeed.id}`)).toEqual({
+      id: `feed/${categorizedFeed.id}`,
       count: 1,
       newestItemTimestampUsec: '1738454400000000',
     })
@@ -493,10 +524,10 @@ describe('GET /reader/api/0/unread-count', () => {
     const counts = new Map<string, { newestItemTimestampUsec: string }>(
       res.json().unreadcounts.map((entry: { id: string }) => [entry.id, entry]),
     )
-    const newestSec = Number(counts.get(`feed/${feed.rss_url}`)!.newestItemTimestampUsec) / 1_000_000
+    const newestSec = Number(counts.get(`feed/${feed.id}`)!.newestItemTimestampUsec) / 1_000_000
     // Arrival time (now), not the 2020 publication date.
     expect(newestSec).toBeGreaterThanOrEqual(beforeSec)
-    expect(counts.get(`feed/${emptyFeed.rss_url}`)!.newestItemTimestampUsec).toBe('0')
+    expect(counts.get(`feed/${emptyFeed.id}`)!.newestItemTimestampUsec).toBe('0')
   })
 })
 
@@ -614,7 +645,7 @@ describe('stream ordering and time filters', () => {
    * feed subscribed just now whose three backlog articles were published years
    * earlier.
    */
-  function seedEstablishedFeedThenNewFeed(): { backlogIds: number[] } {
+  function seedEstablishedFeedThenNewFeed(): { backlogIds: number[]; addedFeedId: number } {
     const established = createFeed({ name: 'Established', url: 'https://example.com/old', rss_url: 'https://example.com/old/rss' })
     for (let i = 0; i < 150; i++) {
       insertArticle({
@@ -634,7 +665,7 @@ describe('stream ordering and time filters', () => {
       published_at: `2020-01-0${i + 1}T00:00:00Z`,
     }))
     getDb().prepare("UPDATE articles SET created_at = '2026-10-01 12:00:00' WHERE feed_id = ?").run(added.id)
-    return { backlogIds }
+    return { backlogIds, addedFeedId: added.id }
   }
 
   async function get(url: string, auth: string | null) {
@@ -645,7 +676,7 @@ describe('stream ordering and time filters', () => {
 
   it('puts a newly added feed at the head of the reading list even though its articles are old', async () => {
     seedUser()
-    const { backlogIds } = seedEstablishedFeedThenNewFeed()
+    const { backlogIds, addedFeedId } = seedEstablishedFeedThenNewFeed()
     const { auth } = await clientLogin()
 
     // The request a reader app makes on a routine sync: first page, no time filter.
@@ -653,7 +684,7 @@ describe('stream ordering and time filters', () => {
 
     expect(body.items).toHaveLength(100)
     const firstThree = body.items.slice(0, 3).map((item: { origin: { streamId: string } }) => item.origin.streamId)
-    expect(firstThree).toEqual(Array(3).fill('feed/https://example.com/new/rss'))
+    expect(firstThree).toEqual(Array(3).fill(`feed/${addedFeedId}`))
     expect(body.items.slice(0, 3).map((item: { title: string }) => item.title)).toEqual(['Backlog 2', 'Backlog 1', 'Backlog 0'])
     expect(body.continuation).toBeTruthy()
 
@@ -1098,7 +1129,7 @@ describe('feed website (htmlUrl) for newsletter feeds sharing one host', () => {
 
     const [item] = res.json().items
     expect(item.origin.htmlUrl).toBe(sites.get('Growth Gems'))
-    expect(item.origin.streamId).toBe(`feed/${gems.rss_url}`)
+    expect(item.origin.streamId).toBe(`feed/${gems.id}`)
   })
 })
 
@@ -1385,6 +1416,431 @@ describe.each([
       expect(first.statusCode).toBe(200)
       expect(first.body).toMatch(/^[0-9a-f]{40}Z{17}\n$/)
       expect((await fetchToken()).body).toBe(first.body)
+    })
+  })
+})
+
+// ── WP4: numeric feed IDs and subscription management ───────────────────────
+
+describe.each([
+  ['root', ''],
+  ['FreshRSS prefix', '/api/greader.php'],
+])('WP4 subscriptions (%s)', (_label, prefix) => {
+  const API = `${prefix}/reader/api/0`
+  const enc = encodeURIComponent
+  const READING_LIST = 'user/-/state/com.google/reading-list'
+  const token = () => app.jwt.sign({ email: 'test@example.com', token_version: 0 }, { expiresIn: '3650d' })
+  const headers = () => ({ authorization: `GoogleLogin auth=${token()}` })
+  const get = (path: string) => app.inject({ method: 'GET', url: `${API}${path}`, headers: headers() })
+  const post = (path: string, form: Record<string, string | string[]>) => {
+    const body = new URLSearchParams()
+    for (const [k, v] of Object.entries(form)) for (const value of Array.isArray(v) ? v : [v]) body.append(k, value)
+    return app.inject({
+      method: 'POST',
+      url: `${API}${path}`,
+      headers: { ...headers(), 'content-type': 'application/x-www-form-urlencoded' },
+      payload: body.toString(),
+    })
+  }
+  const titles = async (path: string) => (await get(path)).json().items.map((i: { title: string }) => i.title)
+  const refCount = async (query: string) => (await get(`/stream/items/ids?${query}`)).json().itemRefs.length
+  const subscriptions = async () => (await get('/subscription/list')).json().subscriptions as {
+    id: string; title: string; url: string; htmlUrl: string; iconUrl: string; categories: { id: string; label: string }[]
+  }[]
+
+  /** A feed whose URL holds every character that broke feed/<url> IDs. */
+  const ODD_URL = 'https://odd.example.com/feed/?a=1&b=2#frag'
+
+  function seed() {
+    seedUser()
+    const news = createCategory('News')
+    const empty = createCategory('Empty')
+    const plain = createFeed({ name: 'Plain', url: 'https://plain.example.com', rss_url: 'https://plain.example.com/feed/', category_id: news.id })
+    const odd = createFeed({ name: 'Odd', url: 'https://odd.example.com', rss_url: ODD_URL })
+    insertArticle({ feed_id: plain.id, title: 'Plain one', url: 'https://plain.example.com/1', published_at: null })
+    insertArticle({ feed_id: odd.id, title: 'Odd one', url: 'https://odd.example.com/1', published_at: null })
+    return { news, empty, plain, odd }
+  }
+
+  describe('feed stream lookup', () => {
+    it('finds a feed by numeric ID on the wildcard path, s= of stream/contents and s= of stream/items/ids', async () => {
+      const { odd } = seed()
+      expect(await titles(`/stream/contents/feed/${odd.id}`)).toEqual(['Odd one'])
+      expect(await titles(`/stream/contents?s=feed/${odd.id}`)).toEqual(['Odd one'])
+      expect(await titles(`/stream/contents?s=${enc(`feed/${odd.id}`)}`)).toEqual(['Odd one'])
+      expect(await refCount(`s=feed/${odd.id}`)).toBe(1)
+    })
+
+    it('finds a feed by a percent-encoded URL containing ?, & and #, on the path and in s=', async () => {
+      const { odd } = seed()
+      expect(odd.rss_url).toBe(ODD_URL)
+      expect(await titles(`/stream/contents/feed/${enc(ODD_URL)}`)).toEqual(['Odd one'])
+      expect(await titles(`/stream/contents?s=${enc(`feed/${ODD_URL}`)}`)).toEqual(['Odd one'])
+      expect(await refCount(`s=${enc(`feed/${ODD_URL}`)}`)).toBe(1)
+    })
+
+    it('finds a feed by a raw (unencoded) URL containing /feed/, on the path and in s=, and one with a raw ? in s=', async () => {
+      seed()
+      createFeed({ name: 'Query', url: 'https://q.example.com', rss_url: 'https://q.example.com/feed/?format=rss' })
+      const q = getDb().prepare("SELECT id FROM feeds WHERE name = 'Query'").get() as { id: number }
+      insertArticle({ feed_id: q.id, title: 'Query one', url: 'https://q.example.com/1', published_at: null })
+      expect(await titles('/stream/contents/feed/https://plain.example.com/feed/')).toEqual(['Plain one'])
+      expect(await titles('/stream/contents?s=feed/https://plain.example.com/feed/')).toEqual(['Plain one'])
+      expect(await refCount('s=feed/https://plain.example.com/feed/')).toBe(1)
+      expect(await titles('/stream/contents?s=feed/https://q.example.com/feed/?format=rss')).toEqual(['Query one'])
+    })
+
+    it('finds a feed whose URL a client percent-encoded twice', async () => {
+      seed()
+      expect(await titles(`/stream/contents/feed/${enc(enc(ODD_URL))}`)).toEqual(['Odd one'])
+    })
+
+    it('falls back to the site URL when no RSS URL matches', async () => {
+      seed()
+      expect(await titles(`/stream/contents?s=${enc('feed/https://odd.example.com')}`)).toEqual(['Odd one'])
+    })
+
+    it('serves an empty page, not the reading list, for an unknown feed (by URL or ID)', async () => {
+      seed()
+      for (const stream of ['feed/https://unknown.example.com/rss', 'feed/999999']) {
+        const res = await get(`/stream/contents?s=${enc(stream)}`)
+        expect(res.statusCode).toBe(200)
+        expect(res.json().items).toEqual([])
+        expect(res.json()).not.toHaveProperty('continuation')
+        expect((await get(`/stream/contents/${stream}`)).json().items).toEqual([])
+        expect(await refCount(`s=${enc(stream)}`)).toBe(0)
+      }
+      // A literal % that is not percent-encoding must not break the path form.
+      const res = await get('/stream/contents/feed/100%25')
+      expect(res.statusCode).toBe(200)
+      expect(res.json().items).toEqual([])
+    })
+
+    it("reports each item's origin.streamId as the subscription/list id of its feed", async () => {
+      const { plain, odd } = seed()
+      const subs = await subscriptions()
+      expect(subs.map((s) => s.id).sort()).toEqual([`feed/${plain.id}`, `feed/${odd.id}`].sort())
+      const items = (await get(`/stream/contents?s=${enc(READING_LIST)}`)).json().items as { origin: { streamId: string; title: string } }[]
+      for (const item of items) {
+        expect(item.origin.streamId).toBe(subs.find((s) => s.title === item.origin.title)!.id)
+      }
+    })
+
+    it('mark-all-as-read accepts feed/<id> and feed/<encoded odd url>', async () => {
+      const { odd, plain } = seed()
+      expect((await post('/mark-all-as-read', { s: `feed/${plain.id}` })).body).toBe('OK')
+      expect((await post('/mark-all-as-read', { s: `feed/${ODD_URL}` })).body).toBe('OK')
+      const unseen = getDb().prepare('SELECT COUNT(*) AS n FROM articles WHERE seen_at IS NULL AND feed_id IN (?, ?)').get(plain.id, odd.id) as { n: number }
+      expect(unseen.n).toBe(0)
+    })
+  })
+
+  describe('subscription/list, tag/list, unread-count', () => {
+    it('lists id, title, categories, url, htmlUrl, iconUrl and firstitemmsec, without frss:priority or sortid', async () => {
+      const { plain, odd, news } = seed()
+      const subs = await subscriptions()
+      expect(subs.find((s) => s.id === `feed/${plain.id}`)).toEqual({
+        id: `feed/${plain.id}`,
+        title: 'Plain',
+        categories: [{ id: 'user/-/label/News', label: 'News' }],
+        url: plain.rss_url,
+        htmlUrl: 'https://plain.example.com',
+        iconUrl: '',
+        firstitemmsec: '0',
+      })
+      expect(subs.find((s) => s.id === `feed/${odd.id}`)!.categories).toEqual([])
+      expect(news.id).toBeGreaterThan(0)
+    })
+
+    it('tag/list is starred (no type), reading-list, then every category from getCategories(), empty ones included', async () => {
+      seed()
+      createCategory('Zeta')
+      const res = await get('/tag/list?output=json')
+      expect(res.json().tags).toEqual([
+        { id: 'user/-/state/com.google/starred' },
+        { id: READING_LIST },
+        ...getCategories().map((c) => ({ id: `user/-/label/${c.name}`, type: 'folder' })),
+      ])
+      expect(getCategories().map((c) => c.name)).toEqual(['News', 'Empty', 'Zeta'])
+    })
+
+    it("unread-count orders rows as FreshRSS: each category's feeds then the category, uncategorised feeds, reading-list last", async () => {
+      const { news, plain, odd } = seed()
+      const second = createFeed({ name: 'Another', url: 'https://another.example.com', rss_url: 'https://another.example.com/rss', category_id: news.id })
+      const readId = insertArticle({ feed_id: second.id, title: 'Read', url: 'https://another.example.com/1', published_at: null })
+      getDb().prepare("UPDATE articles SET seen_at = datetime('now'), created_at = '2030-01-01 00:00:00' WHERE id = ?").run(readId)
+
+      const body = (await get('/unread-count?output=json')).json() as { max: number; unreadcounts: { id: string; count: number; newestItemTimestampUsec: string }[] }
+      expect(body.unreadcounts.map((r) => r.id)).toEqual([
+        `feed/${second.id}`, `feed/${plain.id}`, 'user/-/label/News',
+        'user/-/label/Empty',
+        `feed/${odd.id}`,
+        READING_LIST,
+      ])
+      expect(body.max).toBe(2)
+      const rows = new Map(body.unreadcounts.map((r) => [r.id, r]))
+      expect(rows.get(READING_LIST)!.count).toBe(2)
+      // Newest arrival, read or not: the read article arrived last.
+      const readUsec = String(Date.UTC(2030, 0, 1) * 1000)
+      expect(rows.get(`feed/${second.id}`)).toEqual({ id: `feed/${second.id}`, count: 0, newestItemTimestampUsec: readUsec })
+      expect(rows.get('user/-/label/News')!.newestItemTimestampUsec).toBe(readUsec)
+      expect(rows.get(READING_LIST)!.newestItemTimestampUsec).toBe(readUsec)
+      expect(rows.get('user/-/label/Empty')).toEqual({ id: 'user/-/label/Empty', count: 0, newestItemTimestampUsec: '0' })
+    })
+  })
+
+  describe('subscription/edit', () => {
+    it('renames with t=, moves with a= (creating the category), clears with r= alone', async () => {
+      const { plain } = seed()
+      expect((await post('/subscription/edit', { ac: 'edit', s: `feed/${plain.id}`, t: 'Renamed', T: 'x' })).body).toBe('OK')
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.title).toBe('Renamed')
+
+      expect((await post('/subscription/edit', { ac: 'edit', s: `feed/${plain.id}`, a: 'user/-/label/Moved' })).body).toBe('OK')
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.categories).toEqual([{ id: 'user/-/label/Moved', label: 'Moved' }])
+      expect(getCategories().map((c) => c.name)).toContain('Moved')
+      // Articles follow the feed into its new category.
+      expect(await titles(`/stream/contents/user/-/label/Moved`)).toEqual(['Plain one'])
+
+      // r= names some other label: the category is cleared anyway (greader.php).
+      expect((await post('/subscription/edit', { ac: 'edit', s: `feed/${plain.id}`, r: 'user/-/label/Whatever' })).body).toBe('OK')
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.categories).toEqual([])
+    })
+
+    it('uses the first of repeated a= values, and a= wins over r=', async () => {
+      const { plain } = seed()
+      const res = await post('/subscription/edit', { ac: 'edit', s: `feed/${plain.id}`, a: ['user/-/label/First', 'user/-/label/Second'], r: 'user/-/label/News' })
+      expect(res.body).toBe('OK')
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.categories).toEqual([{ id: 'user/-/label/First', label: 'First' }])
+      expect(getCategories().map((c) => c.name)).not.toContain('Second')
+    })
+
+    it('pairs repeated t= with repeated s= by position, and accepts feed/<url>', async () => {
+      const { plain, odd } = seed()
+      expect((await post('/subscription/edit', { ac: 'edit', s: [`feed/${plain.id}`, `feed/${ODD_URL}`], t: ['P2', 'O2'] })).body).toBe('OK')
+      const subs = await subscriptions()
+      expect(subs.find((s) => s.id === `feed/${plain.id}`)!.title).toBe('P2')
+      expect(subs.find((s) => s.id === `feed/${odd.id}`)!.title).toBe('O2')
+    })
+
+    it('changes nothing when one of several feeds is unknown', async () => {
+      const { plain } = seed()
+      const res = await post('/subscription/edit', { ac: 'edit', s: [`feed/${plain.id}`, 'feed/999999'], t: ['Nope', 'Nope'] })
+      expect(res.statusCode).toBe(400)
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.title).toBe('Plain')
+    })
+
+    it('unsubscribes a feed and its articles', async () => {
+      const { odd } = seed()
+      expect((await post('/subscription/edit', { ac: 'unsubscribe', s: `feed/${odd.id}` })).body).toBe('OK')
+      expect((await subscriptions()).map((s) => s.id)).not.toContain(`feed/${odd.id}`)
+      expect(await titles(`/stream/contents?s=${enc(READING_LIST)}`)).toEqual(['Plain one'])
+    })
+
+    it('never touches the clip feed', async () => {
+      seed()
+      const clip = createFeed({ name: 'Clips', url: 'clip://saved', type: 'clip' })
+      const res = await post('/subscription/edit', { ac: 'unsubscribe', s: `feed/${clip.id}` })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('subscribes through discovery, then applies t= and a=', async () => {
+      seed()
+      mockDiscoverRssUrl.mockResolvedValue({ rssUrl: 'https://new.example.com/rss', title: 'Discovered', usedFlareSolverr: false })
+      const res = await post('/subscription/edit', { ac: 'subscribe', s: 'feed/https://new.example.com', t: 'Mine', a: 'user/-/label/News' })
+      expect(res.statusCode).toBe(200)
+      expect(res.body).toBe('OK')
+      const sub = (await subscriptions()).find((s) => s.title === 'Mine')!
+      expect(sub).toMatchObject({ url: 'https://new.example.com/rss', categories: [{ id: 'user/-/label/News', label: 'News' }] })
+      expect(mockFetchSingleFeed).toHaveBeenCalledTimes(1)
+    })
+
+    it('subscribes through the RSS-Bridge fallback when discovery finds no feed', async () => {
+      seed()
+      mockQueryRssBridge.mockResolvedValue('https://bridge.example.com/?action=display')
+      const res = await post('/subscription/edit', { ac: 'subscribe', s: 'feed/https://site.example.com' })
+      expect(res.body).toBe('OK')
+      const row = getDb().prepare("SELECT name, rss_bridge_url FROM feeds WHERE url = 'https://site.example.com'").get()
+      expect(row).toMatchObject({ name: 'site.example.com', rss_bridge_url: 'https://bridge.example.com/?action=display' })
+    })
+
+    it.each([
+      ['no s', { ac: 'edit', t: 'x' }],
+      ['no ac', { s: 'feed/1' }],
+      ['an unknown ac', { ac: 'rename', s: 'feed/1' }],
+      ['edit of an unknown feed', { ac: 'edit', s: 'feed/999999', t: 'x' }],
+      ['unsubscribe of an unknown feed', { ac: 'unsubscribe', s: 'feed/https://unknown.example.com/rss' }],
+      ['subscribe to an existing feed', { ac: 'subscribe', s: 'feed/https://plain.example.com/feed/' }],
+      ['subscribe to a URL discovery cannot resolve', { ac: 'subscribe', s: 'feed/https://nothing.example.com' }],
+      ['subscribe to a non-http URL', { ac: 'subscribe', s: 'feed/file:///etc/passwd' }],
+    ])('answers 400 Bad Request! for %s', async (_case, form) => {
+      seed()
+      const res = await post('/subscription/edit', form)
+      expect(res.statusCode).toBe(400)
+      expect(res.headers['content-type']).toMatch(/^text\/plain; charset=utf-8$/i)
+      expect(res.body).toBe('Bad Request!')
+    })
+
+    it('answers 400 when discovery leads to a feed that already exists', async () => {
+      seed()
+      mockDiscoverRssUrl.mockResolvedValue({ rssUrl: ODD_URL, title: 'Odd', usedFlareSolverr: false })
+      const res = await post('/subscription/edit', { ac: 'subscribe', s: 'feed/https://odd.example.com/blog' })
+      expect(res.statusCode).toBe(400)
+    })
+  })
+
+  describe('subscription/quickadd', () => {
+    it('answers 200 with numResults 1, the feed URL, feed/<id> and the title', async () => {
+      seed()
+      mockDiscoverRssUrl.mockResolvedValue({ rssUrl: 'https://new.example.com/rss', title: 'New', usedFlareSolverr: false })
+      const res = await post('/subscription/quickadd', { quickadd: 'https://new.example.com', T: 'x' })
+      expect(res.statusCode).toBe(200)
+      const body = res.json()
+      const created = getDb().prepare("SELECT id FROM feeds WHERE url = 'https://new.example.com'").get() as { id: number }
+      expect(body).toEqual({ numResults: 1, query: 'https://new.example.com/rss', streamId: `feed/${created.id}`, streamName: 'New' })
+    })
+
+    it('answers 200 with "Already subscribed! <url>" for a feed that exists', async () => {
+      seed()
+      const res = await post('/subscription/quickadd', { quickadd: ODD_URL })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual({ numResults: 0, error: `Already subscribed! ${ODD_URL}` })
+      expect(mockDiscoverRssUrl).not.toHaveBeenCalled()
+    })
+
+    it('answers 200 with numResults 0 and an error when no feed can be found', async () => {
+      seed()
+      const res = await post('/subscription/quickadd', { quickadd: 'https://nothing.example.com' })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual({ numResults: 0, error: 'RSS could not be detected for this URL' })
+    })
+
+    it('answers 400 Bad Request! without quickadd', async () => {
+      seed()
+      const res = await post('/subscription/quickadd', {})
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toBe('Bad Request!')
+    })
+  })
+
+  describe('rename-tag and disable-tag', () => {
+    it('rename-tag renames the category; its feeds and articles follow', async () => {
+      const { plain } = seed()
+      expect((await post('/rename-tag', { s: 'user/-/label/News', dest: 'user/-/label/Headlines', T: 'x' })).body).toBe('OK')
+      expect(getCategories().map((c) => c.name)).toEqual(['Headlines', 'Empty'])
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.categories).toEqual([{ id: 'user/-/label/Headlines', label: 'Headlines' }])
+      expect(await titles('/stream/contents/user/-/label/Headlines')).toEqual(['Plain one'])
+    })
+
+    it.each([
+      ['an unknown label', { s: 'user/-/label/Nope', dest: 'user/-/label/X' }],
+      ['ids without the label prefix', { s: 'News', dest: 'Headlines' }],
+      ['a missing dest', { s: 'user/-/label/News' }],
+      ['an empty new name', { s: 'user/-/label/News', dest: 'user/-/label/' }],
+    ])('rename-tag answers 400 Bad Request! for %s', async (_case, form) => {
+      seed()
+      const res = await post('/rename-tag', form)
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toBe('Bad Request!')
+      expect(getCategories().map((c) => c.name)).toEqual(['News', 'Empty'])
+    })
+
+    it('disable-tag deletes only the first s; feeds and articles survive without a category', async () => {
+      const { plain } = seed()
+      expect((await post('/disable-tag', { s: ['user/-/label/News', 'user/-/label/Empty'] })).body).toBe('OK')
+      expect(getCategories().map((c) => c.name)).toEqual(['Empty'])
+      expect((await subscriptions()).find((s) => s.id === `feed/${plain.id}`)!.categories).toEqual([])
+      expect(await titles(`/stream/contents/feed/${plain.id}`)).toEqual(['Plain one'])
+      const article = getDb().prepare('SELECT category_id FROM articles WHERE feed_id = ?').get(plain.id) as { category_id: number | null }
+      expect(article.category_id).toBeNull()
+    })
+
+    it.each([
+      ['an unknown label', { s: 'user/-/label/Nope' }],
+      ['no s', {}],
+      ['a non-label stream', { s: 'feed/1' }],
+    ])('disable-tag answers 400 Bad Request! for %s', async (_case, form) => {
+      seed()
+      const res = await post('/disable-tag', form)
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toBe('Bad Request!')
+    })
+  })
+
+  describe('subscription/import and subscription/export', () => {
+    it('round-trips: the exported OPML imported into an empty server recreates feeds and categories', async () => {
+      seed()
+      const exported = await get('/subscription/export')
+      expect(exported.statusCode).toBe(200)
+      expect(exported.headers['content-type']).toBe('application/xml; charset=UTF-8')
+      expect(exported.headers['content-disposition']).toMatch(/^attachment/)
+      expect(exported.body).toContain('<opml')
+
+      getDb().prepare('DELETE FROM feeds').run()
+      getDb().prepare('DELETE FROM categories').run()
+      for (const contentType of ['text/xml']) {
+        const res = await app.inject({
+          method: 'POST',
+          url: `${API}/subscription/import`,
+          headers: { ...headers(), 'content-type': contentType },
+          payload: exported.body,
+        })
+        expect(res.statusCode).toBe(200)
+        expect(res.body).toBe('OK')
+      }
+      const subs = await subscriptions()
+      expect(subs.map((s) => [s.title, s.url, s.categories]).sort()).toEqual([
+        ['Odd', ODD_URL, []],
+        ['Plain', 'https://plain.example.com/feed/', [{ id: 'user/-/label/News', label: 'News' }]],
+      ])
+      expect(mockFetchSingleFeed).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['application/xml', 'text/x-opml', 'text/plain'])('accepts an OPML body sent as %s', async (contentType) => {
+      seedUser()
+      const opml = '<?xml version="1.0"?><opml version="2.0"><body><outline text="One" xmlUrl="https://one.example.com/rss"/></body></opml>'
+      const res = await app.inject({ method: 'POST', url: `${API}/subscription/import`, headers: { ...headers(), 'content-type': contentType }, payload: opml })
+      expect(res.body).toBe('OK')
+      expect((await subscriptions()).map((s) => s.url)).toEqual(['https://one.example.com/rss'])
+    })
+
+    it.each([['an empty body', ''], ['a body that is not OPML', '<html></html>']])('import answers 400 Bad Request! for %s', async (_case, payload) => {
+      seedUser()
+      const res = await app.inject({ method: 'POST', url: `${API}/subscription/import`, headers: { ...headers(), 'content-type': 'text/xml' }, payload })
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toBe('Bad Request!')
+    })
+  })
+
+  describe('authentication', () => {
+    it.each([
+      ['POST', '/subscription/edit'],
+      ['POST', '/subscription/quickadd'],
+      ['POST', '/subscription/import'],
+      ['GET', '/subscription/export'],
+      ['POST', '/rename-tag'],
+      ['POST', '/disable-tag'],
+    ] as const)('%s %s answers 401 without a token and changes nothing', async (method, path) => {
+      seed()
+      const res = await app.inject({
+        method,
+        url: `${API}${path}`,
+        headers: method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {},
+        payload: method === 'POST' ? 'ac=unsubscribe&s=feed%2F1&s=user%2F-%2Flabel%2FNews&quickadd=https%3A%2F%2Fx.example.com' : undefined,
+      })
+      expect(res.statusCode).toBe(401)
+      expect(getCategories().map((c) => c.name)).toEqual(['News', 'Empty'])
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM feeds').get()).toMatchObject({ n: 2 })
+      expect(mockDiscoverRssUrl).not.toHaveBeenCalled()
+    })
+
+    it('check/compatibility needs no token: PASS with a GoogleLogin header, the FAIL line without one', async () => {
+      const pass = await app.inject({ method: 'GET', url: `${prefix}/check/compatibility`, headers: { authorization: 'GoogleLogin auth=not-a-real-token' } })
+      expect(pass.statusCode).toBe(200)
+      expect(pass.headers['content-type']).toBe('text/plain; charset=UTF-8')
+      expect(pass.body).toBe('PASS')
+      const fail = await app.inject({ method: 'GET', url: `${prefix}/check/compatibility` })
+      expect(fail.statusCode).toBe(200)
+      expect(fail.body).toBe('FAIL get HTTP Authorization header! Wrong Web server configuration.')
     })
   })
 })
