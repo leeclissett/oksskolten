@@ -326,6 +326,43 @@ export function markAllSeenByFeed(feedId: number): { updated: number } {
   return { updated: result.changes }
 }
 
+/**
+ * Mark unread articles seen that arrived (created_at, UTC) at or before
+ * `arrivedAtOrBeforeSec` (Unix seconds), optionally only those of one feed,
+ * one category, or the liked ones. Used by the Google Reader
+ * `mark-all-as-read`, whose `ts` bounds the arrival time so that articles
+ * the client has not seen yet stay unread.
+ */
+export function markStreamSeen(filter: {
+  arrivedAtOrBeforeSec: number
+  feedId?: number
+  categoryId?: number
+  liked?: boolean
+}): { updated: number } {
+  const conditions = ['seen_at IS NULL', "created_at <= datetime(@before, 'unixepoch')"]
+  const params: Record<string, number> = { before: filter.arrivedAtOrBeforeSec }
+  if (filter.feedId !== undefined) {
+    conditions.push('feed_id = @feedId')
+    params.feedId = filter.feedId
+  }
+  if (filter.categoryId !== undefined) {
+    conditions.push('category_id = @categoryId')
+    params.categoryId = filter.categoryId
+  }
+  if (filter.liked) conditions.push('liked_at IS NOT NULL')
+  const where = conditions.join(' AND ')
+
+  const affectedIds = getDb().transaction(() => {
+    const ids = allNamed<{ id: number }>(`SELECT id FROM active_articles WHERE ${where}`, params).map(r => r.id)
+    runNamed(`UPDATE articles SET seen_at = datetime('now') WHERE id IN (SELECT id FROM active_articles WHERE ${where})`, params)
+    return ids
+  })()
+  if (affectedIds.length > 0) {
+    syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
+  }
+  return { updated: affectedIds.length }
+}
+
 export function markArticleLiked(
   id: number,
   liked: boolean,

@@ -381,7 +381,7 @@ describe.each(PREFIXES)('GET /reader/api/0/token ($label)', ({ base }) => {
     expect(res.body.trim().length).toBeGreaterThan(0)
   })
 
-  it.skip('WP3: returns a stable 57-character token followed by a newline, accepted as T', async () => {
+  it('WP3: returns a stable 57-character token followed by a newline, accepted as T', async () => {
     seedWorld()
     const api = client(base)
     const first = await api.get(`${API}/token`)
@@ -595,20 +595,20 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/items/ids ($label)', ({ base }
     expect(new Set(all).size).toBe(40)
   })
 
-  it.skip('WP3: s=user/-/state/com.google/read and .../unread return only read or only unread items', async () => {
+  it('WP3: s=user/-/state/com.google/read and .../unread return only read or only unread items', async () => {
     const { unreadId, readId, starredId } = seedWorld()
     expect(refIds((await ids(`s=${enc(READ)}`)).json())).toEqual([readId])
     expect(refIds((await ids(`s=${enc(UNREAD)}`)).json())).toEqual([starredId, unreadId])
   })
 
-  it.skip('WP3: it= filters by state (read, unread, starred)', async () => {
+  it('WP3: it= filters by state (read, unread, starred)', async () => {
     const { unreadId, readId, starredId } = seedWorld()
     expect(refIds((await ids(`s=${enc(READING_LIST)}&it=${enc(READ)}`)).json())).toEqual([readId])
     expect(refIds((await ids(`s=${enc(READING_LIST)}&it=${enc(UNREAD)}`)).json())).toEqual([starredId, unreadId])
     expect(refIds((await ids(`s=${enc(READING_LIST)}&it=${enc(STARRED)}`)).json())).toEqual([starredId])
   })
 
-  it.skip('WP3: xt=unread and xt=starred exclude those states', async () => {
+  it('WP3: xt=unread and xt=starred exclude those states', async () => {
     const { unreadId, readId } = seedWorld()
     expect(refIds((await ids(`s=${enc(READING_LIST)}&xt=${enc(UNREAD)}`)).json())).toEqual([readId])
     expect(refIds((await ids(`s=${enc(READING_LIST)}&xt=${enc(STARRED)}`)).json())).toEqual([readId, unreadId])
@@ -668,29 +668,30 @@ describe.each(PREFIXES)('POST /reader/api/0/stream/items/contents ($label)', ({ 
     expect(body.items).toHaveLength(1)
   })
 
-  // main parses the SQLite created_at ("YYYY-MM-DD HH:MM:SS", UTC) with new Date(),
-  // which reads it as local time: crawlTimeMsec is off by the server's UTC offset
-  // whenever TZ is not UTC. dateToTimestampUsec() in greader.ts already does it right.
-  it.skip('WP3: crawlTimeMsec is arrival time in UTC milliseconds, whatever the server time zone', async () => {
+  // Before WP3, the SQLite created_at ("YYYY-MM-DD HH:MM:SS", UTC) went through
+  // new Date(), which reads it as local time: crawlTimeMsec was off by the
+  // server's UTC offset whenever TZ was not UTC. Run this suite with
+  // TZ=Europe/Amsterdam as well as UTC to keep it honest.
+  it('WP3: crawlTimeMsec is arrival time in UTC milliseconds, whatever the server time zone', async () => {
     const { unreadId } = seedWorld()
     const [item] = (await contents(String(unreadId))).json().items
     expect(item.crawlTimeMsec).toBe(String(arrivalMs(ARRIVAL[0])))
   })
 
-  it.skip('WP3: timestampUsec is arrival time in microseconds, equal to crawlTimeMsec * 1000', async () => {
+  it('WP3: timestampUsec is arrival time in microseconds, equal to crawlTimeMsec * 1000', async () => {
     const { unreadId } = seedWorld()
     const [item] = (await contents(String(unreadId))).json().items
     expect(item.timestampUsec).toBe(String(arrivalMs(ARRIVAL[0]) * 1000))
     expect(item.timestampUsec).toBe(`${item.crawlTimeMsec}000`)
   })
 
-  it.skip('WP3: omits author when the article has none, never substituting the feed name', async () => {
+  it('WP3: omits author when the article has none, never substituting the feed name', async () => {
     const { unreadId } = seedWorld()
     const [item] = (await contents(String(unreadId))).json().items
     expect(item).not.toHaveProperty('author')
   })
 
-  it.skip('WP3: decodes an all-digit ID with a leading zero as hex (0000000000001000 is 4096, not 1000)', async () => {
+  it('WP3: decodes an all-digit ID with a leading zero as hex (0000000000001000 is 4096, not 1000)', async () => {
     const { alpha } = seedWorld()
     const a = insertArticle({ feed_id: alpha.id, title: 'Article 1000', url: 'https://alpha.example.com/1000', published_at: null })
     const b = insertArticle({ feed_id: alpha.id, title: 'Article 4096', url: 'https://alpha.example.com/4096', published_at: null })
@@ -809,7 +810,7 @@ describe.each(PREFIXES)('GET /reader/api/0/stream/contents ($label)', ({ base })
     expect(all).not.toHaveProperty('continuation')
   })
 
-  it.skip('WP3: it= filters by state', async () => {
+  it('WP3: it= filters by state', async () => {
     seedWorld()
     expect(titles((await get(`?s=${enc(READING_LIST)}&it=${enc(READ)}`)).json())).toEqual(['Read one'])
     expect(titles((await get(`?s=${enc(READING_LIST)}&it=${enc(STARRED)}`)).json())).toEqual(['Starred one'])
@@ -871,7 +872,7 @@ describe.each(PREFIXES)('POST /reader/api/0/edit-tag ($label)', ({ base }) => {
     expect(state(unreadId)).toEqual({ seen_at: null, read_at: null, liked_at: null })
   })
 
-  it.skip('WP3: applies every repeated a= and r=', async () => {
+  it('WP3: applies every repeated a= and r=', async () => {
     const { unreadId, starredId } = seedWorld()
     expect((await editTag({ i: String(unreadId), a: [READ, STARRED] })).body).toBe('OK')
     expect(state(unreadId).seen_at).not.toBeNull()
@@ -882,7 +883,7 @@ describe.each(PREFIXES)('POST /reader/api/0/edit-tag ($label)', ({ base }) => {
     expect(state(starredId).liked_at).toBeNull()
   })
 
-  it.skip('WP3: decodes an all-digit ID with a leading zero as hex', async () => {
+  it('WP3: decodes an all-digit ID with a leading zero as hex', async () => {
     const { alpha } = seedWorld()
     const a = insertArticle({ feed_id: alpha.id, title: 'Article 1000', url: 'https://alpha.example.com/1000', published_at: null })
     const b = insertArticle({ feed_id: alpha.id, title: 'Article 4096', url: 'https://alpha.example.com/4096', published_at: null })
@@ -929,7 +930,7 @@ describe.each(PREFIXES)('POST /reader/api/0/mark-all-as-read ($label)', ({ base 
     expect(alpha.category_id).toBe(news.id)
   })
 
-  it.skip('WP3: honours ts (microseconds): only items that arrived at or before ts', async () => {
+  it('WP3: honours ts (microseconds): only items that arrived at or before ts', async () => {
     const { unreadId, starredId } = seedWorld()
     const ts = String(arrivalMs(ARRIVAL[0]) * 1000)
     expect((await markAll({ s: READING_LIST, ts })).body).toBe('OK')
@@ -937,7 +938,7 @@ describe.each(PREFIXES)('POST /reader/api/0/mark-all-as-read ($label)', ({ base 
     expect(state(starredId).seen_at).toBeNull()
   })
 
-  it.skip('WP3: accepts the starred stream and marks only starred items', async () => {
+  it('WP3: accepts the starred stream and marks only starred items', async () => {
     const { unreadId, starredId } = seedWorld()
     expect((await markAll({ s: STARRED })).body).toBe('OK')
     expect(state(starredId).seen_at).not.toBeNull()
