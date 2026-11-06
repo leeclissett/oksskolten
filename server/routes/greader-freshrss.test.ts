@@ -318,6 +318,60 @@ describe('FreshRSS-compatible GReader prefix', () => {
   })
 })
 
+describe('full unread sync under /api/greader.php (4 Nov 2026 log)', () => {
+  // The app asked stream/items/ids?n=1000&xt=read over ~4,700 unread articles
+  // and got exactly 1,000 refs with no continuation, so it never saw the rest.
+  it('pages every unread ref at n=1000 and fetches them all in 250-ID batches, with an arrival mid-walk', async () => {
+    seedUser()
+    const feed = createFeed({ name: 'Busy', url: 'https://busy.example.com', rss_url: 'https://busy.example.com/rss' })
+    const db = getDb()
+    const setArrival = db.prepare("UPDATE articles SET created_at = datetime(?, 'unixepoch') WHERE id = ?")
+    const startSec = Date.UTC(2026, 9, 1) / 1000
+    const seeded = db.transaction(() => Array.from({ length: 2500 }, (_, i) => {
+      const id = insertArticle({ feed_id: feed.id, title: `Unread ${i}`, url: `https://busy.example.com/${i}`, published_at: '2026-01-01T00:00:00Z' })
+      setArrival.run(startSec + i, id)
+      return id
+    }))()
+    db.prepare("UPDATE articles SET seen_at = datetime('now'), read_at = datetime('now') WHERE id IN (?, ?)").run(seeded[0], seeded[1])
+    const unread = seeded.slice(2)
+
+    const { auth } = await freshRssLogin()
+    const headers = { authorization: `GoogleLogin auth=${auth}` }
+    const idsUrl = '/api/greader.php/reader/api/0/stream/items/ids?output=json&n=1000&s=user%2F-%2Fstate%2Fcom.google%2Freading-list&xt=user%2F-%2Fstate%2Fcom.google%2Fread'
+
+    const refs: string[] = []
+    const pageSizes: number[] = []
+    let continuation: string | undefined
+    do {
+      const res = await app.inject({ method: 'GET', url: `${idsUrl}${continuation ? `&c=${encodeURIComponent(continuation)}` : ''}`, headers })
+      expect(res.statusCode).toBe(200)
+      const body = res.json()
+      refs.push(...body.itemRefs.map((ref: { id: string }) => ref.id))
+      pageSizes.push(body.itemRefs.length)
+      continuation = body.continuation
+      if (pageSizes.length === 1) {
+        insertArticle({ feed_id: feed.id, title: 'Arrived mid-sync', url: 'https://busy.example.com/late', published_at: null })
+      }
+    } while (continuation && pageSizes.length < 10)
+
+    expect(pageSizes).toEqual([1000, 1000, 498])
+    expect(refs.map(Number)).toEqual([...unread].reverse())
+
+    const titles = new Set<string>()
+    for (let i = 0; i < refs.length; i += 250) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/greader.php/reader/api/0/stream/items/contents',
+        headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+        payload: refs.slice(i, i + 250).map((id) => `i=${id}`).join('&'),
+      })
+      expect(res.statusCode).toBe(200)
+      for (const item of res.json().items as { title: string }[]) titles.add(item.title)
+    }
+    expect(titles.size).toBe(2498)
+  }, 30_000)
+})
+
 describe('ClientLogin under /api/greader.php', () => {
   it('accepts GET with Email/Passwd query parameters', async () => {
     seedUser()

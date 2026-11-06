@@ -53,8 +53,9 @@ Every change is a **superset** of what a generic Google Reader client needs:
 | A non-empty `T` other than `x` or the real token is rejected with `401` (`checkToken`, L247-263) | Any `T`, or none, is accepted | The fork's token is not FreshRSS's; validating it would break clients for no security gain (the `Authorization` header is the credential). |
 | `mark-all-as-read` with `feed/<url>` → `400` (`basename()` is not numeric, L1052-1056) | `feed/<url>` accepted | Superset; Fluent Reader and old fork IDs use URLs. |
 | `stream/contents?s=feed/<url>` silently matches nothing (the query form only works for `feed/<int>`; L1198-1215) | Accepted | Superset. |
-| `stream/items/contents` has no ID cap (chunked by SQL variable limit, `EntryDAO::listByIds`) | 1000 IDs max, more → `400 Bad Request!` (WP2) | Largest batch any client sends is 1000 (edit-tag); bounds work per request. |
-| `stream/contents` has no `n` cap | `n` capped at 1000 (WP2) | Largest value any client sends. |
+| `stream/contents` has no `n` cap | `n` capped at 1000 (WP2) | Largest value any client sends; each item carries its full body. |
+| `ot`/`nt` also match an entry's `lastModified` | Arrival time (`created_at`) only | The fork has no per-item modification time; equivalent for an article whose content never changes. |
+| Continuation is the decimal ID of the last item | Opaque base64url of `<id>:<created_at>` of the last item | Same keyset semantics on the fork's `(created_at, id)` sort key; clients treat it as opaque. |
 | Several responses carry PHP's default `Content-Type` (see A.2) | Explicit `text/plain; charset=UTF-8` / `application/json; charset=UTF-8` (WP5) | Clients do not check; an explicit type is safer. |
 | `edit-tag` `a=user/-/state/com.google/kept-unread` is ignored (no case for it, L924-962) | Marks unread (current behaviour, kept) | Harmless; some Google-era clients send it. |
 | `edit-tag` `a=user/-/label/<x>` tags the item (FreshRSS has per-item labels) | Accepted and ignored, still `OK` | Oksskolten has no per-article labels. |
@@ -242,10 +243,12 @@ appends the charset; passing tests assert it). Text responses carry bare
   stream of exactly `n` items yields a continuation whose next page is empty
   and has none. Never `""`. Same rule on `stream/contents` (L764) and
   `stream/items/ids` (L848-853).
-- Fork: `stream/items/ids` default `n` 10000, never a continuation;
-  `stream/contents` caps `n` at 100 and uses base64 offsets, which repeat or
-  skip items when articles arrive between pages (target WP2: keyset cursor on
-  `(created_at, id)`, `n` default 20, up to 10000 / 1000).
+- Fork (WP2): same rules. `n` defaults to 20, up to 10000 on
+  `stream/items/ids` and 1000 on `stream/contents`. The continuation is an
+  opaque keyset cursor on `(created_at, id)` of the last item (base64url), so
+  articles arriving between pages cause neither repeats nor gaps, in both
+  directions (`r=o` too). An unreadable `c` (e.g. a pre-WP2 offset) restarts
+  at the first page.
 
 ### A.6 `stream/contents` and `stream/items/contents`
 
@@ -262,9 +265,10 @@ appends the charset; passing tests assert it). Text responses carry bare
   `multiplePosts`, body capped at 1 MiB), `r=o` in the query string.
   **Ordering (correction): items come back in FreshRSS's order, `ORDER BY id
   DESC` (newest arrival first) or `ASC` with `r=o`, not in request order**
-  (`EntryDAO::listByIds`, L1797-1821). Unknown IDs are dropped silently. Fork:
-  request order, capped at 100 IDs (target WP2: up to 1000, order to be
-  decided — see §5).
+  (`EntryDAO::listByIds`, L1797-1821). Unknown IDs are dropped silently. Fork
+  (WP2): same order (`created_at DESC, id DESC`, ascending with `r=o`), no ID
+  cap — Fastify's 1 MiB body limit is the only bound, as in FreshRSS; each
+  item appears once even if its ID is repeated.
 - Wrapper: `{"id": "user/-/state/com.google/reading-list", "updated": <unix
   seconds int>, "items": [...]}` plus `"continuation"` on `stream/contents`.
   The wrapper `id` is **always** the reading list, whatever stream was asked
@@ -439,15 +443,9 @@ Fluent Reader (`src/scripts/models/services/greader.ts`).
 
 ## 5. Open questions
 
-- **`stream/items/contents` order.** greader.php returns newest arrival first
-  (`r=o`: oldest first), not request order. No audited client depends on
-  either (all key items by ID). The contract has a `WP2` skipped test for
-  FreshRSS order; WP2 should confirm or delete it.
 - **Wrapper `id` of `stream/contents`.** greader.php always says
   `user/-/state/com.google/reading-list`; Google echoed the requested stream,
   as the fork does. No WP is assigned; the contract only asserts a string.
 - **`mark-all-as-read` with an unknown or empty stream.** greader.php answers
   `400`; the fork answers `OK` and does nothing. Not assigned; Fluent Reader
   always sends a valid `s`.
-- **`ot`/`nt` and `lastModified`.** FreshRSS also matches on content-modified
-  time; the fork has no equivalent column and filters on arrival only.
