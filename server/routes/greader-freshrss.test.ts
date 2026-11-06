@@ -85,7 +85,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
     })
 
     expect(res.statusCode).toBe(401)
-    expect(res.body).toContain('Error=NeedsBrowser')
+    expect(res.body).toBe('Unauthorized!')
   })
 
   it.each([
@@ -97,7 +97,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
     const res = await app.inject({ method: 'GET', url })
 
     expect(res.statusCode).toBe(401)
-    expect(res.body).toContain('Error=NeedsBrowser')
+    expect(res.body).toBe('Unauthorized!')
   })
 
   it('serves authenticated reader endpoints under the FreshRSS base URL', async () => {
@@ -416,7 +416,7 @@ describe('ClientLogin under /api/greader.php', () => {
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         payload: 'Email=test%40example.com&Passwd=wrong',
       })
-      expect(res.statusCode).toBe(403)
+      expect(res.statusCode).toBe(401)
     }
     const { res } = await freshRssLogin()
     expect(res.statusCode).toBe(429)
@@ -520,5 +520,71 @@ describe('FreshRSS item IDs, timestamps and states under /api/greader.php (WP3)'
     const res = await app.inject({ method: 'GET', url: '/api/greader.php/check/compatibility', headers: { authorization: 'GoogleLogin auth=x' } })
     expect(res.statusCode).toBe(200)
     expect(res.body).toBe('PASS')
+  })
+})
+
+describe('greader.php paths outside /reader/api/0/ (WP5)', () => {
+  const TEXT = 'text/plain; charset=UTF-8'
+
+  it.each([
+    ['GET', '/api/greader.php/'],
+    ['GET', '/api/greader.php/nothing'],
+    ['GET', '/api/greader.php/reader/nothing/here'],
+    ['GET', '/api/greader.php/accounts/nothing'],
+    ['POST', '/api/greader.php/nothing'],
+    ['DELETE', '/api/greader.php/nothing'],
+    ['GET', '/api/greader.php?x=1'],
+  ] as const)('%s %s answers 400 Bad Request!, never the JSON 404', async (method, url) => {
+    const res = await app.inject({ method, url })
+    expect(res.statusCode).toBe(400)
+    expect(res.headers['content-type']).toBe(TEXT)
+    expect(res.body).toBe('Bad Request!')
+  })
+
+  it('POST /api/greader.php/reader/api/0/nope is 401 without a token and 400 with one', async () => {
+    seedUser()
+    const noToken = await app.inject({ method: 'POST', url: '/api/greader.php/reader/api/0/nope' })
+    expect(noToken.statusCode).toBe(401)
+    expect(noToken.headers['content-type']).toBe(TEXT)
+    expect(noToken.headers['google-bad-token']).toBe('true')
+    expect(noToken.body).toBe('Unauthorized!')
+
+    const { auth } = await freshRssLogin()
+    const withToken = await app.inject({
+      method: 'POST',
+      url: '/api/greader.php/reader/api/0/nope',
+      headers: { authorization: `GoogleLogin auth=${auth}`, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'a=b',
+    })
+    expect(withToken.statusCode).toBe(400)
+    expect(withToken.headers['content-type']).toBe(TEXT)
+    expect(withToken.body).toBe('Bad Request!')
+  })
+
+  it('unknown paths under the prefix are protected through a percent-encoded path too', async () => {
+    seedUser()
+    const res = await app.inject({ method: 'GET', url: '/api/greader.php/%72eader/api/0/nope' })
+    expect(res.statusCode).toBe(401)
+    expect(res.body).toBe('Unauthorized!')
+  })
+
+  it('GET /api/greader.php with no path and no query answers OK, as greader.php', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/greader.php' })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe(TEXT)
+    expect(res.body).toBe('OK')
+  })
+
+  it('the web app API keeps its JSON 404 for unknown /api paths', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/greader.phpx/nothing' })
+    expect(res.statusCode).not.toBe(400)
+    expect(res.body).not.toBe('Bad Request!')
+  })
+
+  it('ClientLogin success under the prefix is exactly SID=<t>\\nLSID=null\\nAuth=<t>\\n', async () => {
+    seedUser()
+    const { res, auth } = await freshRssLogin()
+    expect(res.headers['content-type']).toBe(TEXT)
+    expect(res.body).toBe(`SID=${auth}\nLSID=null\nAuth=${auth}\n`)
   })
 })

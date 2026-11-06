@@ -44,7 +44,6 @@ import { AlreadySubscribedError, importOpmlEntries, subscribeToFeedUrl } from '.
 import { markArticleSeen, markArticleLiked, markStreamSeen, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
 import { articleUrlToPath, isInlineEntryUrl } from '../../shared/url.js'
 import { publicationSiteOf } from '../lib/cleaner/email.js'
-import { parseOrBadRequest } from '../lib/validation.js'
 import { routedPath } from '../lib/routed-path.js'
 import { sqliteTimeToMs } from '../lib/sqlite-time.js'
 import { clientLoginAttempts, loginAttemptKey } from '../lib/login-attempts.js'
@@ -203,14 +202,20 @@ function extractGReaderToken(request: FastifyRequest): string | null {
   return match ? match[1] : null
 }
 
-async function verifyGReaderAuth(
+/**
+ * Verify the `Authorization: GoogleLogin auth=<jwt>` header of a reader
+ * request. Every failure (no header, a bad or expired token, a token whose
+ * token_version was bumped) answers FreshRSS's `unauthorized()`.
+ * Returns the account's email, or null once the 401 has been sent.
+ */
+export async function verifyGReaderAuth(
   request: FastifyRequest,
   reply: FastifyReply,
   app: FastifyInstance,
 ): Promise<string | null> {
   const token = extractGReaderToken(request)
   if (!token) {
-    reply.status(401).send('Error=NeedsBrowser\n')
+    unauthorized(reply)
     return null
   }
   try {
@@ -220,14 +225,50 @@ async function verifyGReaderAuth(
       .get(payload.email) as { token_version: number } | undefined
     if (!user || user.token_version !== payload.token_version) {
       log.warn('GReader token rejected (version mismatch) for', payload.email)
-      reply.status(401).send('Error=TokenExpired\n')
+      unauthorized(reply)
       return null
     }
     return payload.email
   } catch {
-    reply.status(401).send('Error=TokenExpired\n')
+    unauthorized(reply)
     return null
   }
+}
+
+// --- Plain-text responses (FreshRSS greader.php) ---
+
+/** A plain-text response, `text/plain; charset=UTF-8`, the body sent as given. */
+function sendText(reply: FastifyReply, status: number, body: string): FastifyReply {
+  reply.status(status)
+  reply.header('Content-Type', 'text/plain; charset=UTF-8')
+  return reply.send(body)
+}
+
+/** FreshRSS's `badRequest()`: 400, `Bad Request!`. */
+export function badRequest(reply: FastifyReply): FastifyReply {
+  return sendText(reply, 400, 'Bad Request!')
+}
+
+/** FreshRSS's `unauthorized()`: 401, `Unauthorized!`, `Google-Bad-Token: true`. */
+export function unauthorized(reply: FastifyReply): FastifyReply {
+  reply.header('Google-Bad-Token', 'true')
+  return sendText(reply, 401, 'Unauthorized!')
+}
+
+/**
+ * FreshRSS's `exit('OK')` of every write endpoint: 200, exactly `OK`, no
+ * newline. Read You parses the body as a bare scalar.
+ */
+export function sendOk(reply: FastifyReply): FastifyReply {
+  return sendText(reply, 200, 'OK')
+}
+
+/** Parse with a zod schema, or answer `400 Bad Request!` and return null. */
+function parseOr400<T>(schema: z.ZodType<T>, data: unknown, reply: FastifyReply): T | null {
+  const result = schema.safeParse(data)
+  if (result.success) return result.data
+  badRequest(reply)
+  return null
 }
 
 // --- Article → GReader item shape ---
@@ -575,10 +616,14 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     handler: clientLogin,
   })
 
+  // FreshRSS's clientLogin(): missing fields → 400 Bad Request!; unknown
+  // account or wrong password → 401 Unauthorized! (+ Google-Bad-Token).
   async function clientLogin(request: FastifyRequest, reply: FastifyReply) {
     if (getSetting('auth.password_enabled') === '0') {
-      reply.header('Content-Type', 'text/plain')
-      return reply.status(403).send('Error=PasswordAuthDisabled\n')
+      // Passkey-only account: FreshRSS has no equivalent, so the client sees
+      // an ordinary bad login; the log says why.
+      log.warn('GReader ClientLogin refused: password authentication is disabled (passkey-only account)')
+      return unauthorized(reply)
     }
 
     const query = pickCredentials(request.query)
@@ -588,17 +633,16 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
         request.headers['user-agent'] ?? '',
       )
     }
-    const body = parseOrBadRequest(ClientLoginBody, { ...query, ...pickCredentials(request.body) }, reply)
+    const body = parseOr400(ClientLoginBody, { ...query, ...pickCredentials(request.body) }, reply)
     if (!body) return
 
+    // Checked before the password, so a blocked client cannot keep guessing.
     const attemptKey = loginAttemptKey(request, body.Email)
     const limit = clientLoginAttempts.check(attemptKey)
     if (limit.blocked) {
       log.warn('GReader ClientLogin blocked after repeated failures for', body.Email)
-      reply.status(429)
       reply.header('Retry-After', String(limit.retryAfterSeconds))
-      reply.header('Content-Type', 'text/plain; charset=UTF-8')
-      return reply.send('Too Many Requests\n')
+      return sendText(reply, 429, 'Too Many Requests\n')
     }
 
     const user = getDb()
@@ -608,9 +652,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !compareSync(body.Passwd, user.password_hash)) {
       clientLoginAttempts.recordFailure(attemptKey)
       log.warn('GReader ClientLogin failed for', body.Email)
-      reply.status(403)
-      reply.header('Content-Type', 'text/plain')
-      return reply.send('Error=BadAuthentication\n')
+      return unauthorized(reply)
     }
 
     clientLoginAttempts.reset(attemptKey)
@@ -618,8 +660,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       { email: user.email, token_version: user.token_version },
       { expiresIn: GREADER_TOKEN_EXPIRY },
     )
-    reply.header('Content-Type', 'text/plain')
-    return reply.send(`SID=${token}\nLSID=${token}\nAuth=${token}\n`)
+    // `LSID=null` literally, as FreshRSS (for Vienna RSS). A JWT has no `=`
+    // or whitespace, which clients that split the lines on `=` rely on.
+    return sendText(reply, 200, `SID=${token}\nLSID=null\nAuth=${token}\n`)
   }
 
   // ── All /reader/api/0/* routes require GReader auth ─────────────────────────
@@ -634,15 +677,16 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
   // ── User info ────────────────────────────────────────────────────────────────
 
+  // FreshRSS emits exactly these four keys, the first three being the
+  // username. Oksskolten's username is the account's email.
   app.get('/reader/api/0/user-info', async (request, reply) => {
     const email = request.greaderEmail
     reply.header('Content-Type', 'application/json')
     return reply.send({
       userId: email,
-      userName: email.split('@')[0],
-      userEmail: email,
+      userName: email,
       userProfileId: email,
-      userInfoUrl: `${request.protocol}://${request.hostname}/reader/api/0/user-info`,
+      userEmail: email,
     })
   })
 
@@ -654,8 +698,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   app.get('/reader/api/0/token', async (request, reply) => {
     const auth = extractGReaderToken(request) ?? ''
     const token = createHash('sha1').update(auth).digest('hex').padEnd(57, 'Z')
-    reply.header('Content-Type', 'text/plain')
-    return reply.send(`${token}\n`)
+    return sendText(reply, 200, `${token}\n`)
   })
 
   // ── Subscription list ────────────────────────────────────────────────────────
@@ -791,7 +834,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   // ── Fetch specific items ─────────────────────────────────────────────────────
 
   app.post('/reader/api/0/stream/items/contents', async (request, reply) => {
-    const body = parseOrBadRequest(StreamItemsContentsBody, request.body, reply)
+    const body = parseOr400(StreamItemsContentsBody, request.body, reply)
     if (!body) return
 
     // No cap on the number of IDs, as in FreshRSS: Fastify's 1 MiB bodyLimit
@@ -833,9 +876,11 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const items = rows.map((row) => articleToGReaderItem(row, origin, feedSites))
     const continuation = continuationFor(refs, limit)
 
+    // The wrapper id is always the reading list, whatever stream was asked
+    // for, as in FreshRSS.
     reply.header('Content-Type', 'application/json')
     return reply.send({
-      id: stream,
+      id: 'user/-/state/com.google/reading-list',
       updated: Math.floor(Date.now() / 1000),
       items,
       ...(continuation ? { continuation } : {}),
@@ -862,7 +907,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   // ── Edit tag (mark read/unread/starred) ──────────────────────────────────────
 
   app.post('/reader/api/0/edit-tag', async (request, reply) => {
-    const body = parseOrBadRequest(EditTagBody, request.body, reply)
+    const body = parseOr400(EditTagBody, request.body, reply)
     if (!body) return
 
     const articleIds = [...new Set(body.i.map(decodeItemId).filter((id): id is number => id !== null))]
@@ -888,14 +933,13 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    reply.header('Content-Type', 'text/plain')
-    return reply.send('OK')
+    return sendOk(reply)
   })
 
   // ── Mark all as read ─────────────────────────────────────────────────────────
 
   app.post('/reader/api/0/mark-all-as-read', async (request, reply) => {
-    const body = parseOrBadRequest(MarkAllAsReadBody, request.body, reply)
+    const body = parseOr400(MarkAllAsReadBody, request.body, reply)
     if (!body) return
 
     // ts: arrival time in microseconds (FreshRSS compares it with entry IDs,
@@ -926,8 +970,7 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       return badRequest(reply)
     }
 
-    reply.header('Content-Type', 'text/plain')
-    return reply.send('OK')
+    return sendOk(reply)
   })
 
   // ── Subscription management ──────────────────────────────────────────────────
@@ -1092,29 +1135,25 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     method: ['GET', 'POST'],
     url: '/check/compatibility',
     handler: async (request, reply) => {
-      reply.header('Content-Type', 'text/plain; charset=UTF-8')
-      return reply.send(extractGReaderToken(request)
+      return sendText(reply, 200, extractGReaderToken(request)
         ? 'PASS'
         : 'FAIL get HTTP Authorization header! Wrong Web server configuration.')
     },
   })
-}
 
-/** The `OK` body of FreshRSS's write endpoints, as edit-tag sends it. */
-function sendOk(reply: FastifyReply): FastifyReply {
-  reply.header('Content-Type', 'text/plain')
-  return reply.send('OK')
+  // ── Unknown reader paths ───────────────────────────────────────────────────
+
+  // Anything under /reader/api/0/ that no route above serves, with any method,
+  // is FreshRSS's fall-through `400 Bad Request!` — never the SPA's
+  // index.html or the JSON 404. The router prefers every static or more
+  // specific route over this wildcard, and the auth hook runs first (the
+  // routed path is /reader/api/0/*), so without a valid token it is 401, as
+  // greader.php checks the token before dispatching.
+  app.all('/reader/api/0/*', async (_request, reply) => badRequest(reply))
 }
 
 /** Latest second SQLite's datetime(…, 'unixepoch') renders (9999-12-31 23:59:59 UTC). */
 const MAX_UNIX_SECONDS = 253402300799n
-
-/** FreshRSS's `badRequest()`: 400, plain text `Bad Request!`. */
-function badRequest(reply: FastifyReply): FastifyReply {
-  reply.status(400)
-  reply.header('Content-Type', 'text/plain; charset=UTF-8')
-  return reply.send('Bad Request!')
-}
 
 /** First value of a query parameter that may be repeated. */
 function firstParam(value: string | string[] | undefined): string | undefined {
@@ -1225,7 +1264,7 @@ function labelNameOf(stream: string | undefined): string | null {
 function buildArticleOpts(stream: string, include?: string, exclude?: string): {
   feedId?: number
   categoryId?: number
-  /** The stream names a feed that does not exist: the stream is empty. */
+  /** The stream names a feed or label that does not exist: the stream is empty. */
   matchesNothing?: boolean
   states: StateFilter[]
 } {
@@ -1257,8 +1296,10 @@ function buildArticleOpts(stream: string, include?: string, exclude?: string): {
   }
 
   if (stream.startsWith('user/-/label/')) {
+    // Likewise an unknown label is an empty stream.
     const cat = findCategoryByName(stream.slice('user/-/label/'.length))
     if (cat) opts.categoryId = cat.id
+    else opts.matchesNothing = true
     return opts
   }
 
