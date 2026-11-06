@@ -13,6 +13,7 @@ import { findProjectRoot } from './paths.js'
 import { validateJwtSecret } from './jwt-secret.js'
 import { isRateLimitExempt } from './lib/routed-path.js'
 import { clientIp, rateLimitKey } from './lib/client-ip.js'
+import { redactUrlSecrets } from './lib/redact-url.js'
 
 const log = logger
 import { getDb } from './db/connection.js'
@@ -120,7 +121,8 @@ app.addHook('onResponse', (req, reply, done) => {
     req.log.info({
       msg: 'request completed',
       method: req.method,
-      url: req.url,
+      // ClientLogin accepts GET, so the query string may carry the password.
+      url: redactUrlSecrets(req.url),
       statusCode: reply.statusCode,
       responseTime: Math.round(reply.elapsedTime),
       contentLength: reply.getHeader('content-length') || 0,

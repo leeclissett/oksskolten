@@ -1,7 +1,7 @@
 /**
  * Google Reader API (GReader) — compatible with NetNewsWire FreshRSS account type.
  *
- * Auth:   POST /accounts/ClientLogin  →  plain-text `Auth=<jwt>`
+ * Auth:   POST (or GET) /accounts/ClientLogin  →  plain-text `Auth=<jwt>`
  * Header: Authorization: GoogleLogin auth=<jwt>
  *
  * Endpoints used by NetNewsWire:
@@ -30,6 +30,7 @@ import { articleUrlToPath, isInlineEntryUrl } from '../../shared/url.js'
 import { publicationSiteOf } from '../lib/cleaner/email.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { routedPath } from '../lib/routed-path.js'
+import { clientLoginAttempts, loginAttemptKey } from '../lib/login-attempts.js'
 import { logger } from '../logger.js'
 
 declare module 'fastify' {
@@ -89,6 +90,16 @@ const ClientLoginBody = z.object({
   Email: scalar.pipe(z.string().min(1, 'Email required')),
   Passwd: scalar.pipe(z.string().min(1, 'Passwd required')),
 })
+
+/** The ClientLogin fields present in a query string or form body (other keys dropped). */
+function pickCredentials(source: unknown): { Email?: unknown; Passwd?: unknown } {
+  if (!source || typeof source !== 'object') return {}
+  const { Email, Passwd } = source as Record<string, unknown>
+  return {
+    ...(Email !== undefined ? { Email } : {}),
+    ...(Passwd !== undefined ? { Passwd } : {}),
+  }
+}
 
 const StreamItemsContentsBody = z.object({ i: ids })
 
@@ -434,35 +445,63 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   )
   // ── Authentication ──────────────────────────────────────────────────────────
 
-  app.post('/accounts/ClientLogin', {
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
-  }, async (request, reply) => {
+  // GET is accepted as well as POST because FreshRSS accepts it (some clients
+  // still log in that way); a POST body field wins over the same query field.
+  // Login is not limited per request, only per failure: reader apps such as
+  // Read You re-run ClientLogin on every retry. The global limiter still
+  // covers /accounts/*.
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/accounts/ClientLogin',
+    handler: clientLogin,
+  })
+
+  async function clientLogin(request: FastifyRequest, reply: FastifyReply) {
     if (getSetting('auth.password_enabled') === '0') {
       reply.header('Content-Type', 'text/plain')
       return reply.status(403).send('Error=PasswordAuthDisabled\n')
     }
 
-    const body = parseOrBadRequest(ClientLoginBody, request.body, reply)
+    const query = pickCredentials(request.query)
+    if (query.Email !== undefined || query.Passwd !== undefined) {
+      log.warn(
+        'ClientLogin using GET method is deprecated: password may appear in logs. Use POST instead. User-Agent:',
+        request.headers['user-agent'] ?? '',
+      )
+    }
+    const body = parseOrBadRequest(ClientLoginBody, { ...query, ...pickCredentials(request.body) }, reply)
     if (!body) return
+
+    const attemptKey = loginAttemptKey(request, body.Email)
+    const limit = clientLoginAttempts.check(attemptKey)
+    if (limit.blocked) {
+      log.warn('GReader ClientLogin blocked after repeated failures for', body.Email)
+      reply.status(429)
+      reply.header('Retry-After', String(limit.retryAfterSeconds))
+      reply.header('Content-Type', 'text/plain; charset=UTF-8')
+      return reply.send('Too Many Requests\n')
+    }
 
     const user = getDb()
       .prepare('SELECT email, password_hash, token_version FROM users WHERE LOWER(email) = ?')
       .get(body.Email.toLowerCase()) as { email: string; password_hash: string; token_version: number } | undefined
 
     if (!user || !compareSync(body.Passwd, user.password_hash)) {
+      clientLoginAttempts.recordFailure(attemptKey)
       log.warn('GReader ClientLogin failed for', body.Email)
       reply.status(403)
       reply.header('Content-Type', 'text/plain')
       return reply.send('Error=BadAuthentication\n')
     }
 
+    clientLoginAttempts.reset(attemptKey)
     const token = app.jwt.sign(
       { email: user.email, token_version: user.token_version },
       { expiresIn: GREADER_TOKEN_EXPIRY },
     )
     reply.header('Content-Type', 'text/plain')
     return reply.send(`SID=${token}\nLSID=${token}\nAuth=${token}\n`)
-  })
+  }
 
   // ── All /reader/api/0/* routes require GReader auth ─────────────────────────
 

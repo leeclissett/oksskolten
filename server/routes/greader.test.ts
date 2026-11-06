@@ -4,6 +4,9 @@ import { buildApp } from '../__tests__/helpers/buildApp.js'
 import { getDb, createCategory, createFeed, insertArticle } from '../db.js'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
+import { clientLoginAttempts } from '../lib/login-attempts.js'
+import { isRateLimitExempt } from '../lib/routed-path.js'
+import { rateLimitKey } from '../lib/client-ip.js'
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -26,6 +29,7 @@ async function clientLogin(email = 'test@example.com', password = 'password123')
 
 beforeEach(async () => {
   setupTestDb()
+  clientLoginAttempts.clear()
   app = await buildApp()
   // Remove AUTH_DISABLED so greader JWT auth is exercised properly
   savedAuthDisabled = process.env.AUTH_DISABLED
@@ -102,6 +106,192 @@ describe('POST /accounts/ClientLogin', () => {
       headers: { authorization: `GoogleLogin auth=${auth}` },
     })
     expect(res.statusCode).toBe(401)
+  })
+})
+
+// ── ClientLogin failure limiter and GET login (both prefixes) ────────────────
+
+describe.each([
+  ['root', ''],
+  ['FreshRSS prefix', '/api/greader.php'],
+])('ClientLogin limiter and GET login (%s)', (_name, prefix) => {
+  const loginUrl = `${prefix}/accounts/ClientLogin`
+
+  function postLogin(email: string, password: string, ip = '203.0.113.7') {
+    return app.inject({
+      method: 'POST',
+      url: loginUrl,
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'cf-connecting-ip': ip },
+      payload: `Email=${encodeURIComponent(email)}&Passwd=${encodeURIComponent(password)}`,
+    })
+  }
+
+  function getLogin(email: string, password: string, ip = '203.0.113.7') {
+    return app.inject({
+      method: 'GET',
+      url: `${loginUrl}?Email=${encodeURIComponent(email)}&Passwd=${encodeURIComponent(password)}`,
+      headers: { 'cf-connecting-ip': ip },
+    })
+  }
+
+  async function failTimes(n: number, email = 'test@example.com', ip?: string) {
+    for (let i = 0; i < n; i++) {
+      const res = await postLogin(email, 'wrongpassword', ip)
+      expect(res.statusCode).toBe(403)
+    }
+  }
+
+  function expectTooManyRequests(res: Awaited<ReturnType<typeof postLogin>>, maxSeconds = 900) {
+    expect(res.statusCode).toBe(429)
+    expect(res.headers['content-type']).toBe('text/plain; charset=UTF-8')
+    expect(res.body).toBe('Too Many Requests\n')
+    const retryAfter = res.headers['retry-after']
+    expect(retryAfter).toMatch(/^\d+$/)
+    expect(Number(retryAfter)).toBeGreaterThan(0)
+    expect(Number(retryAfter)).toBeLessThanOrEqual(maxSeconds)
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('allows many successful logins in a row (no per-request login limit)', async () => {
+    seedUser()
+    for (let i = 0; i < 12; i++) {
+      const res = await postLogin('test@example.com', 'password123')
+      expect(res.statusCode).toBe(200)
+    }
+  })
+
+  it('returns 429 with Retry-After after 10 failed attempts', async () => {
+    seedUser()
+    await failTimes(10)
+    expectTooManyRequests(await postLogin('test@example.com', 'wrongpassword'))
+  })
+
+  it('keeps returning 429 for the correct password until the window expires', async () => {
+    seedUser()
+    vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] })
+    await failTimes(10)
+    expectTooManyRequests(await postLogin('test@example.com', 'password123'))
+
+    vi.setSystemTime(Date.now() + 14 * 60_000)
+    expectTooManyRequests(await postLogin('test@example.com', 'password123'), 60)
+
+    vi.setSystemTime(Date.now() + 60_000)
+    expect((await postLogin('test@example.com', 'password123')).statusCode).toBe(200)
+  })
+
+  it('a successful login before the limit resets the counter', async () => {
+    seedUser()
+    await failTimes(9)
+    expect((await postLogin('test@example.com', 'password123')).statusCode).toBe(200)
+    await failTimes(9)
+    expect((await postLogin('test@example.com', 'password123')).statusCode).toBe(200)
+  })
+
+  it('counts the email case-insensitively', async () => {
+    seedUser()
+    await failTimes(5, 'test@example.com')
+    await failTimes(5, 'TEST@Example.COM')
+    expectTooManyRequests(await postLogin('Test@Example.com', 'password123'))
+  })
+
+  it('gives a different email from the same IP its own bucket', async () => {
+    seedUser()
+    seedUser('other@example.com')
+    await failTimes(10, 'test@example.com')
+    expect((await postLogin('other@example.com', 'password123')).statusCode).toBe(200)
+  })
+
+  it('gives the same email from a different IP its own bucket', async () => {
+    seedUser()
+    await failTimes(10, 'test@example.com', '203.0.113.7')
+    expect((await postLogin('test@example.com', 'password123', '198.51.100.9')).statusCode).toBe(200)
+  })
+
+  it('accepts GET with Email/Passwd query parameters and returns the same body as POST', async () => {
+    seedUser()
+    vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] })
+    const post = await postLogin('test@example.com', 'password123')
+    const get = await getLogin('test@example.com', 'password123')
+    expect(get.statusCode).toBe(200)
+    expect(get.headers['content-type']).toBe(post.headers['content-type'])
+    expect(get.body).toBe(post.body)
+    const auth = get.body.match(/Auth=(.+)/)?.[1]?.trim()
+    const userInfo = await app.inject({
+      method: 'GET',
+      url: `${prefix}/reader/api/0/user-info`,
+      headers: { authorization: `GoogleLogin auth=${auth}` },
+    })
+    expect(userInfo.statusCode).toBe(200)
+  })
+
+  it('GET with a wrong password fails like POST and counts toward the same limit', async () => {
+    seedUser()
+    const res = await getLogin('test@example.com', 'wrongpassword')
+    expect(res.statusCode).toBe(403)
+    expect(res.body).toContain('Error=BadAuthentication')
+    await failTimes(9)
+    expectTooManyRequests(await getLogin('test@example.com', 'password123'))
+  })
+
+  it('returns 400 when GET has no credentials', async () => {
+    const res = await app.inject({ method: 'GET', url: loginUrl })
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe.each([
+  ['root', ''],
+  ['FreshRSS prefix', '/api/greader.php'],
+])('global rate limit (%s)', (_name, prefix) => {
+  // Mirror server/index.ts: 300/min per client, reader routes exempt.
+  beforeEach(async () => {
+    await app.close()
+    app = await buildApp({
+      rateLimit: { max: 300, timeWindow: '1 minute', allowList: isRateLimitExempt, keyGenerator: rateLimitKey },
+    })
+  })
+
+  it('does not limit authenticated reader routes: 301 tag/list requests all return 200', async () => {
+    seedUser()
+    const login = await app.inject({
+      method: 'POST',
+      url: `${prefix}/accounts/ClientLogin`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'Email=test%40example.com&Passwd=password123',
+    })
+    const auth = login.body.match(/Auth=(.+)/)?.[1]?.trim()
+    const codes = new Set<number>()
+    for (let i = 0; i < 301; i++) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `${prefix}/reader/api/0/tag/list?output=json`,
+        headers: { authorization: `GoogleLogin auth=${auth}` },
+      })
+      codes.add(res.statusCode)
+    }
+    expect([...codes]).toEqual([200])
+  })
+
+  it('still limits ClientLogin globally', async () => {
+    const codes: number[] = []
+    for (let i = 0; i < 301; i++) {
+      const res = await app.inject({ method: 'GET', url: `${prefix}/accounts/ClientLogin` })
+      codes.push(res.statusCode)
+    }
+    expect(codes.slice(0, 300).every((c) => c === 400)).toBe(true)
+    expect(codes[300]).toBe(429)
+  })
+
+  it('still limits the web app API (/api/feeds)', async () => {
+    const codes: number[] = []
+    for (let i = 0; i < 301; i++) {
+      codes.push((await app.inject({ method: 'GET', url: '/api/feeds' })).statusCode)
+    }
+    expect(codes.slice(0, 300)).not.toContain(429)
+    expect(codes[300]).toBe(429)
   })
 })
 

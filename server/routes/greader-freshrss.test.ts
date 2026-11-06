@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
 import { createFeed, getDb, insertArticle } from '../db.js'
+import { clientLoginAttempts } from '../lib/login-attempts.js'
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -26,6 +27,7 @@ async function freshRssLogin(email = 'test@example.com', password = 'password123
 
 beforeEach(async () => {
   setupTestDb()
+  clientLoginAttempts.clear()
   app = await buildApp()
   savedAuthDisabled = process.env.AUTH_DISABLED
   delete process.env.AUTH_DISABLED
@@ -313,5 +315,36 @@ describe('FreshRSS-compatible GReader prefix', () => {
       title: 'Nederlandse titel',
       summary: { content: '<p>Nederlandse tekst.</p>\n' },
     })
+  })
+})
+
+describe('ClientLogin under /api/greader.php', () => {
+  it('accepts GET with Email/Passwd query parameters', async () => {
+    seedUser()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/greader.php/accounts/ClientLogin?Email=test%40example.com&Passwd=password123',
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toMatch(/^SID=.+\nLSID=.+\nAuth=.+\n$/)
+  })
+
+  it('shares one failure bucket with the root path, so alternating paths gains no attempts', async () => {
+    seedUser()
+    for (let i = 0; i < 10; i++) {
+      const url = i % 2 === 0 ? '/accounts/ClientLogin' : '/api/greader.php/accounts/ClientLogin'
+      const res = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'Email=test%40example.com&Passwd=wrong',
+      })
+      expect(res.statusCode).toBe(403)
+    }
+    const { res } = await freshRssLogin()
+    expect(res.statusCode).toBe(429)
+    expect(res.headers['content-type']).toBe('text/plain; charset=UTF-8')
+    expect(res.headers['retry-after']).toMatch(/^\d+$/)
+    expect(res.body).toBe('Too Many Requests\n')
   })
 })
