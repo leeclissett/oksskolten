@@ -16,6 +16,18 @@
  *   GET  /reader/api/0/stream/contents/:stream
  *   POST /reader/api/0/edit-tag
  *   POST /reader/api/0/mark-all-as-read
+ *
+ * Subscription management (FreshRSS greader.php):
+ *   POST /reader/api/0/subscription/edit
+ *   POST /reader/api/0/subscription/quickadd
+ *   POST /reader/api/0/subscription/import
+ *   GET  /reader/api/0/subscription/export
+ *   POST /reader/api/0/rename-tag
+ *   POST /reader/api/0/disable-tag
+ *   GET  /check/compatibility          (no auth)
+ *
+ * Feed stream IDs are `feed/<feed id>` on output; `feed/<url>` is still
+ * accepted on input (see findFeedByStream).
  */
 
 import { createHash } from 'node:crypto'
@@ -24,8 +36,11 @@ import { compareSync } from 'bcryptjs'
 import { marked } from 'marked'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { allNamed, getDb, getSetting } from '../db.js'
-import { getFeeds } from '../db/feeds.js'
-import { getCategories } from '../db/categories.js'
+import { deleteFeed, getFeeds, updateFeed } from '../db/feeds.js'
+import { createCategory, deleteCategory, getCategories, updateCategory } from '../db/categories.js'
+import type { Category, Feed } from '../db/types.js'
+import { generateOpml, parseOpml } from '../opml.js'
+import { AlreadySubscribedError, importOpmlEntries, subscribeToFeedUrl } from './feeds.js'
 import { markArticleSeen, markArticleLiked, markStreamSeen, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
 import { articleUrlToPath, isInlineEntryUrl } from '../../shared/url.js'
 import { publicationSiteOf } from '../lib/cleaner/email.js'
@@ -114,6 +129,32 @@ const MarkAllAsReadBody = z.object({
   s: scalar.optional().default(''),
   ts: scalar.optional(),
 })
+
+// subscription/edit: `s` and `t` repeat (paired by position, as in FreshRSS);
+// `ac`, `a` and `r` are single-valued, so a repeated key keeps the first.
+const SubscriptionEditBody = z.object({
+  s: list,
+  t: list,
+  ac: scalar.optional(),
+  a: scalar.optional(),
+  r: scalar.optional(),
+})
+
+const QuickaddBody = z.object({ quickadd: scalar.optional() })
+
+const RenameTagBody = z.object({ s: scalar.optional(), dest: scalar.optional() })
+
+const DisableTagBody = z.object({ s: list })
+
+/**
+ * The parameters of a request that FreshRSS reads from `$_REQUEST`: the query
+ * string, overridden field by field by the form body.
+ */
+function requestFields(request: FastifyRequest): Record<string, unknown> {
+  const query = request.query && typeof request.query === 'object' ? request.query as Record<string, unknown> : {}
+  const body = request.body && typeof request.body === 'object' ? request.body as Record<string, unknown> : {}
+  return { ...query, ...body }
+}
 
 // --- ID helpers ---
 
@@ -322,7 +363,7 @@ function articleToGReaderItem(a: ArticleRow, origin: string, feedSites: Map<numb
     alternate: [{ href: link, type: 'text/html' }],
     summary: { direction: 'ltr', content: markdownToHtml(content) },
     origin: {
-      streamId: `feed/${feedUrl}`,
+      streamId: feedStreamId(a.feed_id),
       title: a.feed_name ?? '',
       htmlUrl: feedSites.get(a.feed_id) ?? feedOriginUrl(feedUrl),
     },
@@ -441,6 +482,8 @@ function listStreamArticles(
   filter: ReturnType<typeof buildArticleOpts>,
   page: { limit: number; cursor?: StreamCursor | null; startSec?: number | null; stopSec?: number | null; ascending?: boolean },
 ): StreamArticleRef[] {
+  if (filter.matchesNothing) return []
+
   const conditions: string[] = []
   const params: Record<string, number | string> = {}
 
@@ -625,14 +668,17 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
       const categories: { id: string; label: string }[] = f.category_id && f.category_name
         ? [{ id: `user/-/label/${f.category_name}`, label: f.category_name }]
         : []
+      // iconUrl is always present, as in FreshRSS. Oksskolten serves no feed
+      // icons of its own (the web app asks a third-party favicon service), so
+      // there is no icon URL on this server to report.
       return {
-        id: `feed/${feedUrl}`,
+        id: feedStreamId(f.id),
         title: f.name,
+        categories,
         url: feedUrl,
         htmlUrl: feedSites.get(f.id) ?? feedOriginUrl(feedUrl),
         iconUrl: '',
         firstitemmsec: '0',
-        categories,
       }
     })
     reply.header('Content-Type', 'application/json')
@@ -643,19 +689,13 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/reader/api/0/unread-count', async (_request, reply) => {
     const feeds = getFeeds().filter((f) => f.type !== 'clip')
-    const categories = getCategories()
-    const categoryTotals = new Map(
-      categories.map((category) => [category.id, { count: 0, newestItemTimestampUsec: 0 }]),
-    )
 
-    let totalUnreads = 0
-    let newestItemTimestampUsec = 0
-
-    // FreshRSS reports when a feed's newest item reached the server (its entry
-    // IDs are arrival timestamps), not when that item was published. Clients
-    // compare this value with their last sync to decide which feeds changed,
-    // so a publication date would make a newly added feed whose latest post
-    // predates that sync look unchanged, and its articles would never load.
+    // FreshRSS reports when a stream's newest item reached the server (its
+    // entry IDs are arrival timestamps), read or not, not when that item was
+    // published. Clients compare this value with their last sync to decide
+    // which feeds changed, so a publication date would make a newly added feed
+    // whose latest post predates that sync look unchanged, and its articles
+    // would never load.
     const newestArrivalByFeed = new Map(
       (getDb().prepare(`
         SELECT feed_id, MAX(created_at) AS newest_created_at
@@ -665,43 +705,44 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
         .map((row) => [row.feed_id, row.newest_created_at]),
     )
 
-    const unreadcounts = feeds.map((feed) => {
-      const count = Number(feed.unread_count)
-      const newest = dateToTimestampUsec(newestArrivalByFeed.get(feed.id) ?? null)
+    interface UnreadCountRow { id: string; count: number; newestItemTimestampUsec: string }
+    const unreadcounts: UnreadCountRow[] = []
+    let totalUnreads = 0
+    let totalNewest = 0
+
+    /** Append one row per feed and return the group's unread count and newest arrival. */
+    const addFeedRows = (group: typeof feeds): { count: number; newest: number } => {
+      let count = 0
+      let newest = 0
+      for (const feed of group) {
+        const feedCount = Number(feed.unread_count)
+        const feedNewest = dateToTimestampUsec(newestArrivalByFeed.get(feed.id) ?? null)
+        unreadcounts.push({ id: feedStreamId(feed.id), count: feedCount, newestItemTimestampUsec: String(feedNewest) })
+        count += feedCount
+        newest = Math.max(newest, feedNewest)
+      }
       totalUnreads += count
-      newestItemTimestampUsec = Math.max(newestItemTimestampUsec, newest)
+      totalNewest = Math.max(totalNewest, newest)
+      return { count, newest }
+    }
 
-      if (feed.category_id !== null) {
-        const categoryTotal = categoryTotals.get(feed.category_id)
-        if (categoryTotal) {
-          categoryTotal.count += count
-          categoryTotal.newestItemTimestampUsec = Math.max(
-            categoryTotal.newestItemTimestampUsec,
-            newest,
-          )
-        }
-      }
-
-      return {
-        id: `feed/${feed.rss_url ?? feed.url}`,
-        count,
-        newestItemTimestampUsec: String(newest),
-      }
-    })
-
-    for (const category of categories) {
-      const totals = categoryTotals.get(category.id)!
+    // FreshRSS's order: each category's feed rows, then that category's row;
+    // then (the fork only — FreshRSS has no feed without a category) the
+    // uncategorised feeds; the reading list last.
+    for (const category of getCategories()) {
+      const totals = addFeedRows(feeds.filter((f) => f.category_id === category.id))
       unreadcounts.push({
-        id: `user/-/label/${category.name}`,
+        id: labelStreamId(category.name),
         count: totals.count,
-        newestItemTimestampUsec: String(totals.newestItemTimestampUsec),
+        newestItemTimestampUsec: String(totals.newest),
       })
     }
+    addFeedRows(feeds.filter((f) => f.category_id === null))
 
     unreadcounts.push({
       id: 'user/-/state/com.google/reading-list',
       count: totalUnreads,
-      newestItemTimestampUsec: String(newestItemTimestampUsec),
+      newestItemTimestampUsec: String(totalNewest),
     })
 
     reply.header('Content-Type', 'application/json')
@@ -713,9 +754,11 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   app.get('/reader/api/0/tag/list', async (_request, reply) => {
     const cats = getCategories()
     const tags = [
-      { id: 'user/-/state/com.google/starred', type: 'tag' },
+      // No `type` on starred, as in FreshRSS; every category is a folder,
+      // including those that hold no feed.
+      { id: 'user/-/state/com.google/starred' },
       { id: 'user/-/state/com.google/reading-list' },
-      ...cats.map((c) => ({ id: `user/-/label/${c.name}`, type: 'folder' })),
+      ...cats.map((c) => ({ id: labelStreamId(c.name), type: 'folder' })),
     ]
     reply.header('Content-Type', 'application/json')
     return reply.send({ tags })
@@ -808,8 +851,11 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     return sendStreamContents(request, reply, stream)
   })
 
+  // The router has already percent-decoded the wildcard. A client that
+  // encoded the stream twice is still served: the feed and label lookups also
+  // try the decoded form (findFeedByStream, findCategoryByName).
   app.get('/reader/api/0/stream/contents/*', async (request, reply) => {
-    const stream = decodeURIComponent((request.params as Record<string, string>)['*'] ?? '')
+    const stream = (request.params as Record<string, string>)['*'] ?? ''
     return sendStreamContents(request, reply, stream)
   })
 
@@ -864,11 +910,10 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const state = stateOf(stream)
     if (stream.startsWith('feed/')) {
       // An unknown feed marks nothing, as an unknown feed/<int> does in FreshRSS.
-      const feed = findFeedByStream(stream.slice('feed/'.length))
+      const feed = findFeedByStream(stream)
       if (feed) markStreamSeen({ feedId: feed.id, arrivedAtOrBeforeSec })
     } else if (stream.startsWith('user/-/label/')) {
-      const labelName = stream.slice('user/-/label/'.length)
-      const cat = getCategories().find((c) => c.name === labelName)
+      const cat = findCategoryByName(stream.slice('user/-/label/'.length))
       if (!cat) return badRequest(reply)
       markStreamSeen({ categoryId: cat.id, arrivedAtOrBeforeSec })
     } else if (state === 'reading-list' || state === 'unread') {
@@ -884,6 +929,181 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     reply.header('Content-Type', 'text/plain')
     return reply.send('OK')
   })
+
+  // ── Subscription management ──────────────────────────────────────────────────
+
+  // OPML bodies for subscription/import (NetNewsWire sends text/xml). Scoped
+  // to this plugin; Fastify already reads text/plain as a string.
+  app.addContentTypeParser(
+    ['text/xml', 'application/xml', 'text/x-opml'],
+    { parseAs: 'string' },
+    (_req: FastifyRequest, body: string, done: (err: Error | null, body?: unknown) => void) => done(null, body),
+  )
+
+  /**
+   * The category a subscription/edit `a=` names, created when missing
+   * (FreshRSS). Undefined when `a` is absent or not a label; null when it is
+   * the empty label, which FreshRSS maps to its default category and the fork
+   * to "no category".
+   */
+  function categoryForLabel(stream: string | undefined): number | null | undefined {
+    const name = labelNameOf(stream)
+    if (name === null) return undefined
+    if (name.trim() === '') return null
+    return (findCategoryByName(name) ?? createCategory(name)).id
+  }
+
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/reader/api/0/subscription/edit',
+    handler: async (request, reply) => {
+      const parsed = SubscriptionEditBody.safeParse(requestFields(request))
+      if (!parsed.success) return badRequest(reply)
+      const { s: streams, t: titles, ac, a, r } = parsed.data
+      if (streams.length === 0 || (ac !== 'edit' && ac !== 'subscribe' && ac !== 'unsubscribe')) {
+        return badRequest(reply)
+      }
+      // As in greader.php, streams that are not feed/… are skipped.
+      const targets = streams
+        .map((stream, i) => ({ stream: stream.trim(), title: (titles[i] ?? '').trim() }))
+        .filter(({ stream }) => stream.startsWith('feed/'))
+
+      if (ac === 'subscribe') {
+        for (const { stream, title } of targets) {
+          const url = stream.replace(/^(feed\/)+/, '')
+          // A numeric ID names a feed that already exists: skipped (FreshRSS).
+          if (/^\d+$/.test(url)) continue
+          if (findFeedByStream(stream)) return badRequest(reply)
+          try {
+            await subscribeToFeedUrl(url, { title, categoryId: categoryForLabel(a) ?? null })
+          } catch (err) {
+            log.warn('GReader subscription/edit subscribe failed for', url, err instanceof Error ? err.message : err)
+            return badRequest(reply)
+          }
+        }
+        return sendOk(reply)
+      }
+
+      // edit / unsubscribe: every named feed must exist before anything changes.
+      const feeds = targets.map(({ stream, title }) => ({ feed: findFeedByStream(stream), title }))
+      if (feeds.some(({ feed }) => !feed)) return badRequest(reply)
+
+      if (ac === 'unsubscribe') {
+        for (const { feed } of feeds) deleteFeed(feed!.id)
+        return sendOk(reply)
+      }
+
+      // ac=edit: `a=` sets the category (creating it), replacing the current
+      // one, so a move needs no `r=` (Capy Reader sends `a=` alone). `r=` of a
+      // label without a usable `a=` clears the category, whichever it was
+      // (greader.php moves the feed to its default category unconditionally).
+      let categoryId = categoryForLabel(a)
+      if (categoryId === undefined && labelNameOf(r) !== null) categoryId = null
+      for (const { feed, title } of feeds) {
+        updateFeed(feed!.id, {
+          ...(title ? { name: title } : {}),
+          ...(categoryId !== undefined ? { category_id: categoryId } : {}),
+        })
+      }
+      return sendOk(reply)
+    },
+  })
+
+  // quickadd answers 200 whatever happens (FreshRSS); the outcome is in the body.
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/reader/api/0/subscription/quickadd',
+    handler: async (request, reply) => {
+      const parsed = QuickaddBody.safeParse(requestFields(request))
+      const raw = parsed.success ? parsed.data.quickadd?.trim() : undefined
+      if (!raw) return badRequest(reply)
+      // A single leading feed/ is stripped, as in FreshRSS.
+      const url = raw.startsWith('feed/') ? raw.slice('feed/'.length) : raw
+      reply.header('Content-Type', 'application/json')
+      try {
+        const feed = await subscribeToFeedUrl(url)
+        return reply.send({
+          numResults: 1,
+          query: feed.rss_url ?? feed.url,
+          streamId: feedStreamId(feed.id),
+          streamName: feed.name,
+        })
+      } catch (err) {
+        const error = err instanceof Error ? err.message : 'Unknown error'
+        if (!(err instanceof AlreadySubscribedError)) log.warn('GReader quickadd failed for', url, error)
+        return reply.send({ numResults: 0, error })
+      }
+    },
+  })
+
+  app.post('/reader/api/0/rename-tag', async (request, reply) => {
+    const parsed = RenameTagBody.safeParse(requestFields(request))
+    if (!parsed.success) return badRequest(reply)
+    const from = labelNameOf(parsed.data.s)
+    const to = labelNameOf(parsed.data.dest)?.trim()
+    if (from === null || !to) return badRequest(reply)
+    const cat = findCategoryByName(from)
+    if (!cat) return badRequest(reply)
+    updateCategory(cat.id, { name: to })
+    return sendOk(reply)
+  })
+
+  // Only the first `s` is processed, as in FreshRSS. The category's feeds stay
+  // subscribed, without a category (the foreign key sets theirs to NULL).
+  app.post('/reader/api/0/disable-tag', async (request, reply) => {
+    const parsed = DisableTagBody.safeParse(requestFields(request))
+    if (!parsed.success) return badRequest(reply)
+    const name = labelNameOf(parsed.data.s[0])
+    const cat = name === null ? undefined : findCategoryByName(name)
+    if (!cat) return badRequest(reply)
+    deleteCategory(cat.id)
+    return sendOk(reply)
+  })
+
+  // Raw OPML in the body, imported like the web app's OPML import; `OK` on
+  // success, as in FreshRSS, 400 for an empty or unreadable body.
+  app.post('/reader/api/0/subscription/import', async (request, reply) => {
+    const xml = typeof request.body === 'string' ? request.body : Buffer.isBuffer(request.body) ? request.body.toString('utf8') : ''
+    if (!xml.trim()) return badRequest(reply)
+    let entries
+    try {
+      entries = parseOpml(xml)
+    } catch {
+      return badRequest(reply)
+    }
+    const result = importOpmlEntries(entries)
+    log.info(`GReader subscription/import: ${result.imported} imported, ${result.skipped} skipped, ${result.errors.length} failed`)
+    return sendOk(reply)
+  })
+
+  app.get('/reader/api/0/subscription/export', async (_request, reply) => {
+    const xml = generateOpml(getFeeds(), getCategories())
+    reply.header('Content-Type', 'application/xml; charset=UTF-8')
+    reply.header('Content-Disposition', 'attachment; filename="oksskolten.opml"')
+    return reply.send(xml)
+  })
+
+  // ── Server check (no auth) ─────────────────────────────────────────────────
+
+  // FreshRSS's API check: does the Authorization header survive the reverse
+  // proxy? Outside /reader/api/, so the auth hooks skip it; the header's value
+  // is not checked.
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/check/compatibility',
+    handler: async (request, reply) => {
+      reply.header('Content-Type', 'text/plain; charset=UTF-8')
+      return reply.send(extractGReaderToken(request)
+        ? 'PASS'
+        : 'FAIL get HTTP Authorization header! Wrong Web server configuration.')
+    },
+  })
+}
+
+/** The `OK` body of FreshRSS's write endpoints, as edit-tag sends it. */
+function sendOk(reply: FastifyReply): FastifyReply {
+  reply.header('Content-Type', 'text/plain')
+  return reply.send('OK')
 }
 
 /** Latest second SQLite's datetime(…, 'unixepoch') renders (9999-12-31 23:59:59 UTC). */
@@ -922,11 +1142,71 @@ const STATE_CONDITIONS: Record<StateFilter, string> = {
   unstarred: 'a.liked_at IS NULL',
 }
 
-/** The feed a `feed/<…>` stream names: its URL (rss_url, else url), or its numeric ID. */
-function findFeedByStream(idOrUrl: string): { id: number } | undefined {
-  const feeds = getFeeds()
-  return feeds.find((f) => (f.rss_url ?? f.url) === idOrUrl)
-    ?? (/^\d+$/.test(idOrUrl) ? feeds.find((f) => f.id === Number(idOrUrl)) : undefined)
+/** Stream ID of a feed: `feed/<feed id>`, as FreshRSS emits it. */
+function feedStreamId(feedId: number): string {
+  return `feed/${feedId}`
+}
+
+/** Stream ID of a category: `user/-/label/<name>`. */
+function labelStreamId(name: string): string {
+  return `user/-/label/${name}`
+}
+
+/** decodeURIComponent, or null when the value is not valid percent-encoding. */
+function tryDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
+/** The value as given, then its percent-decoded form when that differs. */
+function asGivenThenDecoded(value: string): string[] {
+  const decoded = tryDecode(value)
+  return decoded !== null && decoded !== value ? [value, decoded] : [value]
+}
+
+/**
+ * The feed a `feed/<…>` stream names. Both forms are accepted: `feed/<id>`
+ * (what this server emits) and `feed/<url>` (what it emitted before, what
+ * Fluent Reader and FreshRSS's own add-feed calls send). Repeated `feed/`
+ * prefixes are stripped, as in FreshRSS. Lookup order: numeric ID, then the
+ * RSS URL, then the site URL — first for the value as given, then for its
+ * percent-decoded form (clients that encode `s=` twice). The clip feed is not
+ * a subscription and is never matched. Unknown → undefined.
+ */
+function findFeedByStream(stream: string): Feed | undefined {
+  const value = stream.trim().replace(/^(feed\/)+/, '')
+  if (!value) return undefined
+  const db = getDb()
+  for (const candidate of asGivenThenDecoded(value)) {
+    const feed = (/^\d{1,15}$/.test(candidate)
+      ? db.prepare("SELECT * FROM feeds WHERE id = ? AND type != 'clip'").get(Number(candidate))
+      : undefined)
+      ?? db.prepare("SELECT * FROM feeds WHERE rss_url = ? AND type != 'clip' ORDER BY id LIMIT 1").get(candidate)
+      ?? db.prepare("SELECT * FROM feeds WHERE url = ? AND type != 'clip' LIMIT 1").get(candidate)
+    if (feed) return feed as Feed
+  }
+  return undefined
+}
+
+/** The category with this exact name (else the one matching its percent-decoded form). */
+function findCategoryByName(name: string, categories: Category[] = getCategories()): Category | undefined {
+  for (const candidate of asGivenThenDecoded(name)) {
+    const cat = categories.find((c) => c.name === candidate)
+    if (cat) return cat
+  }
+  return undefined
+}
+
+/**
+ * The category name in a `user/<user>/label/<name>` stream (any user
+ * segment, like stateOf), or null when the stream is not a label.
+ */
+function labelNameOf(stream: string | undefined): string | null {
+  const match = /^user\/[^/]*\/label\/(.*)$/s.exec(stream?.trim() ?? '')
+  return match ? match[1] : null
 }
 
 // --- Helper: map GReader stream → article filter ---
@@ -945,9 +1225,11 @@ function findFeedByStream(idOrUrl: string): { id: number } | undefined {
 function buildArticleOpts(stream: string, include?: string, exclude?: string): {
   feedId?: number
   categoryId?: number
+  /** The stream names a feed that does not exist: the stream is empty. */
+  matchesNothing?: boolean
   states: StateFilter[]
 } {
-  const opts: { feedId?: number; categoryId?: number; states: StateFilter[] } = { states: [] }
+  const opts: { feedId?: number; categoryId?: number; matchesNothing?: boolean; states: StateFilter[] } = { states: [] }
 
   const streamState = stateOf(stream)
   let includeState = stateOf(include)
@@ -967,17 +1249,15 @@ function buildArticleOpts(stream: string, include?: string, exclude?: string): {
   }
 
   if (stream.startsWith('feed/')) {
-    const feedUrl = stream.slice('feed/'.length)
-    const feeds = getFeeds()
-    const feed = feeds.find((f) => (f.rss_url ?? f.url) === feedUrl)
+    // An unknown feed is an empty stream, never the whole reading list.
+    const feed = findFeedByStream(stream)
     if (feed) opts.feedId = feed.id
+    else opts.matchesNothing = true
     return opts
   }
 
   if (stream.startsWith('user/-/label/')) {
-    const labelName = stream.slice('user/-/label/'.length)
-    const cats = getCategories()
-    const cat = cats.find((c) => c.name === labelName)
+    const cat = findCategoryByName(stream.slice('user/-/label/'.length))
     if (cat) opts.categoryId = cat.id
     return opts
   }

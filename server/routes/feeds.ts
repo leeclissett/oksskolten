@@ -21,11 +21,12 @@ import {
   getCategories,
   createCategory,
   cancelFeedTranslations,
+  getDb,
 } from '../db.js'
 import { requireJson } from '../auth.js'
 import { fetchSingleFeed, discoverRssUrl } from '../fetcher.js'
 import { queryRssBridge, inferCssSelectorBridge } from '../rss-bridge.js'
-import { parseOpml, generateOpml } from '../opml.js'
+import { parseOpml, generateOpml, type ParsedFeed } from '../opml.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
 import { queueFeedTranslations } from '../translation-worker.js'
 
@@ -455,58 +456,138 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
       ? parsed.filter((entry) => selectedUrlSet!.has(entry.url))
       : parsed
 
-    let imported = 0
-    let skipped = 0
-    const errors: string[] = []
-    const importedFeeds: Feed[] = []
-
-    // Pre-fetch existing categories
-    const existingCategories = getCategories()
-    const categoryByName = new Map(existingCategories.map(c => [c.name.toLowerCase(), c]))
-
-    for (const entry of entries) {
-      try {
-        // Check for duplicate by url or rss_url
-        if (getFeedByUrl(entry.url)) {
-          skipped++
-          continue
-        }
-
-        // Resolve category
-        let categoryId: number | null = null
-        if (entry.categoryName) {
-          const existing = categoryByName.get(entry.categoryName.toLowerCase())
-          if (existing) {
-            categoryId = existing.id
-          } else {
-            const created = createCategory(entry.categoryName)
-            categoryByName.set(entry.categoryName.toLowerCase(), created)
-            categoryId = created.id
-          }
-        }
-
-        const feed = createFeed({
-          name: entry.name,
-          url: entry.url,
-          rss_url: entry.rssUrl,
-          category_id: categoryId,
-        })
-        importedFeeds.push(feed)
-        imported++
-      } catch (err) {
-        errors.push(`${entry.name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
-      }
-    }
-
-    // Fire-and-forget: fetch articles for newly imported feeds
-    for (const feed of importedFeeds) {
-      if (feed.rss_url) {
-        fetchSingleFeed(feed).catch(err => {
-          log.error(`OPML: Initial fetch for ${feed.name} failed:`, err)
-        })
-      }
-    }
-
+    const { imported, skipped, errors } = importOpmlEntries(entries)
     reply.send({ imported, skipped, errors })
   })
+}
+
+/**
+ * Add OPML entries as feeds: entries whose site URL is already a feed are
+ * skipped, categories are matched by name (case-insensitive) or created, and
+ * each new feed is fetched in the background. Shared by the web app's OPML
+ * import and the Google Reader API's subscription/import.
+ */
+export function importOpmlEntries(entries: ParsedFeed[]): { imported: number; skipped: number; errors: string[] } {
+  let imported = 0
+  let skipped = 0
+  const errors: string[] = []
+  const importedFeeds: Feed[] = []
+
+  // Pre-fetch existing categories
+  const existingCategories = getCategories()
+  const categoryByName = new Map(existingCategories.map(c => [c.name.toLowerCase(), c]))
+
+  for (const entry of entries) {
+    try {
+      // Check for duplicate by url or rss_url
+      if (getFeedByUrl(entry.url)) {
+        skipped++
+        continue
+      }
+
+      // Resolve category
+      let categoryId: number | null = null
+      if (entry.categoryName) {
+        const existing = categoryByName.get(entry.categoryName.toLowerCase())
+        if (existing) {
+          categoryId = existing.id
+        } else {
+          const created = createCategory(entry.categoryName)
+          categoryByName.set(entry.categoryName.toLowerCase(), created)
+          categoryId = created.id
+        }
+      }
+
+      const feed = createFeed({
+        name: entry.name,
+        url: entry.url,
+        rss_url: entry.rssUrl,
+        category_id: categoryId,
+      })
+      importedFeeds.push(feed)
+      imported++
+    } catch (err) {
+      errors.push(`${entry.name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }
+
+  // Fire-and-forget: fetch articles for newly imported feeds
+  for (const feed of importedFeeds) {
+    if (feed.rss_url) {
+      fetchSingleFeed(feed).catch(err => {
+        log.error(`OPML: Initial fetch for ${feed.name} failed:`, err)
+      })
+    }
+  }
+
+  return { imported, skipped, errors }
+}
+
+/** Thrown by subscribeToFeedUrl when the URL (or the feed it leads to) is already a feed. */
+export class AlreadySubscribedError extends Error {
+  constructor(url: string) {
+    // FreshRSS's FreshRSS_AlreadySubscribed_Exception message; Capy Reader matches the prefix.
+    super(`Already subscribed! ${url}`)
+    this.name = 'AlreadySubscribedError'
+  }
+}
+
+/** The feed whose RSS URL or site URL is `url`, if any. */
+function feedWithUrl(url: string): Feed | undefined {
+  return getDb().prepare('SELECT * FROM feeds WHERE rss_url = ? OR url = ? LIMIT 1').get(url, url) as Feed | undefined
+}
+
+/**
+ * Subscribe to a URL without asking the user anything, for clients that add a
+ * feed in one call (the Google Reader API's quickadd and subscription/edit).
+ *
+ * Follows the web app's add-feed flow (POST /api/feeds) without its
+ * interactive steps: RSS auto-discovery (the URL itself when it is a feed, a
+ * <link rel="alternate"> on the page, then the usual feed paths), then the
+ * RSS-Bridge fallback. The LLM CSS-selector step is not run: it scrapes a
+ * page rather than following a feed, is slow enough to time a reader app's
+ * request out, and spends LLM credits without the user seeing the choice.
+ * The new feed is fetched in the background, as in the web app.
+ */
+export async function subscribeToFeedUrl(
+  url: string,
+  options: { title?: string; categoryId?: number | null } = {},
+): Promise<Feed> {
+  if (!/^https?:\/\//i.test(url) || !URL.canParse(url)) {
+    throw new Error('Only http:// or https:// URLs are allowed')
+  }
+  if (feedWithUrl(url)) throw new AlreadySubscribedError(url)
+
+  let rssUrl: string | null = null
+  let rssBridgeUrl: string | null = null
+  let discoveredTitle: string | null = null
+  let requiresJsChallenge = false
+  try {
+    const result = await discoverRssUrl(url)
+    rssUrl = result.rssUrl
+    discoveredTitle = result.title
+    requiresJsChallenge = !!result.usedFlareSolverr
+  } catch {
+    // Discovery failed; fall back to RSS-Bridge.
+  }
+  if (rssUrl) {
+    if (feedWithUrl(rssUrl)) throw new AlreadySubscribedError(url)
+  } else {
+    rssBridgeUrl = await queryRssBridge(url)
+  }
+  if (!rssUrl && !rssBridgeUrl) throw new Error('RSS could not be detected for this URL')
+
+  const feed = createFeed({
+    name: options.title || discoveredTitle || new URL(url).hostname,
+    url,
+    rss_url: rssUrl,
+    rss_bridge_url: rssBridgeUrl,
+    category_id: options.categoryId ?? null,
+    requires_js_challenge: requiresJsChallenge ? 1 : 0,
+  })
+
+  fetchSingleFeed(feed).catch(err => {
+    log.error(`Initial fetch for ${feed.name} failed:`, err)
+  })
+  return feed
 }

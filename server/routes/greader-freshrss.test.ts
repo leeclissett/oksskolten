@@ -1,10 +1,32 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
 import { createFeed, getDb, insertArticle } from '../db.js'
 import { clientLoginAttempts } from '../lib/login-attempts.js'
+
+const { mockDiscoverRssUrl } = vi.hoisted(() => ({ mockDiscoverRssUrl: vi.fn() }))
+
+vi.mock('../fetcher.js', async () => {
+  const { EventEmitter } = await import('events')
+  return {
+    fetchAllFeeds: vi.fn(),
+    fetchSingleFeed: vi.fn().mockResolvedValue(undefined),
+    discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
+    summarizeArticle: vi.fn(),
+    streamSummarizeArticle: vi.fn(),
+    translateArticle: vi.fn(),
+    streamTranslateArticle: vi.fn(),
+    fetchProgress: new EventEmitter(),
+    getFeedState: vi.fn(),
+  }
+})
+
+vi.mock('../rss-bridge.js', () => ({
+  queryRssBridge: vi.fn().mockResolvedValue(null),
+  inferCssSelectorBridge: vi.fn().mockResolvedValue(null),
+}))
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -28,6 +50,7 @@ async function freshRssLogin(email = 'test@example.com', password = 'password123
 beforeEach(async () => {
   setupTestDb()
   clientLoginAttempts.clear()
+  mockDiscoverRssUrl.mockReset().mockResolvedValue({ rssUrl: null, title: null, usedFlareSolverr: false })
   app = await buildApp()
   savedAuthDisabled = process.env.AUTH_DISABLED
   delete process.env.AUTH_DISABLED
@@ -79,7 +102,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
 
   it('serves authenticated reader endpoints under the FreshRSS base URL', async () => {
     seedUser()
-    createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
+    const feed = createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
     const { auth } = await freshRssLogin()
 
     const userInfo = await app.inject({
@@ -97,7 +120,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
     })
     expect(subscriptions.statusCode).toBe(200)
     expect(subscriptions.json().subscriptions).toHaveLength(1)
-    expect(subscriptions.json().subscriptions[0].id).toBe('feed/https://example.com/rss')
+    expect(subscriptions.json().subscriptions[0].id).toBe(`feed/${feed.id}`)
     expect(subscriptions.json().subscriptions[0].url).toBe('https://example.com/rss')
 
     const tags = await app.inject({
@@ -166,7 +189,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(contents.json().items[0]).toMatchObject({
       title: 'Visible article',
       summary: { content: '<p>Article body</p>\n' },
-      origin: { streamId: 'feed/https://example.com/rss' },
+      origin: { streamId: `feed/${feed.id}` },
     })
 
     const token = await app.inject({
@@ -450,5 +473,52 @@ describe('FreshRSS item IDs, timestamps and states under /api/greader.php (WP3)'
       expect(res.statusCode).toBe(400)
       expect(res.body).toBe('Bad Request!')
     }
+  })
+
+  it('manages subscriptions under the prefix the way Capy Reader does: quickadd, move, rename folder, delete folder, unsubscribe', async () => {
+    seedUser()
+    const { auth } = await freshRssLogin()
+    const base = '/api/greader.php/reader/api/0'
+    const headers = { authorization: `GoogleLogin auth=${auth}`, 'content-type': 'application/x-www-form-urlencoded' }
+    const post = (path: string, payload: string) => app.inject({ method: 'POST', url: `${base}${path}`, headers, payload })
+    const subs = async () => (await app.inject({ method: 'GET', url: `${base}/subscription/list?output=json`, headers })).json().subscriptions
+
+    mockDiscoverRssUrl.mockResolvedValue({ rssUrl: 'https://capy.example.com/feed/', title: 'Capy', usedFlareSolverr: false })
+    const added = await post('/subscription/quickadd', 'quickadd=https%3A%2F%2Fcapy.example.com')
+    expect(added.statusCode).toBe(200)
+    const { streamId } = added.json()
+    expect(streamId).toMatch(/^feed\/\d+$/)
+
+    const again = await post('/subscription/quickadd', 'quickadd=https%3A%2F%2Fcapy.example.com%2Ffeed%2F')
+    expect(again.json()).toEqual({ numResults: 0, error: 'Already subscribed! https://capy.example.com/feed/' })
+
+    expect((await post('/subscription/edit', `ac=edit&s=${encodeURIComponent(streamId)}&a=user%2F-%2Flabel%2FPets`)).body).toBe('OK')
+    expect((await subs())[0].categories).toEqual([{ id: 'user/-/label/Pets', label: 'Pets' }])
+
+    expect((await post('/rename-tag', 's=user%2F-%2Flabel%2FPets&dest=user%2F-%2Flabel%2FAnimals')).body).toBe('OK')
+    expect((await subs())[0].categories).toEqual([{ id: 'user/-/label/Animals', label: 'Animals' }])
+
+    expect((await post('/disable-tag', 's=user%2F-%2Flabel%2FAnimals')).body).toBe('OK')
+    expect((await subs())[0].categories).toEqual([])
+
+    expect((await post('/subscription/edit', `ac=unsubscribe&s=${encodeURIComponent(streamId)}`)).body).toBe('OK')
+    expect(await subs()).toEqual([])
+  })
+
+  it('protects the subscription management endpoints under the prefix (invalid token)', async () => {
+    seedUser()
+    for (const [method, path] of [
+      ['POST', 'subscription/edit'], ['POST', 'subscription/quickadd'], ['POST', 'subscription/import'],
+      ['GET', 'subscription/export'], ['POST', 'rename-tag'], ['POST', 'disable-tag'],
+    ] as const) {
+      const res = await app.inject({ method, url: `/api/greader.php/reader/api/0/${path}`, headers: { authorization: 'GoogleLogin auth=not-a-token' } })
+      expect(res.statusCode).toBe(401)
+    }
+  })
+
+  it('serves check/compatibility under the prefix without auth', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/greader.php/check/compatibility', headers: { authorization: 'GoogleLogin auth=x' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe('PASS')
   })
 })
