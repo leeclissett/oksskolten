@@ -57,8 +57,12 @@ Every change is a **superset** of what a generic Google Reader client needs:
 | `ot`/`nt` also match an entry's `lastModified` | Arrival time (`created_at`) only | The fork has no per-item modification time; equivalent for an article whose content never changes. |
 | Continuation is the decimal ID of the last item | Opaque base64url of `<id>:<created_at>` of the last item | Same keyset semantics on the fork's `(created_at, id)` sort key; clients treat it as opaque. |
 | Several responses carry PHP's default `Content-Type` (see A.2) | Explicit `text/plain; charset=UTF-8` / `application/json; charset=UTF-8` (WP5) | Clients do not check; an explicit type is safer. |
-| `edit-tag` `a=user/-/state/com.google/kept-unread` is ignored (no case for it, L924-962) | Marks unread (current behaviour, kept) | Harmless; some Google-era clients send it. |
+| `edit-tag` `a=user/-/state/com.google/kept-unread` is ignored (no case for it, L924-962) | Marks unread; `r=…/kept-unread` marks read (behaviour kept from before WP3) | Harmless; some Google-era clients send it. |
 | `edit-tag` `a=user/-/label/<x>` tags the item (FreshRSS has per-item labels) | Accepted and ignored, still `OK` | Oksskolten has no per-article labels. |
+| State tags match `user/-/state/com.google/<state>` exactly (`edit-tag`, `it`, `xt`, `s`) | Any user segment: `user/<anything>/state/com.google/<state>` | Google-era clients may send their numeric user ID instead of `-`. |
+| `user/-/state/com.google/read`/`unread` as the stream work on `stream/items/ids` only; `stream/contents` → `400` (L799-806) | Served on both endpoints (WP3) | Superset (§3a #8). |
+| `mark-all-as-read` `feed/<int>` of an unknown feed marks nothing; `feed/<url>` → `400` | Either form; an unknown feed marks nothing, `OK` | Superset. |
+| Hex item IDs above `0x7fff…` become a float and match nothing; a non-hex string decodes to `0` | Any ID that is not a positive safe integer (≤ 2⁵³−1) is dropped | Same outcome; the fork's IDs are small positives. |
 
 ## 2. How to add or change a route
 
@@ -88,7 +92,8 @@ alter the LetterFeed inline-entry link logic or translated-article handling.
 
 ## 3. The dialect, verified from greader.php
 
-Legend: **Fork** = state of `main` at `0c5fe8f`; **Target** = what the named WP
+Legend: **Fork** = state of `main` at `0c5fe8f`, updated where a merged WP
+changed it ("Fork (WP<n>)"); **Target** = what the named WP
 delivers. "verified L*n*–*m*" cites greader.php unless another file is named.
 
 ### A.1 Paths and dispatch
@@ -173,8 +178,9 @@ appends the charset; passing tests assert it). Text responses carry bare
 - Requests authenticate with `Authorization: GoogleLogin auth=<auth>`. A header
   value without `/` is ignored, so the request is unauthenticated (`401`).
 - `token`: `str_pad(sha1(salt . user . apiPasswordHash), 57, 'Z')` followed by
-  `\n` — a stable 57-character value. Fork: echoes the JWT, no newline (target
-  WP3: a stable 57-character token plus `\n`).
+  `\n` — a stable 57-character value. Fork (WP3): `sha1(<auth token>)` in hex
+  (40 characters) padded with `Z` to 57, plus `\n` — stable for a login. It is
+  never checked as `T` (see §1).
 - `checkToken` (`edit-tag`, `rename-tag`, `disable-tag`, `mark-all-as-read`):
   `T` is read from the POST body only; `''` (FeedMe) and `'x'` (Reeder) are
   accepted, as is the real token; anything else → `401`. The fork accepts any
@@ -207,8 +213,14 @@ appends the charset; passing tests assert it). Text responses carry bare
   `1.8091…E+19` and matches nothing; a non-hex string decodes to `0`. FreshRSS
   never issues such IDs (they are µs timestamps), so the fork need only reject
   values outside its integer range.
-- Fork: an all-digit zero-padded ID such as `0000000000001000` is decoded as
-  decimal 1000 — the wrong article (target WP3).
+- Fork (WP3, `decodeItemId`): the same rule — strip
+  `tag:google.com,2005:reader/item/` if present; a remainder that is not all
+  digits or starts with `0` is parsed as hex (1–16 digits), otherwise as
+  decimal; both with BigInt, then range-checked. Anything that is not a
+  positive safe integer (`0`, more than 16 hex digits, non-hex, or above
+  2⁵³−1 such as `5d0cfa30041d4348`) is dropped. `abc` → 2748. Before WP3 the
+  zero-padded `0000000000001000` was decoded as decimal 1000 — the wrong
+  article.
 
 ### A.5 Streams and stream parameters
 
@@ -230,13 +242,13 @@ appends the charset; passing tests assert it). Text responses carry bare
   under `user/-/state/com.google/`). `it` sets the base state filter (read only,
   unread only, starred only); `xt=read` → unread only, `xt=unread` → read only,
   `xt=starred` → not starred; combinations intersect. Any other `xt` value
-  (e.g. `xt=feed/…`) is ignored. Fork: `it=` ignored and only `xt=read` honoured
-  (target WP3).
+  (e.g. `xt=feed/…`) is ignored. Fork (WP3): the same, on both
+  `stream/items/ids` and `stream/contents` (first value of each only).
 - **`read`/`unread` as the stream itself** work on `stream/items/ids` only
   (L799-806: reading list + `it=` of that state, overriding any `it`). On
-  `stream/contents` they match no case and fall through to `400`. Fork: both
-  streams return everything (target WP3: read-only / unread-only on
-  `stream/items/ids`; the fork may also serve them on `stream/contents`).
+  `stream/contents` they match no case and fall through to `400`. Fork (WP3):
+  read-only / unread-only on `stream/items/ids` and on `stream/contents`
+  (query and path forms), overriding `it` as in FreshRSS; `xt` still applies.
 - **Continuation:** the decimal ID of the last item of the page, as a string.
   The next request with `c=<id>` asks for `n+1` items starting *at* that ID and
   drops the first. Emitted whenever the page is full (`count(ids) >= n`), so a
@@ -291,13 +303,19 @@ appends the charset; passing tests assert it). Text responses carry bare
     `direction`;
   - `author` — only when the entry has one;
   - `enclosure: [{href, type, length?}]` — when present.
-- Fork differences: `timestampUsec` is publication time and `crawlTimeMsec` is
-  computed with `new Date(created_at)`, which reads SQLite's UTC
-  `YYYY-MM-DD HH:MM:SS` as **local time** — off by the server's UTC offset
-  whenever `TZ` is not UTC (found by the contract tests; target WP3 for both);
-  `author` is the feed name (target WP3: omit); `origin.streamId` is
-  `feed/<url>` (target WP4); `updated`, `summary.direction` and
-  `alternate[0].type` are extra keys (allowed).
+- Fork (WP3): `crawlTimeMsec` is the arrival time (`created_at`) in ms and
+  `timestampUsec` the same instant in µs, also in `itemRefs[].timestampUsec`;
+  `published` is publication seconds. `created_at` is SQLite's UTC
+  `YYYY-MM-DD HH:MM:SS` and is parsed explicitly as UTC
+  (`server/lib/sqlite-time.ts`) — before WP3 it went through `new Date()`, which
+  reads it as local time, so values were off by the server's UTC offset
+  whenever `TZ` was not UTC, and `timestampUsec` was publication time.
+  `author` is omitted: Oksskolten does not store an article author (before WP3
+  it was the feed name). `categories` is `reading-list`, `read` when read,
+  `starred` when starred, then `user/-/label/<category>` when the feed has
+  one (no feed tags). Remaining differences: `origin.streamId` is `feed/<url>`
+  (target WP4); `updated`, `summary.direction` and `alternate[0].type` are
+  extra Google-era keys (kept, §1).
 
 ### A.7 Subscriptions, tags, unread counts
 
@@ -389,8 +407,10 @@ FeedDAO.php L414-426; AlreadySubscribedException.php L7.*
   star/unstar; `…/broadcast`, `…/like`, `…/tracking-kept-unread` are ignored;
   `user/-/label/<x>` tags/untags the items (creating the label). Anything else
   is ignored. **Correction:** `user/-/state/com.google/kept-unread` is not
-  handled (ignored). Response `OK`. Fork: only the first `a` and first `r` are
-  honoured (target WP3: all), `kept-unread` marks unread (kept, §1).
+  handled (ignored). Response `OK`. Fork (WP3): every `a` then every `r` is
+  applied, as in FreshRSS; `read`/`starred` as above; `a=kept-unread` marks
+  unread and `r=kept-unread` read (kept, §1); labels and other states are
+  ignored with `OK`. IDs are decoded per A.4 and deduplicated.
 - **`mark-all-as-read`**: `s` and `ts` from the POST body. `ts` (comment says
   nanoseconds; it is compared with entry IDs, so **microseconds of arrival**)
   must be all digits, else `400`; absent → `0` → "now". Only entries with
@@ -398,9 +418,15 @@ FeedDAO.php L414-426; AlreadySubscribedException.php L7.*
   `user/-/label/<name>` (category, else label, else `400`), `reading-list`,
   **`starred` (supported — marks only starred items)**, `read`, `unread`,
   `org.freshrss/main`/`important`; anything else, including an empty `s`,
-  → `400`. Response `OK`. Fork: `ts` ignored, `starred` not supported, unknown
-  streams answer `OK` (targets WP3/WP4; the `400` for unknown streams is not
-  assigned — see §5).
+  → `400`. Response `OK`. Fork (WP3): `ts` honoured the same way (`ts` ÷ 10⁶
+  floored to seconds, compared with `created_at` via
+  `datetime(?, 'unixepoch')`, so UTC on both sides; absent or `0` = now;
+  non-digits → `400 Bad Request!`); streams `reading-list`, `starred` (only
+  starred items), `read` (nothing to mark), `unread`, `feed/<url>` or
+  `feed/<int>` (unknown feed marks nothing), `user/-/label/<name>` (unknown
+  category → `400`); anything else, including an empty `s`, →
+  `400 Bad Request!` (plain text). Only `seen_at` is set (bulk marking is not
+  opening an article).
 
 ## 4. What the open-source clients require
 
@@ -446,6 +472,6 @@ Fluent Reader (`src/scripts/models/services/greader.ts`).
 - **Wrapper `id` of `stream/contents`.** greader.php always says
   `user/-/state/com.google/reading-list`; Google echoed the requested stream,
   as the fork does. No WP is assigned; the contract only asserts a string.
-- **`mark-all-as-read` with an unknown or empty stream.** greader.php answers
-  `400`; the fork answers `OK` and does nothing. Not assigned; Fluent Reader
-  always sends a valid `s`.
+- **Per-article author.** Oksskolten does not store the author of an
+  article, so `author` is always omitted. Emitting it would need a schema
+  column and the fetcher to fill it.

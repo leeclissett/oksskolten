@@ -18,18 +18,20 @@
  *   POST /reader/api/0/mark-all-as-read
  */
 
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { compareSync } from 'bcryptjs'
 import { marked } from 'marked'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { allNamed, getDb, getSetting } from '../db.js'
 import { getFeeds } from '../db/feeds.js'
-import { getCategories, markAllSeenByCategory } from '../db/categories.js'
-import { markArticleSeen, markArticleLiked, markAllSeenByFeed, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
+import { getCategories } from '../db/categories.js'
+import { markArticleSeen, markArticleLiked, markStreamSeen, recordArticleRead, resolveArticleSourceUrl } from '../db/articles.js'
 import { articleUrlToPath, isInlineEntryUrl } from '../../shared/url.js'
 import { publicationSiteOf } from '../lib/cleaner/email.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { routedPath } from '../lib/routed-path.js'
+import { sqliteTimeToMs } from '../lib/sqlite-time.js'
 import { clientLoginAttempts, loginAttemptKey } from '../lib/login-attempts.js'
 import { logger } from '../logger.js'
 
@@ -66,14 +68,9 @@ function feedOriginUrl(url: string): string {
   }
 }
 
-/** Convert an ISO or SQLite UTC datetime to a Google Reader microsecond timestamp. */
+/** Convert an ISO or SQLite UTC datetime to a Google Reader microsecond timestamp (0 when absent). */
 function dateToTimestampUsec(value: string | null): number {
-  if (!value) return 0
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
-    ? `${value.replace(' ', 'T')}Z`
-    : value
-  const milliseconds = Date.parse(normalized)
-  return Number.isFinite(milliseconds) ? milliseconds * 1000 : 0
+  return (sqliteTimeToMs(value) ?? 0) * 1000
 }
 
 // --- Zod schemas for GReader request bodies ---
@@ -84,10 +81,11 @@ const scalar = z
   .union([z.string(), z.array(z.string())])
   .transform((v) => (Array.isArray(v) ? v[0] : v))
 
-const ids = z
+/** A field that may be repeated (`i`, `a`, `r`): always a list, empty when absent. */
+const list = z
   .union([z.string(), z.array(z.string())])
   .optional()
-  .transform((v) => (!v ? [] : Array.isArray(v) ? v : [v]))
+  .transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]))
 
 const ClientLoginBody = z.object({
   Email: scalar.pipe(z.string().min(1, 'Email required')),
@@ -104,16 +102,17 @@ function pickCredentials(source: unknown): { Email?: unknown; Passwd?: unknown }
   }
 }
 
-const StreamItemsContentsBody = z.object({ i: ids, r: scalar.optional() })
+const StreamItemsContentsBody = z.object({ i: list, r: scalar.optional() })
 
 const EditTagBody = z.object({
-  i: ids,
-  a: scalar.optional().default(''),
-  r: scalar.optional().default(''),
+  i: list,
+  a: list,
+  r: list,
 })
 
 const MarkAllAsReadBody = z.object({
   s: scalar.optional().default(''),
+  ts: scalar.optional(),
 })
 
 // --- ID helpers ---
@@ -128,29 +127,31 @@ function itemTagId(id: number): string {
   return `tag:google.com,2005:reader/item/${encodeItemId(id)}`
 }
 
-/** Decode a GReader item id back to an integer */
-function decodeItemId(raw: string): number | null {
-  // Accept the canonical tag URI with a hex suffix
-  if (raw.includes('/item/')) {
-    const hex = raw.split('/item/')[1]
-    if (!/^[0-9a-f]+$/i.test(hex)) return null
-    const n = parseInt(hex, 16)
-    return isNaN(n) ? null : n
-  }
+const ITEM_TAG_PREFIX = 'tag:google.com,2005:reader/item/'
 
-  // Accept bare decimal IDs (emitted by /stream/items/ids)
-  if (/^\d+$/.test(raw)) {
-    const n = parseInt(raw, 10)
-    return isNaN(n) ? null : n
+/**
+ * Decode a GReader item id back to an article id, with FreshRSS's rule
+ * (greader.php `editTag`/`streamContentsItems`): after stripping the tag
+ * prefix, a value that is not all digits, or that starts with `0`, is hex;
+ * anything else is decimal. So the zero-padded 16-digit form `0000000000001000`
+ * is 4096, while the bare `1000` that stream/items/ids emits is 1000.
+ *
+ * Returns null for anything that is not a positive safe integer: FreshRSS's
+ * own IDs are µs timestamps above 2^53 and match nothing here, as do values
+ * that are not hex at all.
+ */
+export function decodeItemId(raw: string): number | null {
+  const value = raw.trim()
+  const body = value.startsWith(ITEM_TAG_PREFIX) ? value.slice(ITEM_TAG_PREFIX.length) : value
+  let n: bigint
+  if (/^[1-9]\d{0,19}$/.test(body)) {
+    n = BigInt(body)
+  } else if (/^[0-9a-f]{1,16}$/i.test(body)) {
+    n = BigInt(`0x${body}`)
+  } else {
+    return null
   }
-
-  // Accept bare hex IDs that are unambiguously hex (contain a-f)
-  if (/^[0-9a-f]+$/i.test(raw) && /[a-f]/i.test(raw)) {
-    const n = parseInt(raw, 16)
-    return isNaN(n) ? null : n
-  }
-
-  return null
+  return n > 0n && n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : null
 }
 
 // --- Auth helper ---
@@ -283,11 +284,13 @@ function articleLink(a: ArticleRow, origin: string): string {
 }
 
 function articleToGReaderItem(a: ArticleRow, origin: string, feedSites: Map<number, string>): Record<string, unknown> {
-  const publishedSec = a.published_at ? Math.floor(new Date(a.published_at).getTime() / 1000) : 0
-  const crawledSec = a.created_at
-    ? Math.floor(new Date(a.created_at).getTime() / 1000)
-    : publishedSec
-  const crawlMsec = String(crawledSec * 1000)
+  // published is when the article was published; crawlTimeMsec and
+  // timestampUsec are when it reached this server (created_at, UTC), as in
+  // FreshRSS, whose entry IDs are arrival times. Both arrival values are the
+  // same instant, so timestampUsec === crawlTimeMsec * 1000.
+  const publishedMs = sqliteTimeToMs(a.published_at)
+  const publishedSec = publishedMs === null ? 0 : Math.floor(publishedMs / 1000)
+  const arrivalMs = sqliteTimeToMs(a.created_at) ?? publishedSec * 1000
 
   const categories: string[] = ['user/-/state/com.google/reading-list']
   if (a.seen_at || a.read_at) categories.push('user/-/state/com.google/read')
@@ -306,17 +309,18 @@ function articleToGReaderItem(a: ArticleRow, origin: string, feedSites: Map<numb
   const content = translatedContent ?? a.full_text ?? a.summary ?? a.excerpt ?? ''
   const link = articleLink(a, origin)
 
+  // No `author`: Oksskolten does not store an article's author, and FreshRSS
+  // omits the key when there is none (never the feed's name).
   return {
     id: itemTagId(a.id),
-    crawlTimeMsec: crawlMsec,
-    timestampUsec: String(publishedSec * 1_000_000),
+    crawlTimeMsec: String(arrivalMs),
+    timestampUsec: String(arrivalMs * 1000),
     published: publishedSec,
     updated: publishedSec,
     title: title ?? '(no title)',
     canonical: [{ href: link }],
     alternate: [{ href: link, type: 'text/html' }],
     summary: { direction: 'ltr', content: markdownToHtml(content) },
-    author: a.feed_name ?? '',
     origin: {
       streamId: `feed/${feedUrl}`,
       title: a.feed_name ?? '',
@@ -448,9 +452,7 @@ function listStreamArticles(
     conditions.push('a.category_id = @categoryId')
     params.categoryId = filter.categoryId
   }
-  if (filter.unread) conditions.push('a.seen_at IS NULL')
-  if (filter.bookmarked) conditions.push('a.bookmarked_at IS NOT NULL')
-  if (filter.liked) conditions.push('a.liked_at IS NOT NULL')
+  for (const state of filter.states) conditions.push(STATE_CONDITIONS[state])
   if (page.startSec) {
     conditions.push("a.created_at >= datetime(@startSec, 'unixepoch')")
     params.startSec = page.startSec
@@ -603,10 +605,14 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Edit token (required by some clients before write ops) ──────────────────
 
+  // FreshRSS: `str_pad(sha1(...), 57, 'Z')` plus a newline ("Must have 57
+  // characters"). Derived from the session's auth token, so it is stable for
+  // a login. `T` is never checked (see docs/greader-compat.md §1).
   app.get('/reader/api/0/token', async (request, reply) => {
-    const token = extractGReaderToken(request) ?? 'token'
+    const auth = extractGReaderToken(request) ?? ''
+    const token = createHash('sha1').update(auth).digest('hex').padEnd(57, 'Z')
     reply.header('Content-Type', 'text/plain')
-    return reply.send(token)
+    return reply.send(`${token}\n`)
   })
 
   // ── Subscription list ────────────────────────────────────────────────────────
@@ -719,10 +725,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/reader/api/0/stream/items/ids', async (request, reply) => {
     const q = request.query as Record<string, string | string[]>
-    const stream = Array.isArray(q.s) ? q.s[0] : (q.s ?? 'user/-/state/com.google/reading-list')
-    const exclude = Array.isArray(q.xt) ? q.xt[0] : (q.xt ?? '')
+    const stream = firstParam(q.s) ?? 'user/-/state/com.google/reading-list'
     const limit = pageSizeParam(q.n, MAX_ITEM_IDS_PAGE_SIZE)
-    const refs = listStreamArticles(buildArticleOpts(stream, exclude), {
+    const refs = listStreamArticles(buildArticleOpts(stream, firstParam(q.it), firstParam(q.xt)), {
       limit,
       cursor: decodeContinuation(q.c),
       startSec: positiveIntParam(q.ot),
@@ -769,10 +774,9 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     stream: string,
   ): Promise<FastifyReply> {
     const q = request.query as Record<string, string | string[]>
-    const exclude = Array.isArray(q.xt) ? q.xt[0] : (q.xt ?? '')
     const limit = pageSizeParam(q.n, MAX_CONTENTS_PAGE_SIZE)
 
-    const refs = listStreamArticles(buildArticleOpts(stream, exclude), {
+    const refs = listStreamArticles(buildArticleOpts(stream, firstParam(q.it), firstParam(q.xt)), {
       limit,
       cursor: decodeContinuation(q.c),
       startSec: positiveIntParam(q.ot),
@@ -815,20 +819,26 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const body = parseOrBadRequest(EditTagBody, request.body, reply)
     if (!body) return
 
-    const articleIds = body.i.map(decodeItemId).filter((id): id is number => id !== null)
-    const addTag = body.a
-    const removeTag = body.r
+    const articleIds = [...new Set(body.i.map(decodeItemId).filter((id): id is number => id !== null))]
 
-    for (const id of articleIds) {
-      if (addTag.includes('com.google/read') || removeTag.includes('com.google/kept-unread')) {
-        recordArticleRead(id)
-      } else if (removeTag.includes('com.google/read') || addTag.includes('com.google/kept-unread')) {
-        markArticleSeen(id, false)
+    // As in FreshRSS, every `a` is applied, then every `r`. Labels
+    // (user/-/label/<x>) and unknown states are ignored: Oksskolten has no
+    // per-article labels. `a=kept-unread` marks unread (Google-era clients
+    // send it; FreshRSS ignores it), `r=kept-unread` marks read.
+    for (const tag of body.a) {
+      const state = stateOf(tag)
+      for (const id of articleIds) {
+        if (state === 'read') recordArticleRead(id)
+        else if (state === 'kept-unread') markArticleSeen(id, false)
+        else if (state === 'starred') markArticleLiked(id, true)
       }
-      if (addTag.includes('com.google/starred')) {
-        markArticleLiked(id, true)
-      } else if (removeTag.includes('com.google/starred')) {
-        markArticleLiked(id, false)
+    }
+    for (const tag of body.r) {
+      const state = stateOf(tag)
+      for (const id of articleIds) {
+        if (state === 'read') markArticleSeen(id, false)
+        else if (state === 'kept-unread') recordArticleRead(id)
+        else if (state === 'starred') markArticleLiked(id, false)
       }
     }
 
@@ -842,21 +852,33 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
     const body = parseOrBadRequest(MarkAllAsReadBody, request.body, reply)
     if (!body) return
 
-    const stream = body.s
+    // ts: arrival time in microseconds (FreshRSS compares it with entry IDs,
+    // which are arrival µs). Absent or 0 means now; anything but digits is 400.
+    const ts = (body.ts ?? '0').trim()
+    if (!/^\d+$/.test(ts)) return badRequest(reply)
+    const nowSec = Math.floor(Date.now() / 1000)
+    const tsSec = BigInt(ts) / 1_000_000n
+    const arrivedAtOrBeforeSec = tsSec === 0n ? nowSec : Number(tsSec > MAX_UNIX_SECONDS ? MAX_UNIX_SECONDS : tsSec)
 
+    const stream = body.s.trim()
+    const state = stateOf(stream)
     if (stream.startsWith('feed/')) {
-      const feedUrl = stream.slice('feed/'.length)
-      const feeds = getFeeds()
-      const feed = feeds.find((f) => (f.rss_url ?? f.url) === feedUrl)
-      if (feed) markAllSeenByFeed(feed.id)
+      // An unknown feed marks nothing, as an unknown feed/<int> does in FreshRSS.
+      const feed = findFeedByStream(stream.slice('feed/'.length))
+      if (feed) markStreamSeen({ feedId: feed.id, arrivedAtOrBeforeSec })
     } else if (stream.startsWith('user/-/label/')) {
       const labelName = stream.slice('user/-/label/'.length)
-      const cats = getCategories()
-      const cat = cats.find((c) => c.name === labelName)
-      if (cat) markAllSeenByCategory(cat.id)
-    } else if (stream === 'user/-/state/com.google/reading-list') {
-      // Mark all articles as seen (uses seen_at to match existing semantics)
-      getDb().prepare("UPDATE articles SET seen_at = datetime('now') WHERE seen_at IS NULL").run()
+      const cat = getCategories().find((c) => c.name === labelName)
+      if (!cat) return badRequest(reply)
+      markStreamSeen({ categoryId: cat.id, arrivedAtOrBeforeSec })
+    } else if (state === 'reading-list' || state === 'unread') {
+      markStreamSeen({ arrivedAtOrBeforeSec })
+    } else if (state === 'starred') {
+      markStreamSeen({ liked: true, arrivedAtOrBeforeSec })
+    } else if (state !== 'read') {
+      // `read` is accepted and has nothing to mark; anything else, including
+      // an empty stream, is 400 as in FreshRSS.
+      return badRequest(reply)
     }
 
     reply.header('Content-Type', 'text/plain')
@@ -864,24 +886,83 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   })
 }
 
-// --- Helper: map GReader stream → getArticles opts ---
+/** Latest second SQLite's datetime(…, 'unixepoch') renders (9999-12-31 23:59:59 UTC). */
+const MAX_UNIX_SECONDS = 253402300799n
 
-function buildArticleOpts(stream: string, exclude: string): {
+/** FreshRSS's `badRequest()`: 400, plain text `Bad Request!`. */
+function badRequest(reply: FastifyReply): FastifyReply {
+  reply.status(400)
+  reply.header('Content-Type', 'text/plain; charset=UTF-8')
+  return reply.send('Bad Request!')
+}
+
+/** First value of a query parameter that may be repeated. */
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+/**
+ * The state named by a `user/<id>/state/com.google/<state>` tag (`read`,
+ * `starred`, `reading-list`, `kept-unread`, …), or null for anything else.
+ * FreshRSS only matches `user/-/`; Google-era clients may send their numeric
+ * user ID instead of `-`, so any user segment is accepted.
+ */
+function stateOf(tag: string | undefined): string | null {
+  const match = /^user\/[^/]*\/state\/com\.google\/([a-z-]+)$/.exec(tag?.trim() ?? '')
+  return match ? match[1] : null
+}
+
+/** Article state constraints a stream request can carry; all of them must hold. */
+type StateFilter = 'read' | 'unread' | 'starred' | 'unstarred'
+
+const STATE_CONDITIONS: Record<StateFilter, string> = {
+  read: 'a.seen_at IS NOT NULL',
+  unread: 'a.seen_at IS NULL',
+  starred: 'a.liked_at IS NOT NULL',
+  unstarred: 'a.liked_at IS NULL',
+}
+
+/** The feed a `feed/<…>` stream names: its URL (rss_url, else url), or its numeric ID. */
+function findFeedByStream(idOrUrl: string): { id: number } | undefined {
+  const feeds = getFeeds()
+  return feeds.find((f) => (f.rss_url ?? f.url) === idOrUrl)
+    ?? (/^\d+$/.test(idOrUrl) ? feeds.find((f) => f.id === Number(idOrUrl)) : undefined)
+}
+
+// --- Helper: map GReader stream → article filter ---
+
+/**
+ * The filter for a stream request: the stream `s`, the include target `it`
+ * and the exclude target `xt` (FreshRSS's `streamContentsFilters`).
+ *
+ * `it` and `xt` accept exactly the three states read, unread and starred;
+ * any other value is ignored. `it` restricts to that state; `xt=read` means
+ * unread only, `xt=unread` read only, `xt=starred` not starred. The `read`
+ * and `unread` states as the stream itself are the reading list restricted to
+ * that state (overriding `it`, as in FreshRSS), on stream/items/ids and on
+ * stream/contents alike.
+ */
+function buildArticleOpts(stream: string, include?: string, exclude?: string): {
   feedId?: number
   categoryId?: number
-  unread?: boolean
-  bookmarked?: boolean
-  liked?: boolean
+  states: StateFilter[]
 } {
-  const opts: { feedId?: number; categoryId?: number; unread?: boolean; bookmarked?: boolean; liked?: boolean } = {}
+  const opts: { feedId?: number; categoryId?: number; states: StateFilter[] } = { states: [] }
 
-  // Exclude read = only unread
-  if (exclude.includes('com.google/read')) {
-    opts.unread = true
+  const streamState = stateOf(stream)
+  let includeState = stateOf(include)
+  if (streamState === 'read' || streamState === 'unread') includeState = streamState
+  if (includeState === 'read' || includeState === 'unread' || includeState === 'starred') {
+    opts.states.push(includeState)
   }
 
-  if (stream === 'user/-/state/com.google/starred') {
-    opts.liked = true
+  const excludeState = stateOf(exclude)
+  if (excludeState === 'read') opts.states.push('unread')
+  else if (excludeState === 'unread') opts.states.push('read')
+  else if (excludeState === 'starred') opts.states.push('unstarred')
+
+  if (streamState === 'starred') {
+    opts.states.push('starred')
     return opts
   }
 

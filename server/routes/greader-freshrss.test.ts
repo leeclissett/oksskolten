@@ -402,3 +402,53 @@ describe('ClientLogin under /api/greader.php', () => {
     expect(res.body).toBe('Too Many Requests\n')
   })
 })
+
+describe('FreshRSS item IDs, timestamps and states under /api/greader.php (WP3)', () => {
+  const API = '/api/greader.php/reader/api/0'
+
+  async function authed() {
+    seedUser()
+    const { auth } = await freshRssLogin()
+    return { authorization: `GoogleLogin auth=${auth}` }
+  }
+
+  it('serves Capy Reader\'s read stream and fetches the items by zero-padded hex ID, with arrival timestamps', async () => {
+    const headers = await authed()
+    const feed = createFeed({ name: 'Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
+    const read = insertArticle({ feed_id: feed.id, title: 'Read', url: 'https://example.com/r', published_at: '2018-03-04T05:06:07Z' })
+    insertArticle({ feed_id: feed.id, title: 'Unread', url: 'https://example.com/u', published_at: '2018-03-04T05:06:07Z' })
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now'), created_at = '2026-11-01 12:00:00' WHERE id = ?").run(read)
+
+    const ids = await app.inject({ method: 'GET', url: `${API}/stream/items/ids?s=${encodeURIComponent('user/-/state/com.google/read')}&n=1000`, headers })
+    const refs = ids.json().itemRefs as { id: string; timestampUsec: string }[]
+    expect(refs.map((r) => Number(r.id))).toEqual([read])
+
+    const contents = await app.inject({
+      method: 'POST',
+      url: `${API}/stream/items/contents`,
+      headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `i=${read.toString(16).padStart(16, '0')}`,
+    })
+    const [item] = contents.json().items
+    expect(item.title).toBe('Read')
+    expect(item.crawlTimeMsec).toBe(String(Date.UTC(2026, 10, 1, 12)))
+    expect(item.timestampUsec).toBe(refs[0].timestampUsec)
+    expect(item.published).toBe(Date.UTC(2018, 2, 4, 5, 6, 7) / 1000)
+  })
+
+  it('answers token with 57 characters and a newline', async () => {
+    const headers = await authed()
+    const res = await app.inject({ method: 'GET', url: `${API}/token`, headers })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toMatch(/^[0-9A-Za-z]{57}\n$/)
+  })
+
+  it('rejects mark-all-as-read with a non-numeric ts or an unknown stream', async () => {
+    const headers = { ...(await authed()), 'content-type': 'application/x-www-form-urlencoded' }
+    for (const payload of ['s=user%2F-%2Fstate%2Fcom.google%2Freading-list&ts=now', 's=nonsense', '']) {
+      const res = await app.inject({ method: 'POST', url: `${API}/mark-all-as-read`, headers, payload })
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toBe('Bad Request!')
+    }
+  })
+})

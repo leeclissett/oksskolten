@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify'
 import { clientLoginAttempts } from '../lib/login-attempts.js'
 import { isRateLimitExempt } from '../lib/routed-path.js'
 import { rateLimitKey } from '../lib/client-ip.js'
+import { decodeItemId } from './greader.js'
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -1098,5 +1099,292 @@ describe('feed website (htmlUrl) for newsletter feeds sharing one host', () => {
     const [item] = res.json().items
     expect(item.origin.htmlUrl).toBe(sites.get('Growth Gems'))
     expect(item.origin.streamId).toBe(`feed/${gems.rss_url}`)
+  })
+})
+
+// ── WP3: item IDs, arrival timestamps, tag edits, state streams ──────────────
+
+describe('decodeItemId (FreshRSS rule)', () => {
+  it.each([
+    ['0000000000001000', 4096], // all digits but a leading zero: hex
+    ['1000', 1000], // all digits, no leading zero: decimal (stream/items/ids form)
+    ['tag:google.com,2005:reader/item/000000000000000f', 15],
+    ['tag:google.com,2005:reader/item/0000000000001000', 4096],
+    ['abc', 2748], // not all digits: hex
+    ['00000000000000ff', 255],
+    ['9007199254740991', Number.MAX_SAFE_INTEGER],
+  ])('%s → %d', (raw, expected) => {
+    expect(decodeItemId(raw)).toBe(expected)
+  })
+
+  it.each([
+    '5d0cfa30041d4348', // a FreshRSS µs-timestamp ID: beyond the safe integer range
+    'fb115bd6d34a8e9f', // above 0x7fff… (two's-complement negative in some clients)
+    '9007199254740992', // MAX_SAFE_INTEGER + 1
+    '0', '0000000000000000', // not a positive ID
+    '00000000000000001', // 17 hex digits
+    'xyz', '', '-1', '12.5',
+    'tag:google.com,2005:reader/item/', 'tag:google.com,2005:reader/item/zz',
+  ])('rejects %j', (raw) => {
+    expect(decodeItemId(raw)).toBeNull()
+  })
+})
+
+describe.each([
+  ['root', ''],
+  ['FreshRSS prefix', '/api/greader.php'],
+])('WP3 behaviour (%s)', (_name, prefix) => {
+  const API = `${prefix}/reader/api/0`
+  const READING_LIST = 'user/-/state/com.google/reading-list'
+  const READ = 'user/-/state/com.google/read'
+  const UNREAD = 'user/-/state/com.google/unread'
+  const STARRED = 'user/-/state/com.google/starred'
+  const KEPT_UNREAD = 'user/-/state/com.google/kept-unread'
+  const enc = encodeURIComponent
+
+  const token = () => app.jwt.sign({ email: 'test@example.com', token_version: 0 }, { expiresIn: '3650d' })
+  const get = (path: string) => app.inject({ method: 'GET', url: `${API}${path}`, headers: { authorization: `GoogleLogin auth=${token()}` } })
+  const post = (path: string, form: Record<string, string | string[]>) => {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(form)) for (const x of Array.isArray(v) ? v : [v]) params.append(k, x)
+    return app.inject({
+      method: 'POST',
+      url: `${API}${path}`,
+      headers: { authorization: `GoogleLogin auth=${token()}`, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: params.toString(),
+    })
+  }
+  const state = (id: number) => {
+    const row = getDb().prepare('SELECT seen_at, liked_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null; liked_at: string | null }
+    return { seen_at: row.seen_at, liked_at: row.liked_at }
+  }
+
+  /** One unread, one read and one starred (unread) article; published in 2019, arrived in Oct 2026. */
+  function seed() {
+    seedUser()
+    const cat = createCategory('Tech')
+    const feed = createFeed({ name: 'Feed Name', url: 'https://example.com', rss_url: 'https://example.com/rss', category_id: cat.id })
+    const other = createFeed({ name: 'Other', url: 'https://other.example.com' })
+    const unread = insertArticle({ feed_id: feed.id, title: 'Unread', url: 'https://example.com/u', published_at: '2019-06-01T12:00:00Z' })
+    const read = insertArticle({ feed_id: feed.id, title: 'Read', url: 'https://example.com/r', published_at: '2019-06-02T12:00:00Z' })
+    const starred = insertArticle({ feed_id: other.id, title: 'Starred', url: 'https://other.example.com/s', published_at: '2019-06-03T12:00:00Z' })
+    const db = getDb()
+    db.prepare("UPDATE articles SET seen_at = datetime('now'), read_at = datetime('now') WHERE id = ?").run(read)
+    db.prepare("UPDATE articles SET liked_at = datetime('now') WHERE id = ?").run(starred)
+    const arrive = db.prepare('UPDATE articles SET created_at = ? WHERE id = ?')
+    arrive.run('2026-10-01 08:00:00', unread)
+    arrive.run('2026-10-01 08:30:00', read)
+    arrive.run('2026-10-01 09:00:00', starred)
+    return { cat, feed, other, unread, read, starred }
+  }
+  const items = async (ids: number[]) => (await post('/stream/items/contents', { i: ids.map(String) })).json().items as Record<string, unknown>[]
+  const refIds = async (query: string) => ((await get(`/stream/items/ids?${query}`)).json().itemRefs as { id: string }[]).map((r) => Number(r.id))
+  const contentIds = async (query: string) => ((await get(`/stream/contents?${query}`)).json().items as { id: string }[]).map((i) => decodeItemId(i.id))
+
+  describe.each(['UTC', 'Europe/Amsterdam'])('timestamps with TZ=%s', (tz) => {
+    const savedTz = process.env.TZ
+    beforeEach(() => { process.env.TZ = tz })
+    afterEach(() => {
+      if (savedTz === undefined) delete process.env.TZ
+      else process.env.TZ = savedTz
+    })
+
+    it('reports arrival in crawlTimeMsec and timestampUsec (items and itemRefs) and publication in published', async () => {
+      const { unread } = seed()
+      const arrivalMs = Date.UTC(2026, 9, 1, 8, 0, 0)
+      const [item] = await items([unread])
+      expect(item.crawlTimeMsec).toBe(String(arrivalMs))
+      expect(item.timestampUsec).toBe(String(arrivalMs * 1000))
+      expect(item.timestampUsec).toBe(`${item.crawlTimeMsec as string}000`)
+      expect(item.published).toBe(Date.UTC(2019, 5, 1, 12) / 1000)
+      expect(item).toHaveProperty('updated')
+
+      const refs = (await get(`/stream/items/ids?s=${enc(READING_LIST)}&n=100`)).json().itemRefs as { id: string; timestampUsec: string }[]
+      expect(refs.find((r) => Number(r.id) === unread)!.timestampUsec).toBe(item.timestampUsec)
+
+      const fromContents = ((await get(`/stream/contents?s=${enc(READING_LIST)}`)).json().items as Record<string, unknown>[])
+        .find((i) => decodeItemId(i.id as string) === unread)!
+      expect(fromContents.crawlTimeMsec).toBe(item.crawlTimeMsec)
+    })
+
+    it('reports arrival in unread-count newestItemTimestampUsec', async () => {
+      seed()
+      const rows = (await get('/unread-count')).json().unreadcounts as { id: string; newestItemTimestampUsec: string }[]
+      expect(rows.at(-1)!.newestItemTimestampUsec).toBe(String(Date.UTC(2026, 9, 1, 9) * 1000))
+    })
+
+    it('mark-all-as-read ts compares with arrival in UTC', async () => {
+      const { unread, starred } = seed()
+      const ts = String(Date.UTC(2026, 9, 1, 8, 0, 0) * 1000)
+      expect((await post('/mark-all-as-read', { s: READING_LIST, ts })).body).toBe('OK')
+      expect(state(unread).seen_at).not.toBeNull()
+      expect(state(starred).seen_at).toBeNull()
+    })
+  })
+
+  describe('item fields', () => {
+    it('omits author (no article author is stored) instead of using the feed name', async () => {
+      const { unread } = seed()
+      const [item] = await items([unread])
+      expect(item).not.toHaveProperty('author')
+      expect(JSON.stringify(item)).toContain('"title":"Feed Name"') // origin.title still names the feed
+    })
+
+    it('lists reading-list, read, starred and the feed label in categories', async () => {
+      const { unread, read, starred, cat } = seed()
+      const byId = new Map((await items([unread, read, starred])).map((i) => [decodeItemId(i.id as string), i.categories]))
+      expect(byId.get(unread)).toEqual([READING_LIST, `user/-/label/${cat.name}`])
+      expect(byId.get(read)).toEqual([READING_LIST, READ, `user/-/label/${cat.name}`])
+      expect(byId.get(starred)).toEqual([READING_LIST, STARRED])
+    })
+
+    it('keeps the Google-era summary.direction and alternate[].type keys', async () => {
+      const { unread } = seed()
+      const [item] = await items([unread])
+      expect(item.summary).toEqual(expect.objectContaining({ direction: 'ltr' }))
+      expect(item.alternate).toEqual([expect.objectContaining({ type: 'text/html' })])
+    })
+  })
+
+  describe('edit-tag', () => {
+    it('applies repeated a= values in one request', async () => {
+      const { unread } = seed()
+      const res = await post('/edit-tag', { i: String(unread), a: [READ, STARRED] })
+      expect(res.statusCode).toBe(200)
+      expect(res.headers['content-type']).toMatch(/^text\/plain/)
+      expect(res.body).toBe('OK')
+      expect(state(unread).seen_at).not.toBeNull()
+      expect(state(unread).liked_at).not.toBeNull()
+    })
+
+    it('applies repeated r= values in one request', async () => {
+      const { read, starred } = seed()
+      expect((await post('/edit-tag', { i: [String(read), String(starred)], r: [READ, STARRED] })).body).toBe('OK')
+      expect(state(read)).toEqual({ seen_at: null, liked_at: null })
+      expect(state(starred)).toEqual({ seen_at: null, liked_at: null })
+    })
+
+    it('marks unread with a=kept-unread', async () => {
+      const { read } = seed()
+      expect((await post('/edit-tag', { i: String(read), a: KEPT_UNREAD })).body).toBe('OK')
+      expect(state(read).seen_at).toBeNull()
+    })
+
+    it('ignores a user label and the reading-list state, still answering OK', async () => {
+      const { unread } = seed()
+      expect((await post('/edit-tag', { i: String(unread), a: ['user/-/label/Later', READING_LIST] })).body).toBe('OK')
+      expect(state(unread)).toEqual({ seen_at: null, liked_at: null })
+    })
+
+    it('decodes a zero-padded all-digit ID as hex', async () => {
+      const { unread, read } = seed()
+      getDb().prepare('UPDATE articles SET id = ? WHERE id = ?').run(16, unread)
+      getDb().prepare('UPDATE articles SET id = ? WHERE id = ?').run(10, read)
+      expect((await post('/edit-tag', { i: '0000000000000010', a: STARRED })).body).toBe('OK')
+      expect(state(16).liked_at).not.toBeNull()
+      expect(state(10).liked_at).toBeNull()
+    })
+  })
+
+  describe('mark-all-as-read', () => {
+    it('ts excludes an article that arrived later', async () => {
+      const { unread, starred, feed } = seed()
+      const later = insertArticle({ feed_id: feed.id, title: 'Later', url: 'https://example.com/later', published_at: '2001-01-01T00:00:00Z' })
+      getDb().prepare('UPDATE articles SET created_at = ? WHERE id = ?').run('2026-10-02 00:00:00', later)
+      const ts = String(Date.UTC(2026, 9, 1, 9) * 1000 + 999_999)
+      expect((await post('/mark-all-as-read', { s: READING_LIST, ts })).body).toBe('OK')
+      expect(state(unread).seen_at).not.toBeNull()
+      expect(state(starred).seen_at).not.toBeNull()
+      expect(state(later).seen_at).toBeNull()
+    })
+
+    it.each<{ label: string; form: Record<string, string> }>([
+      { label: 'absent', form: {} },
+      { label: '0', form: { ts: '0' } },
+    ])('ts $label means now', async ({ form }) => {
+      const { unread, starred } = seed()
+      expect((await post('/mark-all-as-read', { s: READING_LIST, ...form })).body).toBe('OK')
+      expect(state(unread).seen_at).not.toBeNull()
+      expect(state(starred).seen_at).not.toBeNull()
+    })
+
+    it.each(['abc', '-1', '1.5', '1e6'])('answers 400 Bad Request! for ts=%j', async (ts) => {
+      const { unread } = seed()
+      const res = await post('/mark-all-as-read', { s: READING_LIST, ts })
+      expect(res.statusCode).toBe(400)
+      expect(res.headers['content-type']).toMatch(/^text\/plain/)
+      expect(res.body).toBe('Bad Request!')
+      expect(state(unread).seen_at).toBeNull()
+    })
+
+    it.each([
+      { label: 'empty', s: '' },
+      { label: 'unknown state', s: 'user/-/state/com.google/broadcast' },
+      { label: 'garbage', s: 'nonsense' },
+      { label: 'unknown label', s: 'user/-/label/Nope' },
+    ])('answers 400 Bad Request! for an $label stream', async ({ s }) => {
+      const { unread } = seed()
+      const res = await post('/mark-all-as-read', { s })
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toBe('Bad Request!')
+      expect(state(unread).seen_at).toBeNull()
+    })
+
+    it('marks only starred items for the starred stream', async () => {
+      const { unread, starred } = seed()
+      expect((await post('/mark-all-as-read', { s: STARRED })).body).toBe('OK')
+      expect(state(starred).seen_at).not.toBeNull()
+      expect(state(unread).seen_at).toBeNull()
+    })
+
+    it('marks a feed by URL or numeric ID, and a label', async () => {
+      const { unread, starred, other, cat } = seed()
+      expect((await post('/mark-all-as-read', { s: `feed/${other.id}` })).body).toBe('OK')
+      expect(state(starred).seen_at).not.toBeNull()
+      expect(state(unread).seen_at).toBeNull()
+      expect((await post('/mark-all-as-read', { s: `user/-/label/${cat.name}` })).body).toBe('OK')
+      expect(state(unread).seen_at).not.toBeNull()
+    })
+  })
+
+  describe('state streams and filters', () => {
+    it('serves the read and unread streams on stream/items/ids and stream/contents', async () => {
+      const { unread, read, starred } = seed()
+      expect(await refIds(`s=${enc(READ)}`)).toEqual([read])
+      expect(await refIds(`s=${enc(UNREAD)}`)).toEqual([starred, unread])
+      expect(await contentIds(`s=${enc(READ)}`)).toEqual([read])
+      expect(await contentIds(`s=${enc(UNREAD)}`)).toEqual([starred, unread])
+      const path = (await get(`/stream/contents/${READ}`)).json().items as { id: string }[]
+      expect(path.map((i) => decodeItemId(i.id))).toEqual([read])
+    })
+
+    it('honours it=starred, it=read and it=unread on both endpoints', async () => {
+      const { unread, read, starred } = seed()
+      expect(await refIds(`s=${enc(READING_LIST)}&it=${enc(STARRED)}`)).toEqual([starred])
+      expect(await contentIds(`s=${enc(READING_LIST)}&it=${enc(STARRED)}`)).toEqual([starred])
+      expect(await refIds(`it=${enc(READ)}`)).toEqual([read])
+      expect(await contentIds(`it=${enc(UNREAD)}`)).toEqual([starred, unread])
+    })
+
+    it('combines it= with xt=, and ignores it/xt values that are not one of the three states', async () => {
+      const { unread, read, starred } = seed()
+      expect(await refIds(`it=${enc(UNREAD)}&xt=${enc(STARRED)}`)).toEqual([unread])
+      expect(await refIds(`xt=${enc(READ)}`)).toEqual([starred, unread])
+      expect(await refIds(`it=${enc(READING_LIST)}`)).toEqual([starred, read, unread])
+      expect(await refIds(`xt=${enc('feed/https://example.com/rss')}`)).toEqual([starred, read, unread])
+      expect(await refIds(`xt=${enc('user/-/state/com.google/reading-list')}`)).toEqual([starred, read, unread])
+    })
+  })
+
+  describe('token', () => {
+    it('is a stable 57-character token followed by a newline', async () => {
+      seedUser()
+      const auth = token()
+      const fetchToken = () => app.inject({ method: 'GET', url: `${API}/token`, headers: { authorization: `GoogleLogin auth=${auth}` } })
+      const first = await fetchToken()
+      expect(first.statusCode).toBe(200)
+      expect(first.body).toMatch(/^[0-9a-f]{40}Z{17}\n$/)
+      expect((await fetchToken()).body).toBe(first.body)
+    })
   })
 })

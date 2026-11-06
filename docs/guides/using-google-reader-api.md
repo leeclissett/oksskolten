@@ -61,6 +61,8 @@ The Google Reader API uses a token-based auth flow:
 
 Streams (`stream/items/ids` and `stream/contents`) list articles by the time they arrived in Oksskolten, newest first, as FreshRSS does. `ot` and `nt` bound that arrival time, `r=o` reverses the order, and `c` continues from the previous page. Ordering by arrival is what lets a reader app find a newly added feed: its backlog arrives now, however old the posts are.
 
+Each item's `crawlTimeMsec` and `timestampUsec` are its arrival time (UTC, whatever the server's time zone) and `published` its publication date. The `user/-/state/com.google/read` and `…/unread` streams, and the `it=`/`xt=` filters for the read, unread and starred states, work on both `stream/items/ids` and `stream/contents`. `mark-all-as-read` honours `ts` (microseconds), so articles that arrived after the client's last sync stay unread. Item IDs follow FreshRSS's decoding rule: an all-digit ID with a leading zero (such as `0000000000001000`) is hex.
+
 In `unread-count`, `newestItemTimestampUsec` is the time a feed's newest article arrived in Oksskolten, not its publication date. This matches FreshRSS, and lets clients that skip unchanged feeds notice a newly added feed whose latest post is older than their last sync.
 
 Each item's `canonical` and `alternate` link is the article's page on the web. Inline feed entries such as email newsletters have no page at their own URL, so the link is the original post when Oksskolten found one, and otherwise the article's page on this server (built from the host the client connected to).
