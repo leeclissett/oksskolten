@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "oksskolten": {
-      "command": "npx",
-      "args": ["tsx", "server/chat/mcp-server.ts"]
-    }
-  }
-}
