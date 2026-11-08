@@ -18,7 +18,6 @@ services:
       FETCH_CONCURRENCY: "5"
       PARSE_MAX_THREADS: "2"
       CRON_SCHEDULE: "*/5 * * * *"
-      MEILI_URL: http://meilisearch:7700
     env_file:
       - path: .env
         required: false
@@ -39,8 +38,6 @@ services:
         condition: service_started
       flaresolverr:
         condition: service_started
-      meilisearch:
-        condition: service_healthy
     networks:
       - internal
 
@@ -63,24 +60,6 @@ services:
     networks:
       - internal
 
-  meilisearch:
-    image: getmeili/meilisearch:v1.13
-    restart: unless-stopped
-    environment:
-      MEILI_DB_PATH: /meili_data
-      MEILI_LOG_LEVEL: WARN
-    volumes:
-      - meili_data:/meili_data
-    ports:
-      - "7700:7700"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks:
-      - internal
-
   rss-bridge:
     image: rssbridge/rss-bridge:latest
     restart: unless-stopped
@@ -100,7 +79,6 @@ services:
       - internal
 
 volumes:
-  meili_data:
   server_node_modules:
   frontend_node_modules:
 
