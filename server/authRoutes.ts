@@ -5,7 +5,6 @@ import { getDb } from './db.js'
 
 const BCRYPT_ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12
 import { requireAuth, requireJson } from './auth.js'
-import { isGitHubOAuthEnabled } from './oauthRoutes.js'
 import { parseOrBadRequest } from './lib/validation.js'
 
 const LoginBody = z.object({
@@ -138,11 +137,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(401).send({ error: 'Current password is incorrect' })
       }
     } else {
-      // Reset mode: require alternative auth method
-      const githubEnabled = isGitHubOAuthEnabled()
-      if (!githubEnabled) {
-        return reply.status(400).send({ error: 'Current password is required' })
-      }
+      return reply.status(400).send({ error: 'Current password is required' })
     }
 
     const newHash = hashSync(body.newPassword, BCRYPT_ROUNDS)
