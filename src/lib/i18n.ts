@@ -461,31 +461,11 @@ const dict = {
   'login.failed': { ja: 'ログインに失敗しました', en: 'Login failed', zh: '登录失败'},
   'login.networkError': { ja: 'ネットワークエラー', en: 'Network error', zh: '网络错误'},
 
-  // Login — passkey
-  'login.passkey': { ja: 'パスキーでログイン', en: 'Sign in with passkey', zh: '使用通行密钥登录'},
-  'login.or': { ja: 'または', en: 'or', zh: '或'},
-  'login.passkeyError': { ja: 'パスキー認証に失敗しました', en: 'Passkey authentication failed', zh: '通行密钥认证失败'},
-  'login.github': { ja: 'GitHubでログイン', en: 'Sign in with GitHub', zh: '使用 GitHub 登录'},
-  'login.githubError': { ja: 'GitHub認証に失敗しました', en: 'GitHub authentication failed', zh: 'GitHub 认证失败'},
-
   // Settings — security
   'settings.security': { ja: 'セキュリティ', en: 'Security', zh: '安全'},
   'settings.edit': { ja: '変更', en: 'Edit', zh: '编辑'},
   'settings.accountCredentials': { ja: 'アカウント情報', en: 'Account credentials', zh: '账户凭据'},
   'settings.password': { ja: 'パスワード', en: 'Password', zh: '密码'},
-  'settings.passwordAuth': { ja: 'パスワード認証', en: 'Password authentication', zh: '密码认证'},
-  'settings.passwordAuthDesc': { ja: 'パスワードによるログインを許可', en: 'Allow login with password', zh: '允许使用密码登录'},
-  'settings.passwordAuthHint': { ja: 'メールアドレスはログイン用のIDとして使っているだけで、メール送信などには一切使われません。パスキーやGitHub連携を設定済みなら、パスワード認証はオフにしておくのがおすすめです。', en: "Your email is only used as a login ID — it's never used to send emails. If you've set up passkeys or GitHub login, we recommend turning password authentication off.", zh: "您的邮箱仅用作登录 ID — 不会用于发送邮件。如果已设置通行密钥或 GitHub 登录，建议关闭密码认证。"},
-  'settings.passkeys': { ja: 'パスキー', en: 'Passkeys', zh: '通行密钥'},
-  'settings.addPasskey': { ja: 'パスキーを追加', en: 'Add passkey', zh: '添加通行密钥'},
-  'settings.deletePasskey': { ja: '削除', en: 'Delete', zh: '删除'},
-  'settings.noPasskeys': { ja: '登録済みのパスキーはありません', en: 'No passkeys registered', zh: '未注册通行密钥'},
-  'settings.cannotDisablePassword': { ja: '他のログイン方法が有効でないため無効にできません', en: 'Cannot disable without an alternative login method', zh: '没有其他登录方式时无法禁用'},
-  'settings.cannotDeleteLastPasskey': { ja: '他のログイン方法が有効でないため、最後のパスキーは削除できません', en: 'Cannot delete the last passkey without an alternative login method', zh: '没有其他登录方式时无法删除最后一个通行密钥'},
-  'settings.multiDevice': { ja: 'マルチデバイス', en: 'Multi-device', zh: '多设备'},
-  'settings.singleDevice': { ja: 'シングルデバイス', en: 'Single-device', zh: '单设备'},
-  'settings.passkeyAdded': { ja: 'パスキーを追加しました', en: 'Passkey added', zh: '通行密钥已添加'},
-  'settings.passkeyDeleted': { ja: 'パスキーを削除しました', en: 'Passkey deleted', zh: '通行密钥已删除'},
 
   // Settings — API tokens
   'settings.apiTokens': { ja: 'APIトークン', en: 'API Tokens', zh: 'API 令牌'},
@@ -528,29 +508,6 @@ const dict = {
   'password.weak': { ja: '弱い', en: 'Weak', zh: '弱'},
   'password.fair': { ja: '普通', en: 'Fair', zh: '一般'},
   'password.strong': { ja: '強い', en: 'Strong', zh: '强'},
-
-  // Settings — GitHub OAuth
-  'settings.githubOauth': { ja: 'GitHub OAuth', en: 'GitHub OAuth', zh: 'GitHub OAuth'},
-  'settings.githubOauthDesc': { ja: 'GitHubアカウントによるログインを許可', en: 'Allow login with GitHub account', zh: '允许使用 GitHub 账户登录'},
-  'settings.githubClientId': { ja: 'Client ID', en: 'Client ID', zh: 'Client ID'},
-  'settings.githubClientSecret': { ja: 'Client Secret', en: 'Client Secret', zh: 'Client Secret'},
-  'settings.githubAllowedUsers': { ja: '許可ユーザー', en: 'Allowed users', zh: '允许的用户'},
-  'settings.githubAllowedUsersDesc': {
-    ja: 'GitHub OAuthは本来誰でもログインできる仕組みのため、このアプリでは許可するユーザーを明示的に制限しています。\n\n空欄の場合はOAuth Appを作成したオーナーのみがログインできます。他のユーザーにも許可する場合はGitHubユーザー名をカンマ区切りで入力してください。',
-    en: 'GitHub OAuth normally allows anyone to log in, so this app explicitly restricts access.\n\nIf empty, only the owner who created the OAuth App can log in. To allow others, enter their GitHub usernames separated by commas.',
-    zh: 'GitHub OAuth 通常允许任何人登录，因此此应用明确限制访问。\n\n如果为空，只有创建 OAuth 应用的所有者可以登录。要允许其他人登录，请输入他们的 GitHub 用户名，用逗号分隔。'
-  },
-  'settings.githubAllowedUsersPlaceholder': { ja: '空欄 = Appオーナーのみ', en: 'Empty = App owner only', zh: '留空 = 仅应用所有者'},
-  'settings.githubCallbackUrl': { ja: 'Callback URL', en: 'Callback URL', zh: 'Callback URL'},
-  'settings.githubGuideTitle': { ja: 'セットアップガイド', en: 'Setup guide', zh: '设置指南'},
-  'settings.githubGuideStep1': { ja: 'を開き、OAuth Apps → New OAuth App をクリック', en: ', then click OAuth Apps → New OAuth App', zh: '，然后点击 OAuth Apps → New OAuth App'},
-  'settings.githubGuideStep2': { ja: '以下を入力して Register application をクリック:', en: 'Fill in the following and click Register application:', zh: '填写以下信息并点击 Register application：'},
-  'settings.githubGuideAppName': { ja: '任意の名前', en: 'Any name', zh: '任意名称'},
-  'settings.githubGuideStep3': { ja: '作成後に表示される Client ID と Client Secret を下のフォームに貼り付けて保存', en: 'Copy the Client ID and Client Secret shown after creation, paste them below, and save', zh: '复制创建后显示的 Client ID 和 Client Secret，粘贴到下方并保存'},
-  'settings.githubSave': { ja: '保存', en: 'Save', zh: '保存'},
-  'settings.githubSaved': { ja: 'GitHub OAuth設定を保存しました', en: 'GitHub OAuth settings saved', zh: 'GitHub OAuth 设置已保存'},
-  'settings.githubNotConfigured': { ja: 'Client IDとClient Secretを設定してください', en: 'Set Client ID and Client Secret first', zh: '请先设置 Client ID 和 Client Secret'},
-  'settings.cannotDisableGithub': { ja: '他のログイン方法が有効でないため無効にできません', en: 'Cannot disable without an alternative login method', zh: '没有其他登录方式时无法禁用'},
 
   // Logout
   'sidebar.logout': { ja: 'ログアウト', en: 'Log out', zh: '退出登录'},

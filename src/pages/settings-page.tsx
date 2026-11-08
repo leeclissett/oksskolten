@@ -4,8 +4,6 @@ import { Construction, ExternalLink } from 'lucide-react'
 import useSWR from 'swr'
 import { useI18n, APP_NAME } from '../lib/i18n'
 import { PasswordSettings } from '../components/settings/password-settings'
-import { PasskeySettings } from '../components/settings/passkey-settings'
-import { GitHubOAuthSettings } from '../components/settings/github-oauth-settings'
 import { ApiTokenSettings } from '../components/settings/api-token-settings'
 import { GReaderSettings } from '../components/settings/greader-settings'
 import { ImageStorageSettings } from '../components/settings/image-storage-settings'
@@ -91,10 +89,6 @@ export function SettingsPage() {
           {tab === 'security' && (
             <>
               <PasswordSettings />
-              <Separator />
-              <PasskeySettings />
-              <Separator />
-              <GitHubOAuthSettings />
               <Separator />
               <ApiTokenSettings />
               <Separator />

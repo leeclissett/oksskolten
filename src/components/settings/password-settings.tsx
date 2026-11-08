@@ -1,22 +1,15 @@
 import { useState } from 'react'
 import useSWR from 'swr'
-import { AlertTriangle, Check, Pencil } from 'lucide-react'
+import { Check, Pencil } from 'lucide-react'
 import { Input } from '../ui/input'
 import { FormField } from '../ui/form-field'
 import { PasswordStrength } from '../ui/password-strength'
 import { useI18n } from '../../lib/i18n'
-import { fetcher, apiPost } from '../../lib/fetcher'
+import { apiPost } from '../../lib/fetcher'
 import { getAuthToken, setAuthToken } from '../../lib/auth'
-
-interface AuthMethods {
-  password: { enabled: boolean }
-  passkey: { enabled: boolean; count: number }
-  github?: { enabled: boolean }
-}
 
 export function PasswordSettings() {
   const { t } = useI18n()
-  const [toggling, setToggling] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -33,20 +26,10 @@ export function PasswordSettings() {
   const [editingEmail, setEditingEmail] = useState(false)
   const [editingPassword, setEditingPassword] = useState(false)
 
-  const { data: methods, mutate: mutateMethods } = useSWR<AuthMethods>('/api/auth/methods', fetcher)
   const { data: me, mutate: mutateMe } = useSWR<{ email: string }>('/api/me', (url: string) => {
     const token = getAuthToken()
     return fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }).then(r => r.ok ? r.json() : Promise.reject())
   })
-
-  const passwordEnabled = methods?.password?.enabled !== false
-  const passkeyCount = methods?.passkey?.count ?? 0
-  const githubEnabled = methods?.github?.enabled === true
-  const canDisablePassword = passkeyCount > 0 || githubEnabled
-  const hasAlternativeAuth = passkeyCount > 0 || githubEnabled
-  const currentPasswordRequired = !hasAlternativeAuth
-
-  if (!methods) return null
 
   function showMessage(msg: string, type: 'error' | 'success') {
     if (type === 'error') {
@@ -72,26 +55,6 @@ export function PasswordSettings() {
     setConfirmPassword('')
   }
 
-  async function handleTogglePassword() {
-    if (toggling) return
-    const newEnabled = !passwordEnabled
-
-    if (!newEnabled && !canDisablePassword) {
-      showMessage(t('settings.cannotDisablePassword'), 'error')
-      return
-    }
-
-    setToggling(true)
-    try {
-      await apiPost('/api/auth/password/toggle', { enabled: newEnabled })
-      void mutateMethods()
-    } catch (err: unknown) {
-      showMessage(err instanceof Error ? err.message : t('settings.cannotDisablePassword'), 'error')
-    } finally {
-      setToggling(false)
-    }
-  }
-
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault()
     if (submitting) return
@@ -107,11 +70,7 @@ export function PasswordSettings() {
 
     setSubmitting(true)
     try {
-      const payload: { newPassword: string; currentPassword?: string } = { newPassword }
-      if (currentPassword) {
-        payload.currentPassword = currentPassword
-      }
-      const res = await apiPost('/api/auth/password/change', payload) as { ok: boolean; token: string }
+      const res = await apiPost('/api/auth/password/change', { currentPassword, newPassword }) as { ok: boolean; token: string }
       setAuthToken(res.token)
       cancelPasswordEdit()
       showMessage(t('settings.passwordChanged'), 'success')
@@ -150,42 +109,6 @@ export function PasswordSettings() {
 
   return (
     <>
-      {/* Password auth toggle */}
-      <section>
-        <h2 className="text-base font-semibold text-text mb-4">{t('settings.passwordAuth')}</h2>
-        <p className="text-xs text-muted mb-1">{t('settings.passwordAuthDesc')}</p>
-        <p className="text-xs text-muted mb-3">{t('settings.passwordAuthHint')}</p>
-
-        <label className="flex items-center gap-3 cursor-pointer">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={passwordEnabled}
-            onClick={handleTogglePassword}
-            disabled={toggling || (passwordEnabled && !canDisablePassword)}
-            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors ${
-              passwordEnabled ? 'bg-accent' : 'bg-border'
-            } disabled:opacity-50`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                passwordEnabled ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
-          <span className="text-sm text-text select-none">
-            {passwordEnabled ? 'On' : 'Off'}
-          </span>
-        </label>
-
-        {passwordEnabled && !canDisablePassword && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-            <AlertTriangle size={13} />
-            {t('settings.cannotDisablePassword')}
-          </p>
-        )}
-      </section>
-
       {/* Account credentials */}
       <section>
         <h2 className="text-base font-semibold text-text mb-4">{t('settings.accountCredentials')}</h2>
@@ -198,7 +121,7 @@ export function PasswordSettings() {
                 <p className="text-xs text-muted select-none">{t('settings.currentEmail')}</p>
                 <p className="text-sm text-text truncate">{me?.email ?? '...'}</p>
               </div>
-              {passwordEnabled && !editingEmail && (
+              {!editingEmail && (
                 <button
                   type="button"
                   onClick={() => setEditingEmail(true)}
@@ -256,7 +179,7 @@ export function PasswordSettings() {
                 <p className="text-xs text-muted select-none">{t('settings.password')}</p>
                 <p className="text-sm text-text tracking-widest">{'••••••••'}</p>
               </div>
-              {passwordEnabled && !editingPassword && (
+              {!editingPassword && (
                 <button
                   type="button"
                   onClick={() => setEditingPassword(true)}
@@ -270,18 +193,16 @@ export function PasswordSettings() {
 
             {editingPassword && (
               <form onSubmit={handleChangePassword} className="border-t border-border px-4 py-3 space-y-3">
-                {currentPasswordRequired && (
-                  <FormField label={t('settings.currentPassword')} compact>
-                    <Input
-                      type="password"
-                      autoComplete="current-password"
-                      value={currentPassword}
-                      onChange={e => setCurrentPassword(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </FormField>
-                )}
+                <FormField label={t('settings.currentPassword')} compact>
+                  <Input
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={e => setCurrentPassword(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </FormField>
                 <FormField label={t('settings.newPassword')} compact>
                   <Input
                     type="password"
@@ -289,7 +210,6 @@ export function PasswordSettings() {
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
                     required
-                    autoFocus={!currentPasswordRequired}
                   />
                   <PasswordStrength password={newPassword} />
                 </FormField>

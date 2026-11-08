@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { getDb, createCategory, createFeed, getCategories, insertArticle, upsertSetting } from '../db.js'
+import { getDb, createCategory, createFeed, getCategories, insertArticle } from '../db.js'
 import { hashSync } from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
 import { clientLoginAttempts } from '../lib/login-attempts.js'
@@ -1984,12 +1984,6 @@ describe.each([
     it('ClientLogin with an unknown email', async () => {
       seedUser()
       expectUnauthorized(await login('Email=nobody%40example.com&Passwd=password123'))
-    })
-
-    it('ClientLogin when password login is disabled (passkey-only account)', async () => {
-      seedUser()
-      upsertSetting('auth.password_enabled', '0')
-      expectUnauthorized(await login('Email=test%40example.com&Passwd=password123'))
     })
 
     it('ClientLogin without Passwd is 400 Bad Request!', async () => {
