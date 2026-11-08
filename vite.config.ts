@@ -126,8 +126,7 @@ export default defineConfig(({ mode }) => {
                 && url.pathname !== '/api/me'
                 && url.pathname !== '/api/login'
                 && url.pathname !== '/api/logout'
-                && !url.pathname.startsWith('/api/auth/')
-                && !url.pathname.startsWith('/api/oauth/'),
+                && !url.pathname.startsWith('/api/auth/'),
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'api',
