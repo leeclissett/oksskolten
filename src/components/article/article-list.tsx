@@ -31,7 +31,6 @@ interface ArticlesResponse {
   articles: ArticleListItem[]
   total: number
   has_more: boolean
-  total_without_floor?: number
   total_all?: number
 }
 
@@ -71,7 +70,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const readOnly = isHistory
   const { autoMarkRead, dateMode, indicatorStyle, layout, articleOpenMode, keyboardNavigation, keybindings } = settings
   const [overlayUrl, setOverlayUrl] = useState<string | null>(null)
-  const [noFloor, setNoFloor] = useState(false)
   const displayConfig: ArticleDisplayConfig = useMemo(() => ({
     dateMode,
     indicatorStyle,
@@ -90,7 +88,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     if (bookmarkedOnly) params.set('bookmarked', '1')
     if (likedOnly) params.set('liked', '1')
     if (readOnly) params.set('read', '1')
-    if (noFloor) params.set('no_floor', '1')
     params.set('limit', String(PAGE_SIZE))
     params.set('offset', String(pageIndex * PAGE_SIZE))
     return `/api/articles?${params.toString()}`
@@ -113,9 +110,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isEmpty = data?.[0]?.articles.length === 0
   const totalAll = data?.[0]?.total_all
   const allReadEmpty = isEmpty && categoryUnreadOnly && !showReadArticles && totalAll != null && totalAll > 0
-  const hiddenByFloor = data?.[0]?.total_without_floor != null
-    ? data[0].total_without_floor - (data[0].total ?? 0)
-    : 0
 
   // ---------------------------------------------------------------------------
   // Keyboard navigation
@@ -397,10 +391,9 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     }
   }, [feedId, categoryId, flushBatch])
 
-  // Reset autoReadIds, noFloor, showReadArticles, and keyboard focus when feed/category changes
+  // Reset autoReadIds, showReadArticles, and keyboard focus when feed/category changes
   useEffect(() => {
     setAutoReadIds(new Set())
-    setNoFloor(false)
     setShowReadArticles(false)
     setFocusedItemId(null)
   }, [feedId, categoryId, setFocusedItemId])
@@ -524,17 +517,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
       {hasMore && (
         <div ref={sentinelCallbackRef} className="py-4">
           {isValidating && <ArticleListSkeleton layout={layout} count={2} showThumbnails={displayConfig.showThumbnails} />}
-        </div>
-      )}
-
-      {!hasMore && hiddenByFloor > 0 && (
-        <div className="text-center py-6">
-          <button
-            onClick={() => setNoFloor(true)}
-            className="text-accent text-sm hover:underline"
-          >
-            {t('articles.showOlder', { count: String(hiddenByFloor) })}
-          </button>
         </div>
       )}
 

@@ -18,7 +18,6 @@ import { Skeleton } from '../ui/skeleton'
 import { ArticleZapNavigation } from './article-zap-navigation'
 import { ArticleToolbar } from './article-toolbar'
 import { ArticleContentBody } from './article-content-body'
-import { ArticleSimilarBanner } from './article-similar-banner'
 import type { ArticleDetail as ArticleDetailData } from '../../../shared/types'
 
 interface ArticleDetailProps {
@@ -170,11 +169,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         onArchiveImages={handleArchiveImages}
         onDelete={() => setDeleteConfirmOpen(true)}
       />
-
-      {/* Similar articles */}
-      {article.similar_count != null && article.similar_count > 0 && (
-        <ArticleSimilarBanner articleId={article.id} similarCount={article.similar_count} />
-      )}
 
       {/* Content */}
       <ArticleContentBody

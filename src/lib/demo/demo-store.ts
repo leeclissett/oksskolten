@@ -390,42 +390,6 @@ export const demoStore = {
     return { success: true }
   },
 
-  searchArticles(params: {
-    q: string
-    bookmarked?: boolean
-    liked?: boolean
-    unread?: boolean
-    since?: string
-    limit?: number
-  }) {
-    const query = params.q.toLowerCase()
-    let result = articles.filter(a => {
-      const title = a.title.toLowerCase()
-      const feed = feedName(a.feed_id).toLowerCase()
-      const text = (a.full_text ?? '').toLowerCase()
-      return title.includes(query) || feed.includes(query) || text.includes(query)
-    })
-
-    if (params.bookmarked) result = result.filter(a => a.bookmarked_at != null)
-    if (params.liked) result = result.filter(a => a.liked_at != null)
-    if (params.unread) result = result.filter(a => a.seen_at == null)
-    if (params.since) {
-      const since = new Date(params.since).getTime()
-      result = result.filter(a => a.published_at && new Date(a.published_at).getTime() >= since)
-    }
-
-    const limit = params.limit ?? 20
-    return {
-      articles: result.slice(0, limit).map(a => ({
-        id: a.id,
-        title: a.title,
-        url: a.url,
-        feed_name: feedName(a.feed_id),
-        published_at: a.published_at,
-      })),
-    }
-  },
-
   /** Get average full_text length for a feed's articles. */
   getFeedAvgContentLength(feedId: number): number | null {
     const feedArticles = articles.filter(a => a.feed_id === feedId && a.full_text)

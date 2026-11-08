@@ -124,7 +124,6 @@ const dict = {
   'hint.likes': { ja: 'いいねした記事がここに。検索やレコメンドのスコアリングにも反映されます。', en: 'Articles you\'ve liked live here. Likes also boost search and recommendation scoring.', zh: '您点赞的文章在这里。点赞也会提升搜索和推荐评分。' },
   'hint.clips': { ja: 'フィードを追跡するほどじゃない相手の記事を、URL指定で個別に保存できます。', en: 'Save individual articles by URL — perfect for sources you don\'t need a full feed for.', zh: '通过 URL 保存单篇文章 — 适合不需要完整订阅的来源。' },
   'hint.history': { ja: '記事を開いて読んだ履歴。「スクロールで自動既読」で流れたものは含まず、実際に開いた記事だけが残ります。', en: 'Articles you actually opened and read. Items swept away by "Auto-Mark As Read On Scroll" aren\'t included — only articles you tapped into.', zh: '您实际打开并阅读的文章。「滚动时自动标为已读」跳过的不包括在内 — 只有您点进去看的文章。' },
-  'articles.showOlder': { ja: 'もっと読む（${count}件）', en: 'Show older articles (${count})', zh: '显示更早的文章（${count}）'},
   'articles.allCaughtUp': { ja: '全部読んだよ！', en: "You're all caught up!", zh: "全部读完了！"},
 
   // ArticleDetail
@@ -132,9 +131,6 @@ const dict = {
   'article.sourceArticle': { ja: '元記事', en: 'Source Article', zh: '原文链接'},
   'article.notFound': { ja: '記事が見つかりませんでした', en: 'Article not found', zh: '文章未找到'},
   'article.rawMarkdown': { ja: 'マークダウン表示', en: 'Raw Markdown', zh: 'Markdown 原文'},
-  'article.similarAlreadyRead': { ja: 'この記事は ${feedNames} にもあり、既に読んでいます', en: 'You already read this story from ${feedNames}', zh: '您已经从 ${feedNames} 读过这篇文章'},
-  'article.similarCoveredBy': { ja: 'この記事は ${feedNames} にもあります', en: 'This story was also covered by ${feedNames}', zh: '这篇文章也被 ${feedNames} 报道过'},
-  'article.similarShowSources': { ja: '${count} 件の類似記事を表示', en: 'Show ${count} similar sources', zh: '显示 ${count} 个相似来源'},
   'article.archiveImages': { ja: '画像を保存', en: 'Save Images', zh: '保存图片'},
   'article.imagesArchived': { ja: '画像保存済み', en: 'Images Saved', zh: '图片已保存'},
   'article.archivingImages': { ja: '画像を保存中...', en: 'Saving images...', zh: '正在保存图片...'},
@@ -554,31 +550,6 @@ const dict = {
 
   // Logout
   'sidebar.logout': { ja: 'ログアウト', en: 'Log out', zh: '退出登录'},
-
-  // Command Palette
-  'command.navigation': { ja: 'ナビゲーション', en: 'Navigation', zh: '导航'},
-  'command.actions': { ja: 'アクション', en: 'Actions', zh: '操作'},
-  'command.feeds': { ja: 'フィード', en: 'Feeds', zh: '订阅源'},
-  'command.appearance': { ja: '外観', en: 'Appearance', zh: '外观'},
-  'command.placeholder': { ja: 'コマンドを入力...', en: 'Type a command or search...', zh: '输入命令或搜索...'},
-  'command.noResults': { ja: '結果が見つかりません', en: 'No results found.', zh: '未找到结果。'},
-  'command.searchArticles': { ja: '記事を検索', en: 'Search articles', zh: '搜索文章'},
-  'command.addFeed': { ja: 'フィードを追加', en: 'Add new feed', zh: '添加新订阅源'},
-  'command.importOpml': { ja: 'OPML インポート', en: 'Import OPML', zh: '导入 OPML'},
-  'command.exportOpml': { ja: 'OPML エクスポート', en: 'Export OPML', zh: '导出 OPML'},
-
-  // Search
-  'search.title': { ja: '検索', en: 'Search', zh: '搜索'},
-  'search.placeholder': { ja: '記事を検索...', en: 'Search articles...', zh: '搜索文章...'},
-  'search.noResults': { ja: '一致する記事がありません', en: 'No matching articles', zh: '没有匹配的文章'},
-  'search.indexBuilding': { ja: '検索インデックスを構築中です…', en: 'Building search index…', zh: '正在构建搜索索引…'},
-  'search.hint': { ja: '↑↓ 移動 · Enter 開く · Esc 閉じる', en: '↑↓ navigate · Enter open · Esc close', zh: '↑↓ 导航 · Enter 打开 · Esc 关闭'},
-  'search.filterBookmarked': { ja: 'あとで読む', en: 'Read Later', zh: '稍后阅读'},
-  'search.filterLiked': { ja: 'いいね', en: 'Liked', zh: '已点赞'},
-  'search.filterUnread': { ja: '未読', en: 'Unread', zh: '未读'},
-  'search.period.today': { ja: '今日', en: 'Today', zh: '今天'},
-  'search.period.week': { ja: '1週間', en: 'Week', zh: '周'},
-  'search.period.month': { ja: '1ヶ月', en: 'Month', zh: '月'},
 
   // About
   'settings.about': { ja: 'About', en: 'About', zh: '关于'},
