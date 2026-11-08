@@ -87,19 +87,6 @@ export function getOrigin(request: HeadersLike): string {
   return `${proto}://${host}`
 }
 
-export function getRpID(request: HeadersLike): string {
-  const origin = request.headers['origin'] as string | undefined
-  if (origin) {
-    try { return new URL(origin).hostname } catch { /* fall through */ }
-  }
-  const referer = request.headers['referer'] as string | undefined
-  if (referer) {
-    try { return new URL(referer).hostname } catch { /* fall through */ }
-  }
-  const host = (request.headers['host'] as string) || 'localhost'
-  return host.split(':')[0]
-}
-
 export function getCredentialCount(): number {
   const db = getDb()
   const row = db.prepare('SELECT COUNT(*) AS cnt FROM credentials').get() as { cnt: number }

@@ -197,6 +197,21 @@ function loginAndGetToken(email = 'test@example.com', password = 'password123') 
   }).then(res => res.json().token as string)
 }
 
+describe('GET /api/auth/methods', () => {
+  it('returns setup_required true when no users exist', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/auth/methods' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ setup_required: true })
+  })
+
+  it('returns setup_required false when users exist', async () => {
+    seedUser()
+    const res = await app.inject({ method: 'GET', url: '/api/auth/methods' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ setup_required: false })
+  })
+})
+
 describe('POST /api/auth/setup', () => {
   it('creates account when no users exist', async () => {
     const res = await app.inject({
@@ -376,26 +391,6 @@ describe('POST /api/auth/password/change', () => {
     })
     expect(loginRes.statusCode).toBe(200)
     expect(loginRes.json().ok).toBe(true)
-  })
-
-  it('allows reset without currentPassword when passkey is registered', async () => {
-    seedUser()
-    const token = await loginAndGetToken()
-
-    // Insert a fake passkey credential
-    const db = getDb()
-    db.prepare(
-      "INSERT INTO credentials (credential_id, public_key, counter, device_type, backed_up, transports) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run('fake-cred-id', Buffer.from('fake'), 0, 'multiDevice', 1, '[]')
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/password/change',
-      headers: { ...json, authorization: `Bearer ${token}` },
-      payload: { newPassword: 'newpass123' },
-    })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().ok).toBe(true)
   })
 
   it('returns 400 without currentPassword when no alternative auth', async () => {

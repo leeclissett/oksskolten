@@ -35,7 +35,7 @@ import { z } from 'zod'
 import { compareSync } from 'bcryptjs'
 import { marked } from 'marked'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { allNamed, getDb, getSetting } from '../db.js'
+import { allNamed, getDb } from '../db.js'
 import { deleteFeed, getFeeds, updateFeed } from '../db/feeds.js'
 import { createCategory, deleteCategory, getCategories, updateCategory } from '../db/categories.js'
 import type { Category, Feed } from '../db/types.js'
@@ -605,13 +605,6 @@ export async function greaderRoutes(app: FastifyInstance): Promise<void> {
   // FreshRSS's clientLogin(): missing fields → 400 Bad Request!; unknown
   // account or wrong password → 401 Unauthorized! (+ Google-Bad-Token).
   async function clientLogin(request: FastifyRequest, reply: FastifyReply) {
-    if (getSetting('auth.password_enabled') === '0') {
-      // Passkey-only account: FreshRSS has no equivalent, so the client sees
-      // an ordinary bad login; the log says why.
-      log.warn('GReader ClientLogin refused: password authentication is disabled (passkey-only account)')
-      return unauthorized(reply)
-    }
-
     const query = pickCredentials(request.query)
     if (query.Email !== undefined || query.Passwd !== undefined) {
       log.warn(

@@ -19,7 +19,6 @@ const log = logger
 import { getDb } from './db/connection.js'
 import { registerApi } from './api.js'
 import { authRoutes } from './authRoutes.js'
-import { passkeyRoutes } from './passkeyRoutes.js'
 import { oauthRoutes } from './oauthRoutes.js'
 import { greaderRoutes } from './routes/greader.js'
 import { fetchAllFeeds } from './fetcher.js'
@@ -153,7 +152,6 @@ app.get('/api/health', async (_req, reply) => {
 
 // Public auth routes (outside requireAuth)
 app.register(authRoutes)
-app.register(passkeyRoutes)
 app.register(oauthRoutes)
 app.register(greaderRoutes)
 

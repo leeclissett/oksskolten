@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { compareSync, hashSync } from 'bcryptjs'
-import { getDb, getSetting } from './db.js'
+import { getDb } from './db.js'
 
 const BCRYPT_ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12
 import { requireAuth, requireJson } from './auth.js'
@@ -39,11 +39,6 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     if (process.env.AUTH_DISABLED === '1') {
       return reply.send({ ok: true })
-    }
-
-    // Check if password auth is disabled (passkey-only mode)
-    if (getSetting('auth.password_enabled') === '0') {
-      return reply.status(403).send({ error: 'Password authentication is disabled' })
     }
 
     const body = parseOrBadRequest(LoginBody, request.body, reply)
@@ -88,6 +83,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     } catch {
       reply.status(401).send({ error: 'Unauthorized' })
     }
+  })
+
+  // GET /api/auth/methods — public; the login page uses it to show setup
+  app.get('/api/auth/methods', async (_request, reply) => {
+    const db = getDb()
+    const userCount = (db.prepare('SELECT COUNT(*) AS cnt FROM users').get() as { cnt: number }).cnt
+    reply.send({ setup_required: userCount === 0 })
   })
 
   app.post('/api/auth/setup', {
@@ -137,9 +139,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
     } else {
       // Reset mode: require alternative auth method
-      const passkeyCount = (db.prepare('SELECT COUNT(*) AS cnt FROM credentials').get() as { cnt: number }).cnt
       const githubEnabled = isGitHubOAuthEnabled()
-      if (passkeyCount === 0 && !githubEnabled) {
+      if (!githubEnabled) {
         return reply.status(400).send({ error: 'Current password is required' })
       }
     }
