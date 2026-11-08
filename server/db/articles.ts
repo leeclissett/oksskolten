@@ -1,8 +1,6 @@
 import { getDb, runNamed, getNamed, allNamed } from './connection.js'
 import type { Article, ArticleListItem, ArticleDetail } from './types.js'
 import { isInlineEntryUrl } from '../../shared/url.js'
-import type { MeiliArticleDoc } from '../search/client.js'
-import { syncArticleToSearch, deleteArticleFromSearch, deleteArticlesFromSearch, syncArticleScoreToSearch, syncArticleFiltersToSearch } from '../search/sync.js'
 import { RETRY_MAX_ATTEMPTS, RETRY_BATCH_LIMIT } from '../fetcher/util.js'
 import { deleteArticleImages } from '../fetcher/article-images.js'
 import { logger } from '../logger.js'
@@ -14,79 +12,6 @@ export function normalizeUrl(raw: string): string {
   try { return new URL(raw).href } catch { return raw }
 }
 
-function buildMeiliDoc(id: number): MeiliArticleDoc | null {
-  const row = getDb().prepare(`
-    SELECT id, feed_id, category_id, title,
-           COALESCE(title_translated, '') AS title_translated,
-           COALESCE(full_text, '') AS full_text,
-           COALESCE(full_text_translated, '') AS full_text_translated,
-           lang,
-           COALESCE(CAST(strftime('%s', published_at) AS INTEGER), 0) AS published_at,
-           COALESCE(score, 0) AS score,
-           (seen_at IS NULL) AS is_unread,
-           (liked_at IS NOT NULL) AS is_liked,
-           (bookmarked_at IS NOT NULL) AS is_bookmarked
-    FROM articles WHERE id = ?
-  `).get(id) as MeiliArticleDoc | undefined
-  return row ?? null
-}
-
-// --- Score computation ---
-
-const SCORE_DECAY_FACTOR = 0.05
-const SEARCH_BOOST_FACTOR = 5.0
-
-/**
- * Build the engagement × decay score SQL expression.
- * @param prefix - table alias (e.g. 'a.') for JOIN queries, or '' for single-table UPDATE
- */
-function scoreExpr(prefix: string, opts?: { searchBoost?: boolean }): string {
-  const p = prefix
-  const engagement = `(
-    (CASE WHEN ${p}liked_at IS NOT NULL THEN 10 ELSE 0 END)
-    + (CASE WHEN ${p}bookmarked_at IS NOT NULL THEN 5 ELSE 0 END)
-    + (CASE WHEN ${p}full_text_translated IS NOT NULL THEN 3 ELSE 0 END)
-    + (CASE WHEN ${p}read_at IS NOT NULL THEN 2 ELSE 0 END)
-  )`
-  const decay = `(1.0 / (1.0 + (julianday('now') - julianday(
-    COALESCE(${p}read_at, ${p}published_at, ${p}fetched_at)
-  )) * ${SCORE_DECAY_FACTOR}))`
-  const boost = opts?.searchBoost ? ` * ${SEARCH_BOOST_FACTOR}` : ''
-  return `(${engagement} * ${decay}${boost})`
-}
-
-/** WHERE clause for articles that have engagement or a non-zero score. Shared with search sync. */
-export const SCORED_ARTICLES_WHERE = `(
-  liked_at IS NOT NULL
-  OR bookmarked_at IS NOT NULL
-  OR read_at IS NOT NULL
-  OR full_text_translated IS NOT NULL
-  OR score > 0
-)`
-
-/** Update score in DB and sync to search. Call within a transaction for atomicity. */
-function updateScoreDb(id: number): void {
-  getDb().prepare(`UPDATE articles SET score = (${scoreExpr('')}) WHERE id = ?`).run(id)
-}
-
-function syncScoreToSearch(id: number): void {
-  const row = getDb().prepare('SELECT score FROM articles WHERE id = ?').get(id) as { score: number } | undefined
-  if (row) syncArticleScoreToSearch(id, row.score)
-}
-
-export function updateScore(id: number): void {
-  updateScoreDb(id)
-  syncScoreToSearch(id)
-}
-
-export function recalculateScores(): { updated: number } {
-  const result = getDb().prepare(`
-    UPDATE articles SET score = (${scoreExpr('')})
-    WHERE id IN (SELECT id FROM active_articles) AND ${SCORED_ARTICLES_WHERE}
-  `).run()
-  return { updated: result.changes }
-}
-
 // --- Article list queries ---
 
 export function getArticles(opts: {
@@ -96,11 +21,9 @@ export function getArticles(opts: {
   bookmarked?: boolean
   liked?: boolean
   read?: boolean
-  sort?: 'score'
   limit: number
   offset: number
-  smartFloor?: boolean
-}): { articles: ArticleListItem[]; total: number; totalWithoutFloor?: number } {
+}): { articles: ArticleListItem[]; total: number } {
   const conditions: string[] = []
   const params: Record<string, unknown> = {}
 
@@ -125,78 +48,17 @@ export function getArticles(opts: {
     conditions.push('a.read_at IS NOT NULL')
   }
 
-  // Smart floor: limit the displayed range to keep lists manageable.
-  // Pick the floor that yields the MOST articles (= earliest date) among:
-  //   1. SMART_FLOOR_DAYS ago
-  //   2. SMART_FLOOR_MIN_ARTICLES-th newest article's date
-  //   3. Oldest unread article's date (if any)
-  const SMART_FLOOR_DAYS = 7
-  const SMART_FLOOR_MIN_ARTICLES = 20
-
-  let floorApplied = false
-
-  if (opts.smartFloor) {
-    const scopeWhere = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
-
-    // Candidate 1: SMART_FLOOR_DAYS ago
-    const floorAgo = new Date(Date.now() - SMART_FLOOR_DAYS * 24 * 60 * 60 * 1000).toISOString()
-
-    // Candidate 2: SMART_FLOOR_MIN_ARTICLES-th newest article's date
-    const top20Row = getNamed<{ floor: string | null }>(`
-      SELECT a.published_at AS floor FROM active_articles a
-      ${scopeWhere}
-      ORDER BY a.published_at DESC
-      LIMIT 1 OFFSET ${SMART_FLOOR_MIN_ARTICLES - 1}
-    `, params)
-
-    // Candidate 3: oldest unread article's date
-    const unreadRow = getNamed<{ floor: string | null }>(`
-      SELECT MIN(a.published_at) AS floor FROM active_articles a
-      ${scopeWhere ? scopeWhere + ' AND' : 'WHERE'} a.seen_at IS NULL AND a.published_at IS NOT NULL
-    `, params)
-
-    // If fewer than SMART_FLOOR_MIN_ARTICLES exist, skip the floor entirely — show all
-    if (!top20Row?.floor) {
-      // no-op: don't add a date condition
-    } else {
-      // Pick the earliest (= shows the most articles)
-      const candidates: string[] = [floorAgo, top20Row.floor]
-      if (unreadRow?.floor) candidates.push(unreadRow.floor)
-      const smartFloorDate = candidates.sort()[0]
-
-      conditions.push('(a.published_at IS NULL OR a.published_at >= @smartFloorDate)')
-      params.smartFloorDate = smartFloorDate
-      floorApplied = true
-    }
-  }
-
-  // Count without floor for "show more" UI
-  const baseWhere = floorApplied
-    ? (() => {
-        const baseConditions = conditions.filter(c => !c.includes('@smartFloorDate'))
-        return baseConditions.length > 0 ? 'WHERE ' + baseConditions.join(' AND ') : ''
-      })()
-    : undefined
-
   const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
-  const orderBy = opts.sort === 'score'
-    ? 'a.score DESC, a.published_at DESC'
-    : opts.liked ? 'a.liked_at DESC' : opts.read ? 'a.read_at DESC' : 'a.published_at DESC'
+  const orderBy = opts.liked ? 'a.liked_at DESC' : opts.read ? 'a.read_at DESC' : 'a.published_at DESC'
 
   const totalRow = getNamed<{ cnt: number }>(`
     SELECT COUNT(*) AS cnt FROM active_articles a ${where}
   `, params)
   const total = totalRow.cnt
 
-  const totalWithoutFloor = baseWhere != null
-    ? getNamed<{ cnt: number }>(`SELECT COUNT(*) AS cnt FROM active_articles a ${baseWhere}`, params).cnt
-    : undefined
-
   const articles = allNamed<ArticleListItem>(`
     SELECT a.id, a.feed_id, f.name AS feed_name,
-           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.score,
-           (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
+           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     ${where}
@@ -204,7 +66,7 @@ export function getArticles(opts: {
     LIMIT @_limit OFFSET @_offset
   `, { ...params, _limit: Number(opts.limit), _offset: Number(opts.offset) })
 
-  return { articles, total, ...(totalWithoutFloor != null && totalWithoutFloor > total ? { totalWithoutFloor } : {}) }
+  return { articles, total }
 }
 
 /**
@@ -241,8 +103,7 @@ export function getArticleByUrl(url: string): ArticleDetail | undefined {
     SELECT a.id, a.feed_id, f.name AS feed_name, f.type AS feed_type,
            a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image,
            a.full_text, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url,
-           (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
+           a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     WHERE a.url = ?
@@ -273,8 +134,7 @@ export function getArticleById(id: number): ArticleDetail | undefined {
     SELECT a.id, a.feed_id, f.name AS feed_name, f.type AS feed_type,
            a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image,
            a.full_text, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url,
-           (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
+           a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     WHERE a.id = ?
@@ -291,12 +151,9 @@ export function markArticleSeen(
       getDb().prepare("UPDATE articles SET seen_at = datetime('now') WHERE id = ? AND seen_at IS NULL").run(id)
     } else {
       getDb().prepare('UPDATE articles SET seen_at = NULL, read_at = NULL WHERE id = ?').run(id)
-      updateScoreDb(id)
     }
     return getDb().prepare('SELECT seen_at, read_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null; read_at: string | null } | undefined
   })()
-  if (!seen) syncScoreToSearch(id)
-  syncArticleFiltersToSearch([{ id, is_unread: !seen }])
   if (!row) return undefined
   return { seen_at: row.seen_at, read_at: row.read_at }
 }
@@ -307,21 +164,11 @@ export function markArticlesSeen(ids: number[]): { updated: number } {
   const result = getDb().prepare(
     `UPDATE articles SET seen_at = datetime('now') WHERE id IN (${placeholders}) AND seen_at IS NULL`,
   ).run(...ids)
-  if (result.changes > 0) {
-    syncArticleFiltersToSearch(ids.map(id => ({ id, is_unread: false })))
-  }
   return { updated: result.changes }
 }
 
 export function markAllSeenByFeed(feedId: number): { updated: number } {
-  // Collect affected IDs before update for search sync
-  const affectedIds = (getDb().prepare(
-    'SELECT id FROM active_articles WHERE feed_id = ? AND seen_at IS NULL',
-  ).all(feedId) as { id: number }[]).map(r => r.id)
   const result = getDb().prepare("UPDATE articles SET seen_at = datetime('now') WHERE feed_id = ? AND seen_at IS NULL AND purged_at IS NULL").run(feedId)
-  if (affectedIds.length > 0) {
-    syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
-  }
   return { updated: result.changes }
 }
 
@@ -356,9 +203,6 @@ export function markStreamSeen(filter: {
     runNamed(`UPDATE articles SET seen_at = datetime('now') WHERE id IN (SELECT id FROM active_articles WHERE ${where})`, params)
     return ids
   })()
-  if (affectedIds.length > 0) {
-    syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
-  }
   return { updated: affectedIds.length }
 }
 
@@ -372,11 +216,8 @@ export function markArticleLiked(
     } else {
       getDb().prepare('UPDATE articles SET liked_at = NULL WHERE id = ?').run(id)
     }
-    updateScoreDb(id)
     return getDb().prepare('SELECT liked_at FROM articles WHERE id = ?').get(id) as { liked_at: string | null } | undefined
   })()
-  syncScoreToSearch(id)
-  syncArticleFiltersToSearch([{ id, is_liked: liked }])
   if (!row) return undefined
   return { liked_at: row.liked_at }
 }
@@ -396,11 +237,8 @@ export function markArticleBookmarked(
     } else {
       getDb().prepare('UPDATE articles SET bookmarked_at = NULL WHERE id = ?').run(id)
     }
-    updateScoreDb(id)
     return getDb().prepare('SELECT bookmarked_at FROM articles WHERE id = ?').get(id) as { bookmarked_at: string | null } | undefined
   })()
-  syncScoreToSearch(id)
-  syncArticleFiltersToSearch([{ id, is_bookmarked: bookmarked }])
   if (!row) return undefined
   return { bookmarked_at: row.bookmarked_at }
 }
@@ -417,11 +255,8 @@ export function recordArticleRead(
     getDb().prepare(
       "UPDATE articles SET read_at = datetime('now'), seen_at = COALESCE(seen_at, datetime('now')) WHERE id = ?",
     ).run(id)
-    updateScoreDb(id)
     return getDb().prepare('SELECT seen_at, read_at FROM articles WHERE id = ?').get(id) as { seen_at: string | null; read_at: string | null } | undefined
   })()
-  syncScoreToSearch(id)
-  syncArticleFiltersToSearch([{ id, is_unread: false }])
   return row ? { seen_at: row.seen_at, read_at: row.read_at } : undefined
 }
 
@@ -453,14 +288,12 @@ export function insertArticle(data: {
     last_error: data.last_error ?? null,
   })
   const articleId = info.lastInsertRowid as number
-  const doc = buildMeiliDoc(articleId)
-  if (doc) syncArticleToSearch(doc)
   return articleId
 }
 
 /**
- * Mark the refresh attempt timestamp without touching content or triggering
- * a Meilisearch resync. Used by the fetcher to record "we tried to repair
+ * Mark the refresh attempt timestamp without touching content. Used by
+ * the fetcher to record "we tried to repair
  * this stale article but couldn't improve it" so the backoff window kicks
  * in and we don't keep bypassing the RSS HTTP cache forever.
  */
@@ -492,8 +325,6 @@ export function updateArticleContent(
   }
   if (fields.length === 0) return
   runNamed(`UPDATE articles SET ${fields.join(', ')} WHERE id = @id`, params)
-  const doc = buildMeiliDoc(articleId)
-  if (doc) syncArticleToSearch(doc)
 }
 
 /**
@@ -583,7 +414,7 @@ export function getInlineArticlesMissingSourceUrl(feedId: number): { id: number;
   `).all(feedId) as { id: number; url: string }[]
 }
 
-/** Record the web page an inline-content article came from. Content is untouched, so no search resync. */
+/** Record the web page an inline-content article came from. Content is untouched. */
 export function setArticleSourceUrl(articleId: number, sourceUrl: string): void {
   runNamed('UPDATE articles SET source_url = @sourceUrl WHERE id = @id', { id: articleId, sourceUrl })
 }
@@ -674,114 +505,6 @@ export function getRetryStats(maxAttempts = RETRY_MAX_ATTEMPTS): RetryStats {
   }
 }
 
-// --- Search by IDs (Meilisearch integration) ---
-
-export function getArticlesByIds(
-  ids: number[],
-  opts?: { unread?: boolean; liked?: boolean; bookmarked?: boolean },
-): ArticleListItem[] {
-  if (ids.length === 0) return []
-  const placeholders = ids.map(() => '?').join(',')
-  const orderCase = ids.map((id, i) => `WHEN ${id} THEN ${i}`).join(' ')
-
-  const conditions: string[] = [`a.id IN (${placeholders})`]
-  if (opts?.unread !== undefined) {
-    conditions.push(opts.unread ? 'a.seen_at IS NULL' : 'a.seen_at IS NOT NULL')
-  }
-  if (opts?.liked) conditions.push('a.liked_at IS NOT NULL')
-  if (opts?.bookmarked) conditions.push('a.bookmarked_at IS NOT NULL')
-
-  const where = 'WHERE ' + conditions.join(' AND ')
-  const score = scoreExpr('a.')
-
-  return getDb().prepare(`
-    SELECT a.id, a.feed_id, f.name AS feed_name,
-           a.title, a.url, a.published_at, a.lang, a.excerpt,
-           a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           ${score} AS score
-    FROM active_articles a
-    JOIN feeds f ON a.feed_id = f.id
-    ${where}
-    ORDER BY CASE a.id ${orderCase} END
-  `).all(...ids) as ArticleListItem[]
-}
-
-// --- Search queries ---
-
-export function searchArticles(opts: {
-  query?: string
-  feed_id?: number
-  category_id?: number
-  unread?: boolean
-  bookmarked?: boolean
-  liked?: boolean
-  since?: string
-  until?: string
-  limit?: number
-  sort?: 'published_at' | 'score'
-}): ArticleListItem[] {
-  const conditions: string[] = []
-  const params: Record<string, unknown> = {}
-
-  if (opts.feed_id) {
-    conditions.push('a.feed_id = @feed_id')
-    params.feed_id = opts.feed_id
-  }
-  if (opts.category_id) {
-    conditions.push('a.category_id = @category_id')
-    params.category_id = opts.category_id
-  }
-  if (opts.unread !== undefined) {
-    conditions.push(opts.unread ? 'a.seen_at IS NULL' : 'a.seen_at IS NOT NULL')
-  }
-  if (opts.bookmarked) {
-    conditions.push('a.bookmarked_at IS NOT NULL')
-  }
-  if (opts.liked) {
-    conditions.push('a.liked_at IS NOT NULL')
-  }
-  if (opts.since) {
-    conditions.push('a.published_at >= @since')
-    params.since = opts.since
-  }
-  if (opts.until) {
-    conditions.push('a.published_at <= @until')
-    params.until = opts.until
-  }
-
-  const hasQuery = !!opts.query
-
-  if (hasQuery) {
-    const likePattern = `%${opts.query}%`
-    conditions.push('(a.title LIKE @likeQuery OR a.title_translated LIKE @likeQuery OR a.full_text LIKE @likeQuery OR a.full_text_translated LIKE @likeQuery)')
-    params.likeQuery = likePattern
-  }
-
-  const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
-  const limit = opts.limit ?? 20
-  const score = scoreExpr('a.', { searchBoost: hasQuery })
-
-  let orderBy: string
-  if (opts.sort === 'score') {
-    orderBy = `${score} DESC, a.published_at DESC`
-  } else if (opts.sort === 'published_at') {
-    orderBy = 'a.published_at DESC'
-  } else {
-    orderBy = hasQuery ? `${score} DESC` : 'a.published_at DESC'
-  }
-
-  return allNamed<ArticleListItem>(`
-    SELECT a.id, a.feed_id, f.name AS feed_name,
-           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           ${score} AS score
-    FROM active_articles a
-    JOIN feeds f ON a.feed_id = f.id
-    ${where}
-    ORDER BY ${orderBy}
-    LIMIT ${Number(limit)}
-  `, params)
-}
-
 export function markImagesArchived(articleId: number): void {
   getDb().prepare("UPDATE articles SET images_archived_at = datetime('now') WHERE id = ?").run(articleId)
 }
@@ -792,7 +515,6 @@ export function clearImagesArchived(articleId: number): void {
 
 export function deleteArticle(id: number): boolean {
   const result = getDb().prepare('DELETE FROM articles WHERE id = ?').run(id)
-  if (result.changes > 0) deleteArticleFromSearch(id)
   return result.changes > 0
 }
 
@@ -914,7 +636,7 @@ export function purgeExpiredArticles(readDays: number, unreadDays: number): { pu
       }
     }
 
-    // Soft delete + search index removal in a transaction to keep them consistent
+    // Soft delete in a transaction
     const result = db.transaction(() => {
       const res = db.prepare(`
         UPDATE articles
@@ -929,8 +651,6 @@ export function purgeExpiredArticles(readDays: number, unreadDays: number): { pu
             purged_at = datetime('now')
         WHERE id IN (${placeholders})
       `).run(...batch)
-
-      deleteArticlesFromSearch(batch)
 
       return res
     })()

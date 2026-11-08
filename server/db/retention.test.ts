@@ -12,7 +12,6 @@ import {
   markArticleLiked,
   getReadingStats,
   getRetryArticles,
-  searchArticles,
   getLikeCount,
   getBookmarkCount,
   createFeed,
@@ -254,17 +253,6 @@ describe('active_articles VIEW', () => {
     purgeArticle(id)
 
     expect(getArticleById(id)).toBeUndefined()
-  })
-
-  it('searchArticles excludes purged articles', () => {
-    const feed = seedFeed()
-    seedArticle(feed.id, { url: 'https://example.com/search-active', title: 'Findable' })
-    const id2 = seedArticle(feed.id, { url: 'https://example.com/search-purged', title: 'Findable' })
-    purgeArticle(id2)
-
-    const results = searchArticles({ query: 'Findable' })
-    expect(results).toHaveLength(1)
-    expect(results[0].url).toBe('https://example.com/search-active')
   })
 
   it('getReadingStats excludes purged articles', () => {
