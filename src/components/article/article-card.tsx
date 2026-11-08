@@ -12,7 +12,6 @@ export interface ArticleDisplayConfig {
   indicatorStyle: 'dot' | 'line'
   showUnreadIndicator: boolean
   showThumbnails: boolean
-  translationTargetLang?: string
 }
 
 interface ArticleCardProps extends ArticleDisplayConfig {
@@ -356,24 +355,16 @@ function CompactCard({ article, dateMode, indicatorStyle, showUnreadIndicator, o
 
 export const ArticleCard = memo(function ArticleCard(props: ArticleCardProps) {
   const { layout = 'list', isFeatured } = props
-  const article = props.translationTargetLang && props.article.translated_lang === props.translationTargetLang
-    ? {
-        ...props.article,
-        title: props.article.title_translated || props.article.title,
-        excerpt: props.article.excerpt_translated || props.article.excerpt,
-      }
-    : props.article
-  const displayProps = article === props.article ? props : { ...props, article }
 
   switch (layout) {
     case 'card':
-      return <GridCard {...displayProps} />
+      return <GridCard {...props} />
     case 'magazine':
-      return isFeatured ? <HeroCard {...displayProps} /> : <SmallCard {...displayProps} />
+      return isFeatured ? <HeroCard {...props} /> : <SmallCard {...props} />
     case 'compact':
-      return <CompactCard {...displayProps} />
+      return <CompactCard {...props} />
     case 'list':
     default:
-      return <ListCard {...displayProps} />
+      return <ListCard {...props} />
   }
 })

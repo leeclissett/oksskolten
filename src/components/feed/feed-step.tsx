@@ -14,7 +14,6 @@ type TranslateFn = ReturnType<typeof useI18n>['t']
 /** Map raw server error messages to i18n keys so they render in the user's locale. */
 function localizeServerError(raw: string, t: TranslateFn): string {
   if (raw.includes('RSS could not be detected')) return t('modal.errorRssNotDetected')
-  if (raw.includes('Could not extract content')) return t('modal.errorPageExtract')
   if (raw.includes('already exists')) return t('modal.errorAlreadyExists')
   if (raw.includes('http:// or https://')) return t('modal.errorHttpOrHttpsOnly')
   return raw || t('modal.genericError')
@@ -23,7 +22,7 @@ function localizeServerError(raw: string, t: TranslateFn): string {
 /** Debounce delay (ms) before auto-discovering feed metadata from URL */
 const DISCOVER_DEBOUNCE_MS = 500
 
-type StepName = 'rss-discovery' | 'flaresolverr' | 'rss-bridge' | 'css-selector'
+type StepName = 'rss-discovery' | 'flaresolverr' | 'rss-bridge'
 type StepStatus = 'pending' | 'running' | 'done' | 'skipped'
 
 interface StepState {
@@ -49,7 +48,6 @@ function StepIndicator({ steps, done, t }: {
     { key: 'rss-discovery', label: t('modal.step.rssDiscovery') },
     { key: 'flaresolverr', label: t('modal.step.flaresolverr'), conditional: true, indent: true },
     { key: 'rss-bridge', label: t('modal.step.rssBridge') },
-    { key: 'css-selector', label: t('modal.step.cssSelector') },
   ]
 
   function renderIcon(state: StepState) {
@@ -174,7 +172,6 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
       'rss-discovery': { status: 'pending' },
       'flaresolverr': { status: 'pending' },
       'rss-bridge': { status: 'pending' },
-      'css-selector': { status: 'pending' },
     }
     setAddingSteps(initSteps)
     setAddingDone(false)
@@ -279,13 +276,6 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
             })}
           >
             {t('modal.choiceWholeSite')}
-          </Button>
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={() => handleSubmit(undefined, { force_page_selector: true })}
-          >
-            {t('modal.choiceThisPage')}
           </Button>
         </div>
       </div>

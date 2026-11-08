@@ -125,7 +125,6 @@ function makeArticle(overrides: Partial<ArticleListItem> = {}): ArticleListItem 
     url: 'https://example.com/1',
     published_at: '2026-01-01T00:00:00Z',
     lang: 'en',
-    summary: null,
     excerpt: 'Excerpt text',
     og_image: null,
     seen_at: null,

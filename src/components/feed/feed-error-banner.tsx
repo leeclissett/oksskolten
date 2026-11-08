@@ -144,7 +144,7 @@ export function FeedErrorBanner({ lastError, feedId, onMutate, onFetch, override
       setPhase('detecting-0')
       await reDetectSSE(feedId, (stage) => {
         if (stage === 'discovery') setPhase('detecting-0')
-        else if (stage === 'bridge' || stage === 'bridge-llm') setPhase('detecting-1')
+        else if (stage === 'bridge') setPhase('detecting-1')
       })
       await onMutate?.()
       if (onFetch) {

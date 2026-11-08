@@ -59,10 +59,10 @@ describe('useGlobalShortcuts', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings/general')
   })
 
-  it('Cmd+1-5 navigates to correct routes', () => {
+  it('Cmd+1-4 navigates to correct routes', () => {
     setup()
-    const routes = ['/inbox', '/bookmarks', '/likes', '/history', '/chat']
-    for (let i = 0; i < 5; i++) {
+    const routes = ['/inbox', '/bookmarks', '/likes', '/history']
+    for (let i = 0; i < 4; i++) {
       mockNavigate.mockClear()
       fireKey(String(i + 1), { metaKey: true })
       expect(mockNavigate).toHaveBeenCalledWith(routes[i])
