@@ -128,10 +128,6 @@ export async function demoFetcher(url: string): Promise<unknown> {
     return { avg_content_length: demoStore.getFeedAvgContentLength(metricsId) }
   }
 
-  if (path.startsWith('/api/search')) {
-    return { results: [] }
-  }
-
   if (path === '/api/settings/auth-methods') {
     return { password: true, passkey: false, github: false }
   }

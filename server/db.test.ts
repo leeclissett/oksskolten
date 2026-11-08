@@ -26,7 +26,6 @@ import {
   getBookmarkCount,
   markArticleLiked,
   getLikeCount,
-  searchArticles,
   updateArticleContent,
   getExistingArticleUrls,
   getRetryArticles,
@@ -514,18 +513,6 @@ describe('Articles', () => {
 
     markArticleLiked(id, true)
     expect(getArticleById(id)!.liked_at).not.toBeNull()
-  })
-
-  it('searchArticles filters by liked', () => {
-    const feed = seedFeed()
-    const id1 = seedArticle(feed.id, { url: 'https://example.com/1', full_text: 'text one' })
-    seedArticle(feed.id, { url: 'https://example.com/2', full_text: 'text two' })
-
-    markArticleLiked(id1, true)
-
-    const results = searchArticles({ liked: true })
-    expect(results).toHaveLength(1)
-    expect(results[0].liked_at).not.toBeNull()
   })
 
   it('updateArticleContent updates fields', () => {

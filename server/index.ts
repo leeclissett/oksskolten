@@ -6,7 +6,7 @@ import jwt from '@fastify/jwt'
 import rateLimit from '@fastify/rate-limit'
 import multipart from '@fastify/multipart'
 import cron, { type ScheduledTask } from 'node-cron'
-import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, recalculateScores, purgeExpiredArticles, shrinkMemory } from './db.js'
+import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, purgeExpiredArticles, shrinkMemory } from './db.js'
 import { logger } from './logger.js'
 import { findProjectRoot } from './paths.js'
 import { validateJwtSecret } from './jwt-secret.js'
@@ -23,7 +23,6 @@ import { passkeyRoutes } from './passkeyRoutes.js'
 import { oauthRoutes } from './oauthRoutes.js'
 import { greaderRoutes } from './routes/greader.js'
 import { fetchAllFeeds } from './fetcher.js'
-import { ensureSearchIndex, rebuildSearchIndex, isSearchReady, syncAllScoredArticlesToSearch } from './search/sync.js'
 
 // --- Startup guards ---
 if (process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'development') {
@@ -144,7 +143,6 @@ app.get('/api/health', async (_req, reply) => {
   reply.header('Cache-Control', 'no-store')
   return reply.send({
     ok: true,
-    searchReady: isSearchReady(),
     gitCommit: process.env.GIT_COMMIT || 'dev',
     gitTag: process.env.GIT_TAG || 'dev',
     buildDate: process.env.BUILD_DATE || null,
@@ -185,60 +183,11 @@ cronTasks.push(cron.schedule(CRON_SCHEDULE, async () => {
   activeFetchPromise = null
 }))
 
-// --- Score recalculation ---
-// Decoupled from feed fetch so the schedule can be tuned independently.
-// Default matches the original 5-minute interval; set SCORE_RECALC_SCHEDULE
-// to e.g. '0 3 * * *' (daily at 3 AM) if the event-driven path covers all
-// engagement actions and only time-decay refresh is needed.
-const SCORE_RECALC_SCHEDULE = process.env.SCORE_RECALC_SCHEDULE || '*/5 * * * *'
-cronTasks.push(cron.schedule(SCORE_RECALC_SCHEDULE, async () => {
-  try {
-    const { updated } = recalculateScores()
-    log.info(`[cron] Scores recalculated: ${updated} articles`)
-    if (updated > 0) {
-      const synced = await syncAllScoredArticlesToSearch()
-      log.info(`[cron] Score sync to search: ${synced} articles`)
-    }
-  } catch (err) {
-    log.error('[cron] Score recalculation error:', err)
-  }
-}))
-
 // --- SQLite memory shrink ---
 // Periodic shrink_memory + wal_checkpoint to prevent libsql native heap accumulation.
 const SHRINK_MEM_SCHEDULE = process.env.SHRINK_MEM_SCHEDULE || '*/5 * * * *'
 cronTasks.push(cron.schedule(SHRINK_MEM_SCHEDULE, () => {
   shrinkMemory()
-}))
-
-// --- Search index ---
-// Non-blocking: ensure the search index is ready in the background. Search
-// returns 503 until ready. `ensureSearchIndex` reuses an already-populated
-// index when one exists (the common case after a restart) and only triggers
-// a full rebuild when the index is missing or empty, so HMR restarts and
-// normal redeploys don't pile up rebuild tasks on the Meilisearch queue.
-// Retry with backoff if Meilisearch is not yet reachable on first attempt.
-void (async () => {
-  const retries = [0, 5_000, 15_000, 30_000]
-  for (const delay of retries) {
-    if (delay) await new Promise((r) => setTimeout(r, delay))
-    try {
-      await ensureSearchIndex()
-      return
-    } catch (err) {
-      log.error(`[search] Index ensure attempt failed (next retry in ${retries[retries.indexOf(delay) + 1] ?? 'none'}ms):`, err)
-    }
-  }
-  log.error('[search] All initial ensure attempts failed, will retry on next 6h cron')
-})()
-
-cronTasks.push(cron.schedule('0 */6 * * *', async () => {
-  log.info('[cron] Search index rebuild triggered')
-  try {
-    await rebuildSearchIndex()
-  } catch (err) {
-    log.error('[cron] Search index rebuild error:', err)
-  }
 }))
 
 // --- Retention policy ---

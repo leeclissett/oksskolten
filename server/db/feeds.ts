@@ -1,7 +1,5 @@
 import { getDb, runNamed } from './connection.js'
 import type { Feed, FeedWithCounts } from './types.js'
-import type { MeiliArticleDoc } from '../search/client.js'
-import { deleteArticlesFromSearch, syncArticlesByFeedToSearch } from '../search/sync.js'
 
 export function getFeeds(): FeedWithCounts[] {
   return getDb().prepare(`
@@ -138,24 +136,6 @@ export function updateFeed(
     return getDb().prepare('SELECT * FROM feeds WHERE id = ?').get(feed.id) as Feed
   })()
 
-  // Meilisearch sync outside transaction (external service, best-effort)
-  if (data.category_id !== undefined) {
-    const docs = getDb().prepare(`
-      SELECT id, feed_id, category_id, title,
-             COALESCE(title_translated, '') AS title_translated,
-             COALESCE(full_text, '') AS full_text,
-             COALESCE(full_text_translated, '') AS full_text_translated,
-             lang,
-             COALESCE(CAST(strftime('%s', published_at) AS INTEGER), 0) AS published_at,
-             COALESCE(score, 0) AS score,
-             (seen_at IS NULL) AS is_unread,
-             (liked_at IS NOT NULL) AS is_liked,
-             (bookmarked_at IS NOT NULL) AS is_bookmarked
-      FROM active_articles WHERE feed_id = ?
-    `).all(id) as MeiliArticleDoc[]
-    syncArticlesByFeedToSearch(docs)
-  }
-
   return updatedFeed
 }
 
@@ -166,35 +146,12 @@ export function bulkMoveFeedsToCategory(feedIds: number[], categoryId: number | 
     getDb().prepare(`UPDATE feeds SET category_id = ? WHERE id IN (${placeholders})`).run(categoryId, ...feedIds)
     getDb().prepare(`UPDATE articles SET category_id = ? WHERE feed_id IN (${placeholders})`).run(categoryId, ...feedIds)
   })()
-
-  // Sync Meilisearch index for all affected feeds in one batch
-  const allDocs = getDb().prepare(`
-    SELECT id, feed_id, category_id, title,
-           COALESCE(title_translated, '') AS title_translated,
-           COALESCE(full_text, '') AS full_text,
-           COALESCE(full_text_translated, '') AS full_text_translated,
-           lang,
-           COALESCE(CAST(strftime('%s', published_at) AS INTEGER), 0) AS published_at,
-           COALESCE(score, 0) AS score,
-           (seen_at IS NULL) AS is_unread,
-           (liked_at IS NOT NULL) AS is_liked,
-           (bookmarked_at IS NOT NULL) AS is_bookmarked
-    FROM active_articles WHERE feed_id IN (${placeholders})
-  `).all(...feedIds) as MeiliArticleDoc[]
-  syncArticlesByFeedToSearch(allDocs)
 }
 
 export function deleteFeed(id: number): boolean {
-  // Collect article IDs and delete feed atomically (CASCADE deletes articles)
-  const { articleIds, deleted } = getDb().transaction(() => {
-    const ids = (getDb().prepare('SELECT id FROM articles WHERE feed_id = ?').all(id) as { id: number }[]).map((r) => r.id)
-    const result = getDb().prepare('DELETE FROM feeds WHERE id = ?').run(id)
-    return { articleIds: ids, deleted: result.changes > 0 }
-  })()
-  if (deleted && articleIds.length > 0) {
-    deleteArticlesFromSearch(articleIds)
-  }
-  return deleted
+  // CASCADE deletes articles
+  const result = getDb().prepare('DELETE FROM feeds WHERE id = ?').run(id)
+  return result.changes > 0
 }
 
 /**

@@ -1,13 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { logger } from '../logger.js'
-
-const log = logger.child('search')
 import {
   getArticles,
   getArticleByUrl,
   getArticleById,
-  getArticlesByIds,
   markArticleSeen,
   markArticlesSeen,
   recordArticleRead,
@@ -17,12 +13,8 @@ import {
   getClipFeed,
   insertArticle,
   deleteArticle,
-  getSimilarArticles,
   getDb,
 } from '../db.js'
-import type { MeiliArticleDoc } from '../search/client.js'
-import { buildMeiliFilter, meiliSearch } from '../search/client.js'
-import { isSearchReady, syncArticleToSearch } from '../search/sync.js'
 import { requireJson } from '../auth.js'
 import { fetchArticleContent } from '../fetcher.js'
 import { archiveArticleImages, isImageArchivingEnabled, deleteArticleImages } from '../fetcher/article-images.js'
@@ -36,7 +28,6 @@ const DEFAULT_ARTICLE_LIMIT = 20
 const MAX_ARTICLE_LIMIT = 100
 const MAX_CHECK_URLS = 200
 const MAX_BATCH_SEEN = 100
-const MAX_SEARCH_LIMIT = 50
 
 // Coerce to number, treating NaN as undefined to preserve existing behavior
 const coerceOptionalNumber = z.preprocess(
@@ -51,21 +42,6 @@ const ArticlesQuery = z.object({
   bookmarked: z.string().optional(),
   liked: z.string().optional(),
   read: z.string().optional(),
-  sort: z.string().optional(),
-  no_floor: z.string().optional(),
-  limit: coerceOptionalNumber,
-  offset: coerceOptionalNumber,
-})
-
-const SearchQuery = z.object({
-  q: z.string().min(1, 'q is required'),
-  feed_id: coerceOptionalNumber,
-  category_id: coerceOptionalNumber,
-  unread: z.string().optional(),
-  liked: z.string().optional(),
-  bookmarked: z.string().optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
   limit: coerceOptionalNumber,
   offset: coerceOptionalNumber,
 })
@@ -109,12 +85,8 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
     const bookmarked = query.bookmarked === '1'
     const liked = query.liked === '1'
     const read = query.read === '1'
-    const sort = query.sort === 'score' ? 'score' as const : undefined
-    const noFloor = query.no_floor === '1'
 
-    const isClipFeed = feedId != null && getClipFeed()?.id === feedId
-    const smartFloor = !noFloor && !isClipFeed && !unread && !bookmarked && !liked && !read
-    const { articles, total, totalWithoutFloor } = getArticles({ feedId, categoryId, unread, bookmarked, liked, read, sort, limit, offset, smartFloor })
+    const { articles, total } = getArticles({ feedId, categoryId, unread, bookmarked, liked, read, limit, offset })
     const hasMore = offset + articles.length < total
 
     // When unread filter yields 0 results, return total article count (without unread filter)
@@ -125,45 +97,7 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       totalAll = allResult.total
     }
 
-    reply.send({ articles, total, has_more: hasMore, ...(totalWithoutFloor != null ? { total_without_floor: totalWithoutFloor } : {}), ...(totalAll != null ? { total_all: totalAll } : {}) })
-  })
-
-  api.get('/api/articles/search', async (request, reply) => {
-    const query = parseOrBadRequest(SearchQuery, request.query, reply)
-    if (!query) return
-
-    if (!isSearchReady()) {
-      reply.status(503).send({ error: 'Search index is building' })
-      return
-    }
-
-    const limit = Math.min(Math.max(query.limit || DEFAULT_ARTICLE_LIMIT, 1), MAX_SEARCH_LIMIT)
-    const offset = Math.max(query.offset || 0, 0)
-    const unread = query.unread === '1' ? true : query.unread === '0' ? false : undefined
-    const liked = query.liked === '1'
-    const bookmarked = query.bookmarked === '1'
-
-    try {
-      const filter = buildMeiliFilter({
-        feed_id: query.feed_id,
-        category_id: query.category_id,
-        since: query.since,
-        until: query.until,
-        unread,
-        liked,
-        bookmarked,
-      })
-
-      const { hits, estimatedTotalHits } = await meiliSearch(query.q, { limit, offset, filter })
-      const ids = hits.map((h) => h.id)
-
-      const articles = getArticlesByIds(ids)
-      const hasMore = offset + hits.length < estimatedTotalHits
-      reply.send({ articles, has_more: hasMore })
-    } catch (err) {
-      log.error('Meilisearch query failed:', err)
-      reply.send({ articles: [] })
-    }
+    reply.send({ articles, total, has_more: hasMore, ...(totalAll != null ? { total_all: totalAll } : {}) })
   })
 
   api.get('/api/articles/by-url', async (request, reply) => {
@@ -218,18 +152,6 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
           getDb().prepare('UPDATE articles SET feed_id = ?, category_id = NULL WHERE id = ?').run(clipFeed.id, existing.id)
           return getArticleById(existing.id)
         })()
-        // Sync clip move to Meilisearch (best-effort, outside transaction)
-        const movedDoc = getDb().prepare(`
-          SELECT id, feed_id, category_id, title,
-                 COALESCE(title_translated, '') AS title_translated,
-                 COALESCE(full_text, '') AS full_text,
-                 COALESCE(full_text_translated, '') AS full_text_translated,
-                 lang,
-                 COALESCE(CAST(strftime('%s', published_at) AS INTEGER), 0) AS published_at,
-                 COALESCE(score, 0) AS score
-          FROM active_articles WHERE id = ?
-        `).get(existing.id) as MeiliArticleDoc | undefined
-        if (movedDoc) syncArticleToSearch(movedDoc)
         reply.status(200).send({ article: moved, moved: true })
         return
       }
@@ -370,16 +292,6 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       archiveArticleImages(article.id, article.full_text).catch(err => {
         request.log.error(err, 'archive-images failed')
       })
-    },
-  )
-
-  api.get(
-    '/api/articles/:id/similar',
-    async (request, reply) => {
-      const params = parseOrBadRequest(NumericIdParams, request.params, reply)
-      if (!params) return
-      const similar = getSimilarArticles(params.id)
-      reply.send({ similar })
     },
   )
 
