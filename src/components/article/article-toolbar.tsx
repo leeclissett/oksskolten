@@ -1,21 +1,11 @@
 import { useNavigate } from 'react-router-dom'
 import { ActionChip } from '../ui/action-chip'
-import { ChatInlineTrigger } from '../chat/chat-inline'
-import { Bookmark, ThumbsUp, CloudUpload, CloudCheck, Trash2, Languages, Sparkles } from 'lucide-react'
+import { Bookmark, ThumbsUp, CloudUpload, CloudCheck, Trash2 } from 'lucide-react'
 import { useI18n } from '../../lib/i18n'
 import type { ArticleDetail } from '../../../shared/types'
 
 interface ArticleToolbarProps {
   article: ArticleDetail
-  chatPosition: string
-  chatOpen: boolean
-  onChatToggle: () => void
-  hasTranslation: boolean
-  translating: boolean
-  onTranslate: () => void
-  summary: string | null
-  summarizing: boolean
-  onSummarize: () => void
   isBookmarked: boolean
   isLiked: boolean
   archivingImages: boolean
@@ -27,15 +17,6 @@ interface ArticleToolbarProps {
 
 export function ArticleToolbar({
   article,
-  chatPosition,
-  chatOpen,
-  onChatToggle,
-  hasTranslation,
-  translating,
-  onTranslate,
-  summary,
-  summarizing,
-  onSummarize,
   isBookmarked,
   isLiked,
   archivingImages,
@@ -46,7 +27,6 @@ export function ArticleToolbar({
 }: ArticleToolbarProps) {
   const navigate = useNavigate()
   const { t } = useI18n()
-  const automaticTranslationPending = article.translation_status === 'pending' || article.translation_status === 'processing'
 
   return (
     <div className="flex items-stretch flex-wrap gap-2 mb-6 select-none">
@@ -64,21 +44,6 @@ export function ArticleToolbar({
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1h7v7M11 1L5 7" />
           </svg>
-        </ActionChip>
-      )}
-      {summary === null && !summarizing && (
-        <ActionChip onClick={onSummarize}>
-          <Sparkles className="w-3.5 h-3.5" />
-          {t('article.summarize')}
-        </ActionChip>
-      )}
-      {chatPosition === 'inline' && (
-        <ChatInlineTrigger active={chatOpen} onToggle={onChatToggle} />
-      )}
-      {!hasTranslation && !translating && !automaticTranslationPending && (
-        <ActionChip onClick={onTranslate}>
-          <Languages className="w-3.5 h-3.5" />
-          {t('article.translate')}
         </ActionChip>
       )}
       <ActionChip active={!!isBookmarked} onClick={onToggleBookmark} aria-pressed={!!isBookmarked} tooltip={isBookmarked ? t('article.removeBookmark') : t('article.addBookmark')}>

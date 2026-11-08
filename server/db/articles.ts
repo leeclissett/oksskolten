@@ -194,8 +194,7 @@ export function getArticles(opts: {
 
   const articles = allNamed<ArticleListItem>(`
     SELECT a.id, a.feed_id, f.name AS feed_name,
-           a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.translated_lang, a.translation_status,
+           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
            a.score,
            (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
     FROM active_articles a
@@ -240,8 +239,8 @@ export function getArticleByUrl(url: string): ArticleDetail | undefined {
   const normalized = normalizeUrl(url)
   const stmt = db.prepare(`
     SELECT a.id, a.feed_id, f.name AS feed_name, f.type AS feed_type,
-           a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated, a.og_image,
-           a.full_text, a.full_text_translated, a.translated_lang, a.translation_status, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
+           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image,
+           a.full_text, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
            a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url,
            (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
     FROM active_articles a
@@ -272,8 +271,8 @@ export function getArticleByUrl(url: string): ArticleDetail | undefined {
 export function getArticleById(id: number): ArticleDetail | undefined {
   const row = getDb().prepare(`
     SELECT a.id, a.feed_id, f.name AS feed_name, f.type AS feed_type,
-           a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated, a.og_image,
-           a.full_text, a.full_text_translated, a.translated_lang, a.translation_status, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
+           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image,
+           a.full_text, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
            a.images_archived_at, a.source_url AS stored_source_url, f.rss_url AS feed_rss_url,
            (SELECT COUNT(*) FROM article_similarities WHERE article_id = a.id) AS similar_count
     FROM active_articles a
@@ -433,17 +432,14 @@ export function insertArticle(data: {
   published_at: string | null
   lang?: string | null
   full_text?: string | null
-  full_text_translated?: string | null
-  translated_lang?: string | null
-  summary?: string | null
   excerpt?: string | null
   og_image?: string | null
   source_url?: string | null
   last_error?: string | null
 }): number {
   const info = runNamed(`
-    INSERT INTO articles (feed_id, category_id, title, url, published_at, lang, full_text, full_text_translated, translated_lang, summary, excerpt, og_image, source_url, last_error)
-    VALUES (@feed_id, (SELECT category_id FROM feeds WHERE id = @feed_id), @title, @url, @published_at, @lang, @full_text, @full_text_translated, @translated_lang, @summary, @excerpt, @og_image, @source_url, @last_error)
+    INSERT INTO articles (feed_id, category_id, title, url, published_at, lang, full_text, excerpt, og_image, source_url, last_error)
+    VALUES (@feed_id, (SELECT category_id FROM feeds WHERE id = @feed_id), @title, @url, @published_at, @lang, @full_text, @excerpt, @og_image, @source_url, @last_error)
   `, {
     feed_id: data.feed_id,
     title: data.title,
@@ -451,9 +447,6 @@ export function insertArticle(data: {
     published_at: data.published_at,
     lang: data.lang ?? null,
     full_text: data.full_text ?? null,
-    full_text_translated: data.full_text_translated ?? null,
-    translated_lang: data.translated_lang ?? null,
-    summary: data.summary ?? null,
     excerpt: data.excerpt ?? null,
     og_image: data.og_image ?? null,
     source_url: data.source_url ?? null,
@@ -480,25 +473,12 @@ export function updateArticleContent(
   data: {
     lang?: string | null
     full_text?: string | null
-    full_text_translated?: string | null
-    title_translated?: string | null
-    excerpt_translated?: string | null
-    translated_lang?: string | null
-    summary?: string | null
     excerpt?: string | null
     og_image?: string | null
     last_error?: string | null
     retry_count?: number
     last_retry_at?: string | null
     last_refresh_attempt_at?: string | null
-    translation_target_lang?: string | null
-    translation_status?: 'pending' | 'processing' | 'completed' | 'failed' | null
-    translation_error?: string | null
-    translation_attempts?: number
-    translation_next_attempt_at?: string | null
-    translation_started_at?: string | null
-    translation_input_tokens?: number | null
-    translation_output_tokens?: number | null
   },
 ): void {
   const fields: string[] = []
@@ -716,9 +696,8 @@ export function getArticlesByIds(
 
   return getDb().prepare(`
     SELECT a.id, a.feed_id, f.name AS feed_name,
-           a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated,
+           a.title, a.url, a.published_at, a.lang, a.excerpt,
            a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.translated_lang, a.translation_status,
            ${score} AS score
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
@@ -793,8 +772,7 @@ export function searchArticles(opts: {
 
   return allNamed<ArticleListItem>(`
     SELECT a.id, a.feed_id, f.name AS feed_name,
-           a.title, a.title_translated, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.excerpt_translated, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.translated_lang, a.translation_status,
+           a.title, a.url, a.published_at, a.lang, a.excerpt, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
            ${score} AS score
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id

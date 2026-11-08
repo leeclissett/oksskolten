@@ -68,11 +68,10 @@ export function createFeed(data: {
   category_id?: number | null
   requires_js_challenge?: number
   type?: 'rss' | 'clip'
-  auto_translate_target?: string | null
 }): Feed {
   const info = runNamed(`
-    INSERT INTO feeds (name, url, rss_url, rss_bridge_url, category_id, requires_js_challenge, type, auto_translate_target)
-    VALUES (@name, @url, @rss_url, @rss_bridge_url, @category_id, @requires_js_challenge, @type, @auto_translate_target)
+    INSERT INTO feeds (name, url, rss_url, rss_bridge_url, category_id, requires_js_challenge, type)
+    VALUES (@name, @url, @rss_url, @rss_bridge_url, @category_id, @requires_js_challenge, @type)
   `, {
     name: data.name,
     url: data.url,
@@ -81,14 +80,13 @@ export function createFeed(data: {
     category_id: data.category_id ?? null,
     requires_js_challenge: data.requires_js_challenge ?? 0,
     type: data.type ?? 'rss',
-    auto_translate_target: data.auto_translate_target ?? null,
   })
   return getDb().prepare('SELECT * FROM feeds WHERE id = ?').get(info.lastInsertRowid) as Feed
 }
 
 export function updateFeed(
   id: number,
-  data: { name?: string; rss_url?: string | null; rss_bridge_url?: string | null; disabled?: number; category_id?: number | null; requires_js_challenge?: number; auto_translate_target?: string | null },
+  data: { name?: string; rss_url?: string | null; rss_bridge_url?: string | null; disabled?: number; category_id?: number | null; requires_js_challenge?: number },
 ): Feed | undefined {
   const feed = getFeedById(id)
   if (!feed) return undefined
@@ -123,10 +121,6 @@ export function updateFeed(
   if (data.requires_js_challenge !== undefined) {
     fields.push('requires_js_challenge = @requires_js_challenge')
     params.requires_js_challenge = data.requires_js_challenge
-  }
-  if (data.auto_translate_target !== undefined) {
-    fields.push('auto_translate_target = @auto_translate_target')
-    params.auto_translate_target = data.auto_translate_target
   }
 
   if (fields.length === 0) return feed

@@ -8,7 +8,6 @@ import { useUnreadIndicator } from './use-unread-indicator'
 import { useInternalLinks } from './use-internal-links'
 import { useShowThumbnails } from './use-show-thumbnails'
 import { useShowFeedActivity } from './use-show-feed-activity'
-import { useChatPosition } from './use-chat-position'
 import { useArticleOpenMode, type ArticleOpenMode } from './use-article-open-mode'
 import { useCategoryUnreadOnly } from './use-category-unread-only'
 import { useHighlightTheme } from './use-highlight-theme'
@@ -34,22 +33,12 @@ interface Prefs {
   'reading.show_feed_activity': string | null
   'appearance.highlight_theme': string | null
   'appearance.font_family': string | null
-  'reading.chat_position': string | null
   'reading.article_open_mode': string | null
   'reading.category_unread_only': string | null
   'appearance.list_layout': string | null
   'appearance.mascot': string | null
   'reading.keyboard_navigation': string | null
   'reading.keybindings': string | null
-  'chat.provider': string | null
-  'chat.model': string | null
-  'summary.provider': string | null
-  'summary.model': string | null
-  'summary.max_tokens': string | null
-  'translate.provider': string | null
-  'translate.model': string | null
-  'translate.max_tokens': string | null
-  'translate.target_lang': string | null
   'custom_themes': string | null
 }
 
@@ -72,22 +61,12 @@ export function useSettings() {
   const indicatorStyle = currentTheme.indicatorStyle ?? 'dot'
   const { showThumbnails, setShowThumbnails } = useShowThumbnails()
   const { showFeedActivity, setShowFeedActivity } = useShowFeedActivity()
-  const { chatPosition, setChatPosition } = useChatPosition()
   const { articleOpenMode, setArticleOpenMode } = useArticleOpenMode()
   const { categoryUnreadOnly, setCategoryUnreadOnly } = useCategoryUnreadOnly()
   const { layout, setLayout } = useLayout()
   const { mascot, setMascot } = useMascot()
   const { keyboardNavigation, setKeyboardNavigation } = useKeyboardNavSetting()
   const { keybindings, setKeybindings } = useKeybindingsSetting()
-  const [chatProvider, setChatProviderState] = useState<string | null>(null)
-  const [chatModel, setChatModelState] = useState<string | null>(null)
-  const [summaryProvider, setSummaryProviderState] = useState<string | null>(null)
-  const [summaryModel, setSummaryModelState] = useState<string | null>(null)
-  const [translateProvider, setTranslateProviderState] = useState<string | null>(null)
-  const [translateModel, setTranslateModelState] = useState<string | null>(null)
-  const [translateTargetLang, setTranslateTargetLangState] = useState<string | null>(null)
-  const [summaryMaxTokens, setSummaryMaxTokensState] = useState<string | null>(null)
-  const [translateMaxTokens, setTranslateMaxTokensState] = useState<string | null>(null)
 
   // --- DB sync ---
   const { data: prefs, mutate: mutatePrefs } = useSWR<Prefs>(
@@ -117,8 +96,6 @@ export function useSettings() {
   showThumbnailsRef.current = showThumbnails
   const showFeedActivityRef = useRef(showFeedActivity)
   showFeedActivityRef.current = showFeedActivity
-  const chatPositionRef = useRef(chatPosition)
-  chatPositionRef.current = chatPosition
   const articleOpenModeRef = useRef(articleOpenMode)
   articleOpenModeRef.current = articleOpenMode
   const categoryUnreadOnlyRef = useRef(categoryUnreadOnly)
@@ -155,8 +132,6 @@ export function useSettings() {
         validate: v => v === 'on' || v === 'off' },
       { key: 'reading.show_feed_activity', setter: setShowFeedActivity, backfillRef: showFeedActivityRef,
         validate: v => v === 'on' || v === 'off' },
-      { key: 'reading.chat_position', setter: setChatPosition, backfillRef: chatPositionRef,
-        validate: v => v === 'fab' || v === 'inline' },
       { key: 'reading.article_open_mode', setter: setArticleOpenMode, backfillRef: articleOpenModeRef,
         validate: v => v === 'page' || v === 'overlay' },
       { key: 'reading.category_unread_only', setter: setCategoryUnreadOnly, backfillRef: categoryUnreadOnlyRef,
@@ -172,15 +147,6 @@ export function useSettings() {
       } },
       { key: 'appearance.highlight_theme', setter: setHighlightTheme },
       { key: 'appearance.font_family', setter: setArticleFont },
-      { key: 'chat.provider', setter: setChatProviderState },
-      { key: 'chat.model', setter: setChatModelState },
-      { key: 'summary.provider', setter: setSummaryProviderState },
-      { key: 'summary.model', setter: setSummaryModelState },
-      { key: 'translate.provider', setter: setTranslateProviderState },
-      { key: 'translate.model', setter: setTranslateModelState },
-      { key: 'translate.target_lang', setter: setTranslateTargetLangState },
-      { key: 'summary.max_tokens', setter: setSummaryMaxTokensState },
-      { key: 'translate.max_tokens', setter: setTranslateMaxTokensState },
     ]
 
     for (const { key, setter, backfillRef, validate } of hydrationMap) {
@@ -197,7 +163,7 @@ export function useSettings() {
     if (Object.keys(backfill).length > 0) {
       apiPatch('/api/settings/preferences', backfill).catch(() => {})
     }
-  }, [prefs, setTheme, setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setChatPosition, setArticleOpenMode, setCategoryUnreadOnly, setLayout, setMascot, setHighlightTheme, setArticleFont, setKeyboardNavigation, setKeybindings])
+  }, [prefs, setTheme, setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setArticleOpenMode, setCategoryUnreadOnly, setLayout, setMascot, setHighlightTheme, setArticleFont, setKeyboardNavigation, setKeybindings])
 
   // Hydrate custom themes from DB
   useEffect(() => {
@@ -307,7 +273,6 @@ export function useSettings() {
     syncedSetInternalLinks,
     syncedSetShowThumbnails,
     syncedSetShowFeedActivity,
-    syncedSetChatPosition,
     syncedSetArticleOpenMode,
     syncedSetCategoryUnreadOnly,
     syncedSetLayout,
@@ -315,15 +280,6 @@ export function useSettings() {
     syncedSetMascot,
     syncedSetKeyboardNavigation,
     syncedSetKeybindings,
-    syncedSetChatProvider,
-    syncedSetChatModel,
-    syncedSetSummaryProvider,
-    syncedSetSummaryModel,
-    syncedSetTranslateProvider,
-    syncedSetTranslateModel,
-    syncedSetTranslateTargetLang,
-    syncedSetSummaryMaxTokens,
-    syncedSetTranslateMaxTokens,
   } = useMemo(() => {
     const make = <T extends string>(key: keyof Prefs, setter: (v: T) => void) =>
       (value: T) => {
@@ -339,7 +295,6 @@ export function useSettings() {
       syncedSetInternalLinks: make<'on' | 'off'>('reading.internal_links', setInternalLinks),
       syncedSetShowThumbnails: make<'on' | 'off'>('reading.show_thumbnails', setShowThumbnails),
       syncedSetShowFeedActivity: make<'on' | 'off'>('reading.show_feed_activity', setShowFeedActivity),
-      syncedSetChatPosition: make<'fab' | 'inline'>('reading.chat_position', setChatPosition),
       syncedSetArticleOpenMode: make<ArticleOpenMode>('reading.article_open_mode', setArticleOpenMode),
       syncedSetCategoryUnreadOnly: make<'on' | 'off'>('reading.category_unread_only', setCategoryUnreadOnly),
       syncedSetLayout: make<LayoutName>('appearance.list_layout', setLayout),
@@ -352,19 +307,10 @@ export function useSettings() {
         pendingRef.current['reading.keybindings'] = JSON.stringify(value)
         scheduleSaveRef.current()
       },
-      syncedSetChatProvider: make<string>('chat.provider', setChatProviderState),
-      syncedSetChatModel: make<string>('chat.model', setChatModelState),
-      syncedSetSummaryProvider: make<string>('summary.provider', setSummaryProviderState),
-      syncedSetSummaryModel: make<string>('summary.model', setSummaryModelState),
-      syncedSetTranslateProvider: make<string>('translate.provider', setTranslateProviderState),
-      syncedSetTranslateModel: make<string>('translate.model', setTranslateModelState),
-      syncedSetTranslateTargetLang: make<string>('translate.target_lang', setTranslateTargetLangState),
-      syncedSetSummaryMaxTokens: make<string>('summary.max_tokens', setSummaryMaxTokensState),
-      syncedSetTranslateMaxTokens: make<string>('translate.max_tokens', setTranslateMaxTokensState),
     }
     // scheduleSave and dirtyKeysRef are stable refs; remaining setters are useState/useCallback-stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setChatPosition, setArticleOpenMode, setCategoryUnreadOnly, setLayout, setArticleFont, setMascot])
+  }, [setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setArticleOpenMode, setCategoryUnreadOnly, setLayout, setArticleFont, setMascot])
 
   // Special: theme setter updates 2 keys + resets highlight
   const syncedSetTheme = useCallback((name: string) => {
@@ -417,8 +363,6 @@ export function useSettings() {
     setShowThumbnails: syncedSetShowThumbnails,
     showFeedActivity,
     setShowFeedActivity: syncedSetShowFeedActivity,
-    chatPosition,
-    setChatPosition: syncedSetChatPosition,
     articleOpenMode,
     setArticleOpenMode: syncedSetArticleOpenMode,
     categoryUnreadOnly,
@@ -435,24 +379,6 @@ export function useSettings() {
     indicatorStyle,
     customThemes,
     setCustomThemes,
-    chatProvider,
-    setChatProvider: syncedSetChatProvider,
-    chatModel,
-    setChatModel: syncedSetChatModel,
-    summaryProvider,
-    setSummaryProvider: syncedSetSummaryProvider,
-    summaryModel,
-    setSummaryModel: syncedSetSummaryModel,
-    translateProvider,
-    setTranslateProvider: syncedSetTranslateProvider,
-    translateModel,
-    setTranslateModel: syncedSetTranslateModel,
-    translateTargetLang,
-    setTranslateTargetLang: syncedSetTranslateTargetLang,
-    summaryMaxTokens,
-    setSummaryMaxTokens: syncedSetSummaryMaxTokens,
-    translateMaxTokens,
-    setTranslateMaxTokens: syncedSetTranslateMaxTokens,
     keyboardNavigation,
     setKeyboardNavigation: syncedSetKeyboardNavigation,
     keybindings,

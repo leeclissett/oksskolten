@@ -7,7 +7,7 @@ vi.mock('./auth', () => ({
 }))
 
 import { getAuthToken, logoutClient } from './auth'
-import { authHeaders, fetcher, apiPost, apiPatch, apiDelete, streamPost, streamPostChat, ApiError } from './fetcher'
+import { authHeaders, fetcher, apiPost, apiPatch, apiDelete, ApiError } from './fetcher'
 
 function mockFetchResponse(body: unknown, opts: { status?: number; ok?: boolean; statusText?: string; headers?: Record<string, string> } = {}) {
   const { status = 200, ok = true, statusText = 'OK', headers = { 'Content-Type': 'application/json' } } = opts
@@ -18,31 +18,6 @@ function mockFetchResponse(body: unknown, opts: { status?: number; ok?: boolean;
     headers: new Headers(headers),
     json: () => Promise.resolve(body),
     body: null,
-  })
-}
-
-function mockSSEResponse(lines: string[], opts: { status?: number; ok?: boolean } = {}) {
-  const { status = 200, ok = true } = opts
-  const encoder = new TextEncoder()
-  const chunks = [encoder.encode(lines.join('\n') + '\n')]
-  let readIndex = 0
-
-  return vi.fn().mockResolvedValue({
-    ok,
-    status,
-    statusText: 'OK',
-    headers: new Headers({ 'Content-Type': 'text/event-stream' }),
-    json: () => Promise.reject(new Error('not JSON')),
-    body: {
-      getReader: () => ({
-        read: () => {
-          if (readIndex < chunks.length) {
-            return Promise.resolve({ done: false, value: chunks[readIndex++] })
-          }
-          return Promise.resolve({ done: true, value: undefined })
-        },
-      }),
-    },
   })
 }
 
@@ -171,101 +146,6 @@ describe('fetcher module', () => {
       vi.stubGlobal('fetch', mockFetchResponse({ deleted: true }))
       await apiDelete('/api/items/1')
       expect(fetch).toHaveBeenCalledWith('/api/items/1', expect.objectContaining({ method: 'DELETE' }))
-    })
-  })
-
-  describe('streamPost', () => {
-    it('handles cached (non-SSE) JSON response', async () => {
-      vi.stubGlobal('fetch', mockFetchResponse({ text: 'cached summary' }))
-      const onDelta = vi.fn()
-      const result = await streamPost('/api/summarize', onDelta)
-      expect(onDelta).toHaveBeenCalledWith('cached summary')
-      expect(result.usage).toEqual({ input_tokens: 0, output_tokens: 0 })
-    })
-
-    it('handles SSE streaming with delta events', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: {"type":"delta","text":"Hello "}',
-        'data: {"type":"delta","text":"world"}',
-        'data: {"type":"done","usage":{"input_tokens":10,"output_tokens":5}}',
-      ]))
-      const onDelta = vi.fn()
-      const result = await streamPost('/api/summarize', onDelta)
-      expect(onDelta).toHaveBeenCalledTimes(2)
-      expect(onDelta).toHaveBeenCalledWith('Hello ')
-      expect(onDelta).toHaveBeenCalledWith('world')
-      expect(result.usage).toEqual({ input_tokens: 10, output_tokens: 5 })
-    })
-
-    it('throws on SSE error event', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: {"type":"error","error":"rate limited"}',
-      ]))
-      await expect(streamPost('/api/summarize', vi.fn())).rejects.toThrow('rate limited')
-    })
-
-    it('skips malformed JSON lines', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: not-json',
-        'data: {"type":"delta","text":"ok"}',
-        'data: {"type":"done","usage":{"input_tokens":0,"output_tokens":0}}',
-      ]))
-      const onDelta = vi.fn()
-      await streamPost('/api/summarize', onDelta)
-      expect(onDelta).toHaveBeenCalledTimes(1)
-      expect(onDelta).toHaveBeenCalledWith('ok')
-    })
-
-    it('calls logoutClient on 401', async () => {
-      vi.stubGlobal('fetch', mockFetchResponse({}, { status: 401, ok: false }))
-      await expect(streamPost('/api/summarize', vi.fn())).rejects.toThrow('Unauthorized')
-      expect(logoutClient).toHaveBeenCalled()
-    })
-
-    it('throws when response body is null', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
-        body: null,
-      }))
-      await expect(streamPost('/api/summarize', vi.fn())).rejects.toThrow('Response body is null')
-    })
-  })
-
-  describe('streamPostChat', () => {
-    it('sends body and processes SSE events', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: {"type":"conversation_id","conversation_id":"conv-1"}',
-        'data: {"type":"text_delta","text":"Hi"}',
-        'data: {"type":"done"}',
-      ]))
-      const onEvent = vi.fn()
-      await streamPostChat('/api/chat', { message: 'hello' }, onEvent)
-
-      expect(fetch).toHaveBeenCalledWith('/api/chat', expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ message: 'hello' }),
-      }))
-      expect(onEvent).toHaveBeenCalledTimes(3)
-      expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'conversation_id', conversation_id: 'conv-1' }))
-      expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', text: 'Hi' }))
-    })
-
-    it('skips malformed SSE lines', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: {invalid',
-        'data: {"type":"text_delta","text":"ok"}',
-      ]))
-      const onEvent = vi.fn()
-      await streamPostChat('/api/chat', { message: 'test' }, onEvent)
-      expect(onEvent).toHaveBeenCalledTimes(1)
-    })
-
-    it('calls logoutClient on 401', async () => {
-      vi.stubGlobal('fetch', mockFetchResponse({}, { status: 401, ok: false }))
-      await expect(streamPostChat('/api/chat', { message: 'test' }, vi.fn())).rejects.toThrow('Unauthorized')
-      expect(logoutClient).toHaveBeenCalled()
     })
   })
 })

@@ -1,16 +1,7 @@
 import seedFeeds from './seed/feeds.json'
 import seedArticles from './seed/articles.json'
-import seedConversationsEn from './seed/en/conversations.json'
-import seedConversationsJa from './seed/ja/conversations.json'
 import { getLocale, dt } from './i18n'
 import type { FeedWithCounts, ArticleListItem, ArticleDetail, Category } from '../../../shared/types'
-
-type DemoLocale = ReturnType<typeof getLocale>
-
-const conversationsByLocale: Partial<Record<DemoLocale, SeedConversation[]>> = {
-  en: seedConversationsEn as SeedConversation[],
-  ja: seedConversationsJa as SeedConversation[],
-}
 
 /**
  * Resolve relative date strings (e.g. "-3d", "-2d23h") to ISO 8601.
@@ -46,20 +37,8 @@ function resolveSeedDates() {
 let feeds: SeedFeed[] = structuredClone(seedFeeds) as SeedFeed[]
 let articles: SeedArticle[] = structuredClone(seedArticles) as SeedArticle[]
 resolveSeedDates()
-let currentConvLocale: DemoLocale = getLocale()
-let conversations: SeedConversation[] = structuredClone(conversationsByLocale[currentConvLocale] ?? conversationsByLocale.en) as SeedConversation[]
 let nextFeedId = Math.max(...feeds.map(f => f.id)) + 1
 let nextArticleId = Math.max(...articles.map(a => a.id)) + 1
-const translatedIds = new Set<number>()
-const summarizedIds = new Set<number>()
-
-/** Re-initialize conversations when locale changes. */
-function ensureConversationLocale() {
-  const locale = getLocale()
-  if (locale === currentConvLocale) return
-  currentConvLocale = locale
-  conversations = structuredClone(conversationsByLocale[locale] ?? conversationsByLocale.en) as SeedConversation[]
-}
 
 interface SeedFeed {
   id: number
@@ -89,9 +68,6 @@ interface SeedArticle {
   title: string
   url: string
   full_text: string | null
-  full_text_translated: string | null
-  summary: string | null
-  summary_ja: string | null
   excerpt: string | null
   lang: string | null
   og_image: string | null
@@ -102,30 +78,6 @@ interface SeedArticle {
   liked_at: string | null
   fetched_at: string
   created_at: string
-}
-
-interface SeedConversationMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-interface SeedConversation {
-  id: string
-  title: string | null
-  article_id: number | null
-  article_title: string | null
-  article_url: string | null
-  article_og_image: string | null
-  first_user_message: string | null
-  first_assistant_preview: string | null
-  created_at: string
-  updated_at: string
-  message_count: number
-  messages: SeedConversationMessage[]
-}
-
-function articleSummary(a: SeedArticle): string | null {
-  return (getLocale() === 'ja' ? a.summary_ja : a.summary) ?? a.summary ?? null
 }
 
 function feedName(feedId: number): string {
@@ -160,9 +112,6 @@ function createArticle(overrides: Partial<SeedArticle> & Pick<SeedArticle, 'feed
   return {
     id: nextArticleId++,
     full_text: null,
-    full_text_translated: null,
-    summary: null,
-    summary_ja: null,
     excerpt: null,
     lang: null,
     og_image: null,
@@ -186,7 +135,6 @@ function toArticleListItem(a: SeedArticle): ArticleListItem {
     url: a.url,
     published_at: a.published_at,
     lang: a.lang,
-    summary: summarizedIds.has(a.id) ? articleSummary(a) : null,
     excerpt: a.excerpt,
     og_image: a.og_image,
     seen_at: a.seen_at,
@@ -201,8 +149,6 @@ function toArticleDetail(a: SeedArticle): ArticleDetail {
     ...toArticleListItem(a),
     source_url: a.url,
     full_text: a.full_text,
-    full_text_translated: translatedIds.has(a.id) ? (a.full_text_translated ?? null) : null,
-    translated_lang: translatedIds.has(a.id) ? getLocale() : null,
     images_archived_at: null,
     feed_type: feeds.find(f => f.id === a.feed_id)?.type ?? 'rss',
     imageArchivingEnabled: false,
@@ -315,7 +261,6 @@ export const demoStore = {
         title: `${sampleLabel} ${n} — ${feed.name}`,
         url: `${baseUrl}/sample-${n}`,
         full_text: `# ${sampleLabel} ${n}\n\n${sampleBody}`,
-        summary: sampleBody,
         excerpt: sampleBody,
         lang: feed.lang,
         published_at: new Date(Date.now() - i * 86400000).toISOString(),
@@ -458,8 +403,7 @@ export const demoStore = {
       const title = a.title.toLowerCase()
       const feed = feedName(a.feed_id).toLowerCase()
       const text = (a.full_text ?? '').toLowerCase()
-      const textJa = translatedIds.has(a.id) ? (a.full_text_translated ?? '').toLowerCase() : ''
-      return title.includes(query) || feed.includes(query) || text.includes(query) || textJa.includes(query)
+      return title.includes(query) || feed.includes(query) || text.includes(query)
     })
 
     if (params.bookmarked) result = result.filter(a => a.bookmarked_at != null)
@@ -482,18 +426,6 @@ export const demoStore = {
     }
   },
 
-  /** Get raw summary text for streaming (not exposed to UI via article fields). */
-  getArticleSummary(id: number): string | null {
-    const a = articles.find(a => a.id === id)
-    if (!a) return null
-    return articleSummary(a)
-  },
-
-  /** Mark an article as summarized so summary persists for the session. */
-  markSummarized(id: number) {
-    summarizedIds.add(id)
-  },
-
   /** Get average full_text length for a feed's articles. */
   getFeedAvgContentLength(feedId: number): number | null {
     const feedArticles = articles.filter(a => a.feed_id === feedId && a.full_text)
@@ -502,62 +434,6 @@ export const demoStore = {
     return total / feedArticles.length
   },
 
-  /** Get full_text length for realistic input_tokens metric. */
-  getArticleFullTextLength(id: number): number {
-    const a = articles.find(a => a.id === id)
-    return a?.full_text?.length ?? 0
-  },
-
-  /** Get pre-prepared translation for streaming. */
-  getArticleTranslation(id: number): string | null {
-    const a = articles.find(a => a.id === id)
-    return a?.full_text_translated ?? null
-  },
-
-  /** Mark an article as translated so full_text_translated becomes searchable. */
-  markTranslated(id: number) {
-    translatedIds.add(id)
-  },
-
-  // --- Conversations ---
-  getConversations(articleId?: number) {
-    ensureConversationLocale()
-    let result = conversations
-    if (articleId != null) {
-      result = result.filter(c => c.article_id === articleId)
-    }
-    return {
-      conversations: result.map(({ messages: _m, ...rest }) => rest)
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
-    }
-  },
-
-  getConversationMessages(conversationId: string) {
-    ensureConversationLocale()
-    const conv = conversations.find(c => c.id === conversationId)
-    if (!conv) return { messages: [] }
-    return { messages: conv.messages }
-  },
-
-  createConversation(id: string, firstMessage: string): void {
-    ensureConversationLocale()
-    const now = new Date().toISOString()
-    const content = JSON.stringify([{ type: 'text', text: firstMessage }])
-    conversations.push({
-      id,
-      title: firstMessage.slice(0, 50),
-      article_id: null,
-      article_title: null,
-      article_url: null,
-      article_og_image: null,
-      first_user_message: content,
-      first_assistant_preview: null,
-      created_at: now,
-      updated_at: now,
-      message_count: 1,
-      messages: [{ role: 'user', content }],
-    })
-  },
 
   /** Parse OPML and return preview with duplicate detection (no DB writes). */
   previewOpml(xml: string): {
@@ -696,19 +572,5 @@ export const demoStore = {
     for (const f of grouped.get(null) ?? []) lines.push(outline(f, '    '))
     lines.push('  </body>', '</opml>')
     return lines.join('\n')
-  },
-
-  appendMessage(conversationId: string, role: 'user' | 'assistant', text: string) {
-    ensureConversationLocale()
-    const conv = conversations.find(c => c.id === conversationId)
-    if (!conv) return
-    const content = JSON.stringify([{ type: 'text', text }])
-    conv.messages.push({ role, content })
-    conv.message_count = conv.messages.length
-    conv.updated_at = new Date().toISOString()
-    // Update first_assistant_preview if this is the first assistant reply
-    if (role === 'assistant' && !conv.first_assistant_preview) {
-      conv.first_assistant_preview = content
-    }
   },
 }

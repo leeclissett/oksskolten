@@ -14,10 +14,6 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: vi.fn().mockResolvedValue(undefined),
     discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
-    summarizeArticle: vi.fn(),
-    streamSummarizeArticle: vi.fn(),
-    translateArticle: vi.fn(),
-    streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
     getFeedState: vi.fn(),
   }
@@ -25,7 +21,6 @@ vi.mock('../fetcher.js', async () => {
 
 vi.mock('../rss-bridge.js', () => ({
   queryRssBridge: vi.fn().mockResolvedValue(null),
-  inferCssSelectorBridge: vi.fn().mockResolvedValue(null),
 }))
 
 let app: FastifyInstance
@@ -146,7 +141,7 @@ describe('FreshRSS-compatible GReader prefix', () => {
       title: 'Visible article',
       url: 'https://example.com/article',
       published_at: '2025-01-01T00:00:00Z',
-      summary: 'Article body',
+      full_text: 'Article body',
     })
     const { auth } = await freshRssLogin()
     const headers = { authorization: `GoogleLogin auth=${auth}` }
@@ -216,17 +211,12 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(row.read_at).not.toBeNull()
   })
 
-  it.each([
-    { queueState: 'completed', translationStatus: 'completed', translationTargetLang: 'en', translatedTitle: 'English title', expectedTitle: 'English title' },
-    { queueState: 'legacy or manually cached', translationStatus: null, translationTargetLang: null, translatedTitle: 'English title', expectedTitle: 'English title' },
-    { queueState: 'body-only', translationStatus: 'completed', translationTargetLang: 'en', translatedTitle: null, expectedTitle: 'Nederlandse titel' },
-  ])('serves a matching $queueState feed translation through stream and item content responses', async ({ translationStatus, translationTargetLang, translatedTitle, expectedTitle }) => {
+  it('serves the original title and body even when legacy translation columns are populated', async () => {
     seedUser()
     const feed = createFeed({
       name: 'Dutch Feed',
       url: 'https://example.com/nl',
       rss_url: 'https://example.com/nl/rss',
-      auto_translate_target: 'en',
     })
     const articleId = insertArticle({
       feed_id: feed.id,
@@ -235,15 +225,17 @@ describe('FreshRSS-compatible GReader prefix', () => {
       published_at: '2025-01-01T00:00:00Z',
       lang: 'nl',
       full_text: 'Nederlandse tekst.',
-      full_text_translated: 'English body.',
-      translated_lang: 'en',
     })
+    // Rows written before translation was removed still carry these columns.
+    getDb().prepare("UPDATE feeds SET auto_translate_target = 'en' WHERE id = ?").run(feed.id)
     getDb().prepare(`
       UPDATE articles
-      SET title_translated = ?, excerpt_translated = ?,
-          translation_target_lang = ?, translation_status = ?
+      SET title_translated = 'English title', excerpt_translated = 'English excerpt.',
+          full_text_translated = 'English body.', translated_lang = 'en',
+          translation_target_lang = 'en', translation_status = 'completed',
+          summary = 'A summary.'
       WHERE id = ?
-    `).run(translatedTitle, 'English excerpt.', translationTargetLang, translationStatus, articleId)
+    `).run(articleId)
 
     const { auth } = await freshRssLogin()
     const headers = { authorization: `GoogleLogin auth=${auth}` }
@@ -256,8 +248,8 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(stream.statusCode).toBe(200)
     expect(stream.json().items).toHaveLength(1)
     expect(stream.json().items[0]).toMatchObject({
-      title: expectedTitle,
-      summary: { content: '<p>English body.</p>\n' },
+      title: 'Nederlandse titel',
+      summary: { content: '<p>Nederlandse tekst.</p>\n' },
     })
 
     const contents = await app.inject({
@@ -270,60 +262,22 @@ describe('FreshRSS-compatible GReader prefix', () => {
     expect(contents.statusCode).toBe(200)
     expect(contents.json().items).toHaveLength(1)
     expect(contents.json().items[0]).toMatchObject({
-      title: expectedTitle,
-      summary: { content: '<p>English body.</p>\n' },
+      title: 'Nederlandse titel',
+      summary: { content: '<p>Nederlandse tekst.</p>\n' },
     })
   })
 
-  it.each([
-    {
-      reason: 'the translated language differs from the feed target',
-      translatedLang: 'ja',
-      translatedBody: '日本語の本文。',
-      feedTarget: 'en',
-    },
-    {
-      reason: 'the translated body is empty',
-      translatedLang: 'en',
-      translatedBody: '',
-      feedTarget: 'en',
-    },
-    {
-      reason: 'the translated body is whitespace',
-      translatedLang: 'en',
-      translatedBody: '   ',
-      feedTarget: 'en',
-    },
-    {
-      reason: 'automatic translation is disabled for the feed',
-      translatedLang: 'en',
-      translatedBody: 'English body.',
-      feedTarget: null,
-    },
-  ])('serves original content when $reason', async ({ translatedLang, translatedBody, feedTarget }) => {
+  it('falls back to the excerpt when there is no full text, and ignores a legacy summary', async () => {
     seedUser()
-    const feed = createFeed({
-      name: 'Dutch Feed',
-      url: 'https://example.com/nl',
-      rss_url: 'https://example.com/nl/rss',
-      auto_translate_target: feedTarget,
-    })
+    const feed = createFeed({ name: 'My Feed', url: 'https://example.com', rss_url: 'https://example.com/rss' })
     const articleId = insertArticle({
       feed_id: feed.id,
-      title: 'Nederlandse titel',
-      url: 'https://example.com/nl/article',
+      title: 'Excerpt only',
+      url: 'https://example.com/excerpt-only',
       published_at: '2025-01-01T00:00:00Z',
-      lang: 'nl',
-      full_text: 'Nederlandse tekst.',
-      full_text_translated: translatedBody,
-      translated_lang: translatedLang,
+      excerpt: 'Listing excerpt',
     })
-    getDb().prepare(`
-      UPDATE articles
-      SET title_translated = ?, excerpt_translated = ?,
-          translation_target_lang = ?, translation_status = ?
-      WHERE id = ?
-    `).run('Translated title', 'Translated excerpt.', 'en', 'completed', articleId)
+    getDb().prepare("UPDATE articles SET summary = 'A summary.' WHERE id = ?").run(articleId)
 
     const { auth } = await freshRssLogin()
     const response = await app.inject({
@@ -333,10 +287,9 @@ describe('FreshRSS-compatible GReader prefix', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json().items).toHaveLength(1)
     expect(response.json().items[0]).toMatchObject({
-      title: 'Nederlandse titel',
-      summary: { content: '<p>Nederlandse tekst.</p>\n' },
+      title: 'Excerpt only',
+      summary: { content: '<p>Listing excerpt</p>\n' },
     })
   })
 })

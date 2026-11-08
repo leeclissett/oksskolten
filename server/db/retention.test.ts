@@ -34,7 +34,6 @@ function seedArticle(feedId: number, overrides: Partial<Parameters<typeof insert
     url: `https://example.com/article/${Math.random()}`,
     published_at: '2025-01-01T00:00:00Z',
     full_text: 'Some content here',
-    summary: 'A summary',
     excerpt: 'An excerpt',
     ...overrides,
   })
@@ -155,10 +154,11 @@ describe('purgeExpiredArticles', () => {
     const id = seedArticle(feed.id, {
       url: 'https://example.com/to-purge',
       full_text: 'Full content',
-      summary: 'Summary text',
       excerpt: 'Excerpt text',
       og_image: 'https://example.com/image.jpg',
     })
+    // Legacy AI columns written before summarise/translate were removed
+    getDb().prepare("UPDATE articles SET summary = 'Summary text', full_text_translated = 'Translated' WHERE id = ?").run(id)
     markArticleSeen(id, true)
     setSeenAt(id, daysAgo(100))
 

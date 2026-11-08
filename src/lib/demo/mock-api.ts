@@ -1,5 +1,5 @@
 import { demoStore } from './demo-store'
-import { dt, getLocale, streamText } from './i18n'
+import { dt, getLocale } from './i18n'
 
 // ---------------------------------------------------------------------------
 // Intercept global fetch for endpoints that use raw fetch (SSE streams, etc.)
@@ -41,7 +41,6 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
       { type: 'step', step: 'rss-discovery', status: 'running' },
       { type: 'step', step: 'rss-discovery', status: 'done', found: true },
       { type: 'step', step: 'rss-bridge', status: 'skipped' },
-      { type: 'step', step: 'css-selector', status: 'skipped' },
       { type: 'done', feed: { id: feed.id, rss_url: feed.rss_url, rss_bridge_url: feed.rss_bridge_url } },
     ], 300)
   }
@@ -58,21 +57,6 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
 
   return originalFetch(input, init)
-}
-
-// Map suggestion keys to demo reply i18n keys.
-const suggestionReplyMap: Record<string, 'demo.chatReply.recommend' | 'demo.chatReply.unread' | 'demo.chatReply.trending' | 'demo.chatReply.surprise' | 'demo.chatReply.digest'> = {
-  recommend: 'demo.chatReply.recommend',
-  unread: 'demo.chatReply.unread',
-  trending: 'demo.chatReply.trending',
-  surprise: 'demo.chatReply.surprise',
-  digest: 'demo.chatReply.digest',
-}
-
-function matchSuggestionReply(suggestionKey: string | undefined): string | null {
-  if (!suggestionKey) return null
-  const replyKey = suggestionReplyMap[suggestionKey]
-  return replyKey ? dt(replyKey) : null
 }
 
 let demoProfileCustomName: string | null = null
@@ -135,27 +119,7 @@ export async function demoFetcher(url: string): Promise<unknown> {
   if (path === '/api/settings/preferences') {
     return {
       'reading.auto_mark_read': 'on',
-      'chat.provider': 'anthropic',
-      'chat.model': 'claude-haiku-4-5-20251001',
-      'summary.provider': 'anthropic',
-      'summary.model': 'claude-haiku-4-5-20251001',
-      'summary.max_tokens': null,
-      'translate.provider': 'deepl',
-      'translate.model': '',
-      'translate.max_tokens': null,
-      'translate.target_lang': null,
     }
-  }
-
-  if (path === '/api/chat/conversations') {
-    const articleId = params.get('article_id') ? Number(params.get('article_id')) : undefined
-    return demoStore.getConversations(articleId)
-  }
-
-  // /api/chat/:id/messages
-  const convMsgMatch = path.match(/^\/api\/chat\/([^/]+)\/messages$/)
-  if (convMsgMatch) {
-    return demoStore.getConversationMessages(convMsgMatch[1])
   }
 
   // /api/feeds/:id/metrics
@@ -170,27 +134,6 @@ export async function demoFetcher(url: string): Promise<unknown> {
 
   if (path === '/api/settings/auth-methods') {
     return { password: true, passkey: false, github: false }
-  }
-
-  // API key status: Anthropic and DeepL are "configured" in demo
-  const apiKeyMatch = path.match(/^\/api\/settings\/api-keys\/(.+)$/)
-  if (apiKeyMatch) {
-    const provider = apiKeyMatch[1]
-    const configured = provider !== 'claude-code'
-    return { configured }
-  }
-
-  // Claude Code status: not installed in demo
-  if (path === '/api/chat/claude-code-status') {
-    return { loggedIn: false, error: 'not found' }
-  }
-
-  // Translation service usage stats
-  if (path === '/api/settings/deepl/usage') {
-    return { monthlyChars: 128400, freeTierRemaining: 371600 }
-  }
-  if (path === '/api/settings/google-translate/usage') {
-    return { monthlyChars: 0, freeTierRemaining: 500000 }
   }
 
   if (path.startsWith('/api/settings')) {
@@ -242,26 +185,8 @@ export async function demoApiPost(url: string, body?: unknown): Promise<unknown>
     return demoStore.batchSeen(ids)
   }
 
-  // AI features — return demo message (actual streaming happens via streamPost/streamPostChat)
-  if (path.match(/^\/api\/articles\/\d+\/summarize/)) {
-    return { text: dt('demo.summaryReply'), cached: true }
-  }
-  if (path.match(/^\/api\/articles\/\d+\/translate/)) {
-    return { text: dt('demo.translateReply'), cached: true }
-  }
-
-  // Chat — handled via streamPostChat
-  if (path.startsWith('/api/chat')) {
-    return {}
-  }
-
   // Feed fetch — no-op in demo
   if (path.match(/^\/api\/feeds\/\d+\/fetch$/)) {
-    return { success: true }
-  }
-
-  // API key save — no-op in demo
-  if (path.match(/^\/api\/settings\/api-keys\//)) {
     return { success: true }
   }
 
@@ -333,62 +258,4 @@ export async function demoApiDelete(url: string): Promise<unknown> {
   }
 
   return {}
-}
-
-// --- streamPost stub (summarize / translate) ---
-export async function demoStreamPost(
-  url: string,
-  onDelta: (text: string) => void,
-): Promise<{ usage: { input_tokens: number; output_tokens: number; billing_mode?: 'anthropic' | 'gemini' | 'openai' | 'claude-code' | 'google-translate'; model?: string } }> {
-  let text: string
-  let inputTokens: number
-  if (url.includes('summarize')) {
-    const id = extractId(url, /\/api\/articles\/(\d+)\/summarize/)
-    text = (id != null ? demoStore.getArticleSummary(id) : null) ?? dt('demo.summaryReply')
-    inputTokens = id != null ? demoStore.getArticleFullTextLength(id) : text.length
-    if (id != null) demoStore.markSummarized(id)
-  } else {
-    const id = extractId(url, /\/api\/articles\/(\d+)\/translate/)
-    text = (id != null ? demoStore.getArticleTranslation(id) : null) ?? dt('demo.translateReply')
-    inputTokens = id != null ? demoStore.getArticleFullTextLength(id) : text.length
-    if (id != null) demoStore.markTranslated(id)
-    // Simulate translation API latency (0.5–1.5s) then return all at once
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000))
-    onDelta(text)
-    return { usage: { input_tokens: inputTokens, output_tokens: text.length, billing_mode: 'anthropic', model: 'demo' } }
-  }
-  await streamText(text, onDelta)
-  return { usage: { input_tokens: inputTokens, output_tokens: text.length, billing_mode: 'anthropic', model: 'demo' } }
-}
-
-// --- streamPostChat stub ---
-export async function demoStreamPostChat(
-  _url: string,
-  body: unknown,
-  onEvent: (event: { type: string; text?: string; conversation_id?: string; usage?: { input_tokens: number; output_tokens: number }; elapsed_ms?: number; model?: string }) => void,
-): Promise<void> {
-  const { conversation_id, message, suggestion_key } = (body ?? {}) as { conversation_id?: string; message?: string; suggestion_key?: string }
-  const isNew = !conversation_id
-  const resolvedId = conversation_id ?? crypto.randomUUID()
-  onEvent({ type: 'conversation_id', conversation_id: resolvedId })
-
-  // Persist user message to in-memory store
-  if (message) {
-    if (isNew) {
-      demoStore.createConversation(resolvedId, message)
-    } else {
-      demoStore.appendMessage(resolvedId, 'user', message)
-    }
-  }
-
-  const replyText = matchSuggestionReply(suggestion_key) ?? dt('demo.chatReply')
-  const start = Date.now()
-  await streamText(replyText, (chunk) => {
-    onEvent({ type: 'text_delta', text: chunk })
-  })
-
-  // Persist assistant reply to in-memory store
-  demoStore.appendMessage(resolvedId, 'assistant', replyText)
-
-  onEvent({ type: 'done', usage: { input_tokens: replyText.length, output_tokens: replyText.length }, elapsed_ms: Date.now() - start, model: 'demo' })
 }

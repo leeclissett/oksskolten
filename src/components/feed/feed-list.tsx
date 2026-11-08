@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import { fetcher } from '../../lib/fetcher'
 import { useI18n } from '../../lib/i18n'
 import { MD_BREAKPOINT } from '../../lib/breakpoints'
-import { Inbox, Plus, ChevronRight, Bookmark, ThumbsUp, Clock, Paperclip, Search, Command, ArrowBigUp, AlertTriangle, MessagesSquare, Languages } from 'lucide-react'
+import { Inbox, Plus, ChevronRight, Bookmark, ThumbsUp, Clock, Paperclip, Search, Command, ArrowBigUp, AlertTriangle } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { useFetchProgressContext } from '../../contexts/fetch-progress-context'
@@ -70,7 +70,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
   const isLikes = location.pathname === '/likes'
   const isHistory = location.pathname === '/history'
   const isClips = location.pathname === '/clips'
-  const isChat = location.pathname.startsWith('/chat')
   const selectedFeedId = feedId ? Number(feedId) : null
   const selectedCategoryId = categoryId ? Number(categoryId) : null
   const { progress, startFeedFetch, subscribeFeedFetch } = useFetchProgressContext()
@@ -178,7 +177,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
     handleMoveToCategory,
     handleFetchFeed, handleFetchCategory,
     handleReDetectFeed,
-    handleToggleAutoTranslate,
     handleConfirm, handleRenameSubmit, handleToggleCollapse,
   } = useFeedActions({
     categorized, mutateFeeds, mutateCategories, startFeedFetch, onMarkAllRead,
@@ -320,9 +318,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
             {feed.disabled ? '⚠ ' : null}
             {feed.name}
           </span>
-          {feed.auto_translate_target === 'en' && (
-            <Languages size={13} className="text-accent shrink-0" aria-label={t('feeds.autoTranslateActive')} />
-          )}
           {!feed.disabled && feed.last_error && feed.article_count === 0 && (
             <AlertTriangle size={13} className="text-warning shrink-0" />
           )}
@@ -366,8 +361,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
         onMoveToCategory={(catId) => handleMoveToCategory(feed, catId)}
         onFetch={() => handleFetchFeed(feed)}
         onReDetect={() => handleReDetectFeed(feed)}
-        autoTranslateEnabled={feed.auto_translate_target === 'en'}
-        onToggleAutoTranslate={() => handleToggleAutoTranslate(feed)}
       >
         {button}
       </FeedContextMenu>
@@ -493,8 +486,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
 
           <SidebarNavItem icon={Clock} label={t('feeds.history')} selected={isHistory} onClick={() => { void navigate('/history'); onClose() }} />
 
-          <SidebarNavItem icon={MessagesSquare} label={t('chat.title')} selected={isChat} onClick={() => { void navigate('/chat'); onClose() }} />
-
           <SidebarNavItem icon={Plus} label={t('modal.addNew')} onClick={() => setFeedModalOpen(true)} className="text-muted hover:text-text" />
 
           <div className="px-2 pt-4 pb-1">
@@ -573,7 +564,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
           title={
             confirm.type === 'delete-feed' ? t('feeds.deleteFeed')
               : confirm.type === 'enable-feed' ? t('feeds.reEnableFeed')
-              : confirm.type === 'auto-translate-feed' ? t('feeds.enableAutoTranslate')
               : t('category.delete')
           }
           message={
@@ -581,17 +571,14 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
               ? t('feeds.deleteConfirm', { name: confirm.feed!.name })
               : confirm.type === 'enable-feed'
                 ? t('feeds.reEnableConfirm')
-                : confirm.type === 'auto-translate-feed'
-                  ? t('feeds.autoTranslateConfirm', { name: confirm.feed!.name })
                 : t('category.deleteConfirm', { name: confirm.category!.name })
           }
           confirmLabel={
             confirm.type === 'delete-feed' ? t('feeds.delete')
               : confirm.type === 'enable-feed' ? t('feeds.enable')
-              : confirm.type === 'auto-translate-feed' ? t('feeds.enableAutoTranslateAction')
               : t('category.delete')
           }
-          danger={confirm.type === 'delete-feed' || confirm.type === 'delete-category'}
+          danger={confirm.type !== 'enable-feed'}
           onConfirm={handleConfirm}
           onCancel={() => setConfirm(null)}
         />

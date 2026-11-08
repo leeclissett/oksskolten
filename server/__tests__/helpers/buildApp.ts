@@ -3,7 +3,6 @@ import jwt from '@fastify/jwt'
 import rateLimit, { type RateLimitPluginOptions } from '@fastify/rate-limit'
 import multipart from '@fastify/multipart'
 import { registerApi } from '../../api.js'
-import { registerChatApi } from '../../chatRoutes.js'
 import { authRoutes } from '../../authRoutes.js'
 import { passkeyRoutes } from '../../passkeyRoutes.js'
 import { greaderRoutes } from '../../routes/greader.js'
@@ -18,6 +17,5 @@ export async function buildApp(options: { rateLimit?: RateLimitPluginOptions } =
   await app.register(passkeyRoutes)
   await app.register(greaderRoutes)
   registerApi(app)
-  registerChatApi(app)
   return app
 }

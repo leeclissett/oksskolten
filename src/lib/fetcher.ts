@@ -1,6 +1,5 @@
-import { authHeaders, handleResponseError, parseSSEStream, ApiError } from './api-base'
+import { authHeaders, handleResponseError } from './api-base'
 export { ApiError, authHeaders } from './api-base'
-export type { ChatSSEEvent } from './api-base'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -25,43 +24,6 @@ async function request(url: string, method: string, body?: unknown) {
 export const apiPost = (url: string, body?: unknown) => request(url, 'POST', body)
 export const apiPatch = (url: string, body: unknown) => request(url, 'PATCH', body)
 export const apiDelete = (url: string) => request(url, 'DELETE')
-
-export async function streamPost(
-  url: string,
-  onDelta: (text: string) => void,
-): Promise<{ usage: { input_tokens: number; output_tokens: number; billing_mode?: 'anthropic' | 'gemini' | 'openai' | 'claude-code' | 'google-translate'; model?: string; monthly_chars?: number } }> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: '{}',
-  })
-  if (!res.ok) return handleResponseError(res, url)
-
-  const contentType = res.headers.get('Content-Type') || ''
-
-  // Cached response: plain JSON
-  if (!contentType.includes('text/event-stream')) {
-    const data = await res.json()
-    onDelta(data.text)
-    return { usage: { input_tokens: 0, output_tokens: 0 } }
-  }
-
-  // SSE streaming response
-  type StreamPayload = { type: string; text?: string; error?: string; usage?: typeof usage }
-  let usage: { input_tokens: number; output_tokens: number; billing_mode?: 'anthropic' | 'gemini' | 'openai' | 'claude-code' | 'google-translate'; model?: string; monthly_chars?: number } = { input_tokens: 0, output_tokens: 0 }
-
-  await parseSSEStream<StreamPayload>(res, (payload) => {
-    if (payload.type === 'delta') {
-      onDelta(payload.text as string)
-    } else if (payload.type === 'error') {
-      throw new ApiError((payload.error as string) || 'Unknown error', 0, {})
-    } else if (payload.type === 'done') {
-      usage = payload.usage as typeof usage
-    }
-  })
-
-  return { usage }
-}
 
 export interface OpmlPreviewFeed {
   name: string
@@ -113,19 +75,4 @@ export async function fetchOpmlBlob(): Promise<Blob> {
   const res = await fetch('/api/opml', { headers: authHeaders(), signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) })
   if (!res.ok) return handleResponseError(res, '/api/opml')
   return res.blob()
-}
-
-export async function streamPostChat(
-  url: string,
-  body: { message: string; conversation_id?: string; article_id?: number; context?: 'home'; suggestion_key?: string; timeZone?: string },
-  onEvent: (event: import('./api-base').ChatSSEEvent) => void,
-): Promise<void> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) return handleResponseError(res, url)
-
-  await parseSSEStream<import('./api-base').ChatSSEEvent>(res, onEvent)
 }

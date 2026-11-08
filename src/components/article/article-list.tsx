@@ -49,7 +49,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const navigate = useNavigate()
   const { feedId: feedIdParam, categoryId: categoryIdParam } = useParams<{ feedId?: string; categoryId?: string }>()
   const { settings } = useAppLayout()
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const clipFeedId = useClipFeedId()
 
   const isInbox = location.pathname === '/inbox'
@@ -77,8 +77,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     indicatorStyle,
     showUnreadIndicator: settings.showUnreadIndicator === 'on',
     showThumbnails: settings.showThumbnails === 'on',
-    translationTargetLang: settings.translateTargetLang || locale,
-  }), [dateMode, indicatorStyle, settings.showUnreadIndicator, settings.showThumbnails, settings.translateTargetLang, locale])
+  }), [dateMode, indicatorStyle, settings.showUnreadIndicator, settings.showThumbnails])
   const isGridLayout = layout === 'card' || layout === 'magazine'
   const { progress, startFeedFetch } = useFetchProgressContext()
   const { mutate: globalMutate } = useSWRConfig()
@@ -102,9 +101,6 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     fetcher,
     {
       revalidateFirstPage: isCollectionView,
-      refreshInterval: latest => latest?.some(page =>
-        page.articles.some(article => article.translation_status === 'pending' || article.translation_status === 'processing'),
-      ) ? 5000 : 0,
     },
   )
 

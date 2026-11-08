@@ -19,8 +19,6 @@ services:
       PARSE_MAX_THREADS: "2"
       CRON_SCHEDULE: "*/5 * * * *"
       MEILI_URL: http://meilisearch:7700
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
-      VLLM_BASE_URL: http://host.docker.internal:8000
     env_file:
       - path: .env
         required: false

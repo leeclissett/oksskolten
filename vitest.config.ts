@@ -12,11 +12,9 @@ export default defineConfig({
       exclude: [
         'src/pages/**',
         'src/components/settings/**',
-        'src/components/chat/**',
         'src/components/layout/**',
         'src/App.tsx',
         'src/components/ui/Mascot.tsx',
-        'src/data/aiModels.ts',
         'src/lib/articleFonts.ts',
       ],
     },

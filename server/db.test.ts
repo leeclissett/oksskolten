@@ -211,7 +211,6 @@ describe('Articles', () => {
       published_at: '2025-06-01T00:00:00Z',
       lang: 'en',
       full_text: 'Full text here',
-      summary: 'Summary here',
     })
 
     const article = getArticleById(articleId)
@@ -536,14 +535,12 @@ describe('Articles', () => {
     updateArticleContent(id, {
       lang: 'ja',
       full_text: 'Updated text',
-      summary: 'Updated summary',
       og_image: 'https://example.com/image.jpg',
     })
 
     const article = getArticleById(id)!
     expect(article.lang).toBe('ja')
     expect(article.full_text).toBe('Updated text')
-    expect(article.summary).toBe('Updated summary')
     expect(article.og_image).toBe('https://example.com/image.jpg')
   })
 
@@ -578,7 +575,6 @@ describe('Articles', () => {
     seedArticle(feed.id, {
       url: 'https://example.com/ok',
       full_text: 'text',
-      summary: 'summary',
     })
     seedArticle(feed.id, {
       url: 'https://example.com/retry',
