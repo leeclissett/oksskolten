@@ -18,18 +18,10 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: vi.fn(),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: null, title: null }),
-    summarizeArticle: vi.fn(),
-    streamSummarizeArticle: vi.fn(),
-    translateArticle: vi.fn(),
-    streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
     getFeedState: vi.fn(),
   }
 })
-
-vi.mock('../anthropic.js', () => ({
-  anthropic: { messages: { stream: vi.fn(), create: vi.fn() } },
-}))
 
 vi.mock('../fetcher/ssrf.js', () => ({
   assertSafeUrl: (...args: unknown[]) => mockAssertSafeUrl(...args),

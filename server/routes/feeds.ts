@@ -20,15 +20,13 @@ import {
   getFeedMetrics,
   getCategories,
   createCategory,
-  cancelFeedTranslations,
   getDb,
 } from '../db.js'
 import { requireJson } from '../auth.js'
 import { fetchSingleFeed, discoverRssUrl } from '../fetcher.js'
-import { queryRssBridge, inferCssSelectorBridge } from '../rss-bridge.js'
+import { queryRssBridge } from '../rss-bridge.js'
 import { parseOpml, generateOpml, type ParsedFeed } from '../opml.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
-import { queueFeedTranslations } from '../translation-worker.js'
 
 const httpOrHttpsUrl = z
   .string({ error: 'url is required' })
@@ -48,11 +46,6 @@ const CreateFeedBody = z
     // Phase 2: user chose "whole site" — use this exact RSS URL
     discovered_rss_url: httpOrHttpsUrl.optional(),
     discovered_rss_title: z.string().optional(),
-    // Phase 2: user chose "this page only" — skip to LLM inference
-    force_page_selector: z.boolean().optional(),
-  })
-  .refine((data) => !(data.discovered_rss_url && data.force_page_selector), {
-    message: 'discovered_rss_url and force_page_selector are mutually exclusive',
   })
 
 const UpdateFeedBody = z.object({
@@ -60,8 +53,6 @@ const UpdateFeedBody = z.object({
   rss_bridge_url: z.string().nullable().optional(),
   disabled: z.number().optional(),
   category_id: z.number().nullable().optional(),
-  auto_translate_target: z.enum(['en']).nullable().optional(),
-  backfill_translations: z.boolean().optional(),
 })
 
 export async function feedRoutes(api: FastifyInstance): Promise<void> {
@@ -113,14 +104,6 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
           discoveredTitle = body.discovered_rss_title ?? null
           send({ type: 'step', step: 'rss-discovery', status: 'done', found: true })
           send({ type: 'step', step: 'rss-bridge', status: 'skipped' })
-          send({ type: 'step', step: 'css-selector', status: 'skipped' })
-        } else if (body.force_page_selector) {
-          // Phase 2: user chose "this page only" — skip to LLM inference
-          send({ type: 'step', step: 'rss-discovery', status: 'skipped' })
-          send({ type: 'step', step: 'rss-bridge', status: 'skipped' })
-          send({ type: 'step', step: 'css-selector', status: 'running' })
-          rssBridgeUrl = await inferCssSelectorBridge(body.url)
-          send({ type: 'step', step: 'css-selector', status: 'done', found: !!rssBridgeUrl })
         } else {
           // Phase 1: normal discovery flow
           send({ type: 'step', step: 'rss-discovery', status: 'running' })
@@ -149,23 +132,11 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
           send({ type: 'step', step: 'rss-bridge', status: 'running' })
           rssBridgeUrl = await queryRssBridge(body.url)
           send({ type: 'step', step: 'rss-bridge', status: 'done', found: !!rssBridgeUrl })
-
-          // Step 3: CssSelectorBridge via LLM
-          if (!rssBridgeUrl) {
-            send({ type: 'step', step: 'css-selector', status: 'running' })
-            rssBridgeUrl = await inferCssSelectorBridge(body.url)
-            send({ type: 'step', step: 'css-selector', status: 'done', found: !!rssBridgeUrl })
-          } else {
-            send({ type: 'step', step: 'css-selector', status: 'skipped' })
-          }
         }
 
         // If every strategy failed, do not create a feed.
         if (!rssUrl && !rssBridgeUrl) {
-          const errorMsg = body.force_page_selector
-            ? 'Could not extract content from this page'
-            : 'RSS could not be detected for this URL'
-          send({ type: 'error', error: errorMsg })
+          send({ type: 'error', error: 'RSS could not be detected for this URL' })
           sse.end()
           return
         }
@@ -206,23 +177,15 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
       const body = parseOrBadRequest(UpdateFeedBody, request.body, reply)
       if (!body) return
 
-      const { backfill_translations: backfillTranslations, ...updates } = body
-      const feed = updateFeed(params.id, updates)
+      const feed = updateFeed(params.id, body)
       if (!feed) {
         reply.status(404).send({ error: 'Feed not found' })
         return
       }
 
-      let queued = 0
-      if (body.auto_translate_target === null) {
-        cancelFeedTranslations(params.id)
-      } else if (body.auto_translate_target && backfillTranslations) {
-        queued = queueFeedTranslations(params.id, body.auto_translate_target).queued
-      }
-
       const feeds = getFeeds()
       const withCounts = feeds.find(f => f.id === feed.id)
-      reply.send({ ...(withCounts || feed), auto_translation_queued: queued })
+      reply.send(withCounts || feed)
     },
   )
 
@@ -321,13 +284,6 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
         sse.send({ type: 'stage', stage: 'bridge' })
         rssBridgeUrl = await queryRssBridge(feed.url)
         sse.send({ type: 'stage-done', stage: 'bridge', found: !!rssBridgeUrl })
-      }
-
-      // Step 3: CssSelectorBridge via LLM
-      if (!rssUrl && !rssBridgeUrl) {
-        sse.send({ type: 'stage', stage: 'bridge-llm' })
-        rssBridgeUrl = await inferCssSelectorBridge(feed.url)
-        sse.send({ type: 'stage-done', stage: 'bridge-llm', found: !!rssBridgeUrl })
       }
 
       // Update feed with new URLs
@@ -550,10 +506,7 @@ function feedWithUrl(url: string): Feed | undefined {
  * Follows the web app's add-feed flow (POST /api/feeds) without its
  * interactive steps: RSS auto-discovery (the URL itself when it is a feed, a
  * <link rel="alternate"> on the page, then the usual feed paths), then the
- * RSS-Bridge fallback. The LLM CSS-selector step is not run: it scrapes a
- * page rather than following a feed, is slow enough to time a reader app's
- * request out, and spends LLM credits without the user seeing the choice.
- * The new feed is fetched in the background, as in the web app.
+ * RSS-Bridge fallback. The new feed is fetched in the background, as in the web app.
  */
 export async function subscribeToFeedUrl(
   url: string,

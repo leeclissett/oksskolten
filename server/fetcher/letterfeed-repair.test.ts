@@ -54,9 +54,7 @@ interface Row {
   url: string
   full_text: string
   excerpt: string | null
-  summary: string | null
-  full_text_translated: string | null
-  translated_lang: string | null
+  og_image: string | null
   seen_at: string | null
   bookmarked_at: string | null
   source_url: string | null
@@ -64,7 +62,7 @@ interface Row {
 
 function rows(): Row[] {
   return getDb().prepare(
-    'SELECT id, url, full_text, excerpt, summary, full_text_translated, translated_lang, seen_at, bookmarked_at, source_url FROM articles ORDER BY id',
+    'SELECT id, url, full_text, excerpt, og_image, seen_at, bookmarked_at, source_url FROM articles ORDER BY id',
   ).all() as Row[]
 }
 
@@ -78,9 +76,7 @@ async function seedDumpedArticle(): Promise<Row> {
   updateArticleContent(article.id, {
     full_text: RAW_DOCUMENT_DUMP,
     excerpt: RAW_DOCUMENT_DUMP.slice(0, 200),
-    summary: 'Summary generated from the dump',
-    full_text_translated: 'Translation generated from the dump',
-    translated_lang: 'nl',
+    og_image: 'https://img.example/dump.png',
   })
   markArticleSeen(article.id, true)
   markArticleBookmarked(article.id, true)
@@ -120,11 +116,6 @@ describe('repair of articles stored as a raw HTML document dump', () => {
     expect(article.full_text).toContain('BODY-END-MARKER')
     expect(article.excerpt).not.toContain('@media')
 
-    // Derived from the dump, so regenerated on demand.
-    expect(article.summary).toBeNull()
-    expect(article.full_text_translated).toBeNull()
-    expect(article.translated_lang).toBeNull()
-
     // Reader state is preserved.
     expect(article.seen_at).toBe(before.seen_at)
     expect(article.bookmarked_at).toBe(before.bookmarked_at)
@@ -136,26 +127,26 @@ describe('repair of articles stored as a raw HTML document dump', () => {
     await seedDumpedArticle()
     await fetchSingleFeed(feed, undefined, { skipCache: true })
     const repaired = rows()[0]
-    updateArticleContent(repaired.id, { summary: 'Fresh summary of the repaired text' })
+    updateArticleContent(repaired.id, { og_image: 'https://img.example/fresh.png' })
 
     await fetchSingleFeed(feed, undefined, { skipCache: true })
 
     const again = rows()[0]
     expect(again.full_text).toBe(repaired.full_text)
-    expect(again.summary).toBe('Fresh summary of the repaired text')
+    expect(again.og_image).toBe('https://img.example/fresh.png')
   })
 
   it('leaves an inline article alone when its braces are not a stylesheet dump', async () => {
     const before = await seedDumpedArticle()
     // Longer than MIN_EXTRACTED_LENGTH, so the unrelated stale-article refresh ignores it.
     const ownText = 'Notes on templating: write {name} and the renderer fills it in. '.repeat(5).trim()
-    updateArticleContent(before.id, { full_text: ownText, summary: 'Kept' })
+    updateArticleContent(before.id, { full_text: ownText, og_image: 'https://img.example/kept.png' })
 
     await fetchSingleFeed(feed, undefined, { skipCache: true })
 
     const [article] = rows()
     expect(article.full_text).toBe(ownText)
-    expect(article.summary).toBe('Kept')
+    expect(article.og_image).toBe('https://img.example/kept.png')
   })
 
   it('cannot repair an article whose entry has rolled off the feed, and does not damage it', async () => {
@@ -166,7 +157,7 @@ describe('repair of articles stored as a raw HTML document dump', () => {
 
     const old = rows().find(r => r.id === before.id)!
     expect(old.full_text).toBe(before.full_text)
-    expect(old.summary).toBe('Summary generated from the dump')
+    expect(old.og_image).toBe('https://img.example/dump.png')
   })
 })
 
@@ -192,7 +183,7 @@ describe('source page of an inline-content article', () => {
     await fetchSingleFeed(feed, undefined, { skipCache: true })
     const [stored] = rows()
     getDb().prepare('UPDATE articles SET source_url = NULL WHERE id = ?').run(stored.id)
-    updateArticleContent(stored.id, { summary: 'A summary worth keeping' })
+    updateArticleContent(stored.id, { og_image: 'https://img.example/keep.png' })
     markArticleSeen(stored.id, true)
 
     await fetchSingleFeed(feed, undefined, { skipCache: true })
@@ -200,7 +191,7 @@ describe('source page of an inline-content article', () => {
     const [article] = rows()
     expect(article.source_url).toBe(POST_URL)
     expect(article.full_text).toBe(stored.full_text)
-    expect(article.summary).toBe('A summary worth keeping')
+    expect(article.og_image).toBe('https://img.example/keep.png')
     expect(article.seen_at).not.toBeNull()
   })
 

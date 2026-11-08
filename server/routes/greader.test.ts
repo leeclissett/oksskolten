@@ -24,10 +24,6 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: (...args: unknown[]) => mockFetchSingleFeed(...args),
     discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
-    summarizeArticle: vi.fn(),
-    streamSummarizeArticle: vi.fn(),
-    translateArticle: vi.fn(),
-    streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
     getFeedState: vi.fn(),
   }
@@ -35,7 +31,6 @@ vi.mock('../fetcher.js', async () => {
 
 vi.mock('../rss-bridge.js', () => ({
   queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
-  inferCssSelectorBridge: vi.fn().mockResolvedValue(null),
 }))
 
 let app: FastifyInstance

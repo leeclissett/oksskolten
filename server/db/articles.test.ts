@@ -381,13 +381,13 @@ describe('updateArticleContent edge cases', () => {
 
   it('updates only specified fields', () => {
     const feed = seedFeed()
-    const id = seedArticle(feed.id, { full_text: 'original', summary: 'old summary' })
+    const id = seedArticle(feed.id, { full_text: 'original', excerpt: 'old excerpt' })
 
-    updateArticleContent(id, { summary: 'new summary' })
+    updateArticleContent(id, { excerpt: 'new excerpt' })
 
     const article = getArticleById(id)!
     expect(article.full_text).toBe('original')
-    expect(article.summary).toBe('new summary')
+    expect(article.excerpt).toBe('new excerpt')
   })
 })
 
