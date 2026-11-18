@@ -24,11 +24,19 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: vi.fn(),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: null, title: null }),
+    summarizeArticle: vi.fn(),
+    streamSummarizeArticle: vi.fn(),
+    translateArticle: vi.fn(),
+    streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
     getFeedState: vi.fn(),
     fetchArticleContent: (...args: unknown[]) => mockFetchArticleContent(...args),
   }
 })
+
+vi.mock('../anthropic.js', () => ({
+  anthropic: { messages: { stream: vi.fn(), create: vi.fn() } },
+}))
 
 vi.mock('../fetcher/article-images.js', () => ({
   archiveArticleImages: (...args: unknown[]) => mockArchiveArticleImages(...args),

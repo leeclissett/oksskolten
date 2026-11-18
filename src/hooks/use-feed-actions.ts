@@ -11,7 +11,7 @@ type RenamingState =
   | null
 
 type ConfirmState =
-  | { type: 'delete-feed' | 'enable-feed' | 'delete-category'; feed?: FeedWithCounts; category?: Category }
+  | { type: 'delete-feed' | 'enable-feed' | 'delete-category' | 'auto-translate-feed'; feed?: FeedWithCounts; category?: Category }
   | null
 
 interface UseFeedActionsOpts {
@@ -123,6 +123,24 @@ export function useFeedActions({
     }
   }
 
+  async function handleToggleAutoTranslate(feed: FeedWithCounts) {
+    if (!feed.auto_translate_target) {
+      setConfirm({ type: 'auto-translate-feed', feed })
+      return
+    }
+
+    const feedId = feed.id
+    void mutateFeeds(
+      prev => prev ? { ...prev, feeds: prev.feeds.map(f => f.id === feedId ? { ...f, auto_translate_target: null } : f) } : prev,
+      { revalidate: false },
+    )
+    try {
+      await apiPatch(`/api/feeds/${feedId}`, { auto_translate_target: null })
+    } catch {
+      void mutateFeeds()
+    }
+  }
+
   async function handleConfirm() {
     if (!confirm) return
     if (confirm.type === 'delete-feed' && confirm.feed) {
@@ -144,6 +162,16 @@ export function useFeedActions({
     } else if (confirm.type === 'enable-feed' && confirm.feed) {
       await apiPatch(`/api/feeds/${confirm.feed.id}`, { disabled: 0 })
       void mutateFeeds()
+    } else if (confirm.type === 'auto-translate-feed' && confirm.feed) {
+      const feedId = confirm.feed.id
+      setConfirm(null)
+      await apiPatch(`/api/feeds/${feedId}`, {
+        auto_translate_target: 'en',
+        backfill_translations: true,
+      })
+      void mutateFeeds()
+      revalidateArticles()
+      return
     } else if (confirm.type === 'delete-category' && confirm.category) {
       const catId = confirm.category.id
       void mutateCategories(
@@ -208,6 +236,7 @@ export function useFeedActions({
     handleFetchFeed,
     handleFetchCategory,
     handleReDetectFeed,
+    handleToggleAutoTranslate,
     handleConfirm,
     handleRenameSubmit,
     handleToggleCollapse,
