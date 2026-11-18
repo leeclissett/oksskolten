@@ -49,9 +49,9 @@ export function useGlobalShortcuts({
         return
       }
 
-      if (meta && e.key >= '1' && e.key <= '4') {
+      if (meta && e.key >= '1' && e.key <= '5') {
         e.preventDefault()
-        const routes = ['/inbox', '/bookmarks', '/likes', '/history']
+        const routes = ['/inbox', '/bookmarks', '/likes', '/history', '/chat']
         const idx = parseInt(e.key) - 1
         if (routes[idx]) void navigate(routes[idx])
         return

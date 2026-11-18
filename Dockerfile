@@ -5,7 +5,7 @@
 #   docker buildx imagetools inspect node:22.X.Y-slim      # "Digest:" line
 #   crane digest node:22.X.Y-slim
 #   curl -s https://hub.docker.com/v2/repositories/library/node/tags/22.X.Y-slim | jq -r .digest
-FROM node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS base
+FROM node:22.23.5-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS base
 
 ENV TZ=UTC
 RUN apt-get update -qq && apt-get install -y -qq ca-certificates curl tzdata \
