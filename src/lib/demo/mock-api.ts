@@ -40,7 +40,6 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
     return sseResponse([
       { type: 'step', step: 'rss-discovery', status: 'running' },
       { type: 'step', step: 'rss-discovery', status: 'done', found: true },
-      { type: 'step', step: 'rss-bridge', status: 'skipped' },
       { type: 'done', feed: { id: feed.id, rss_url: feed.rss_url, rss_bridge_url: feed.rss_bridge_url } },
     ], 300)
   }

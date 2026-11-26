@@ -22,7 +22,7 @@ function localizeServerError(raw: string, t: TranslateFn): string {
 /** Debounce delay (ms) before auto-discovering feed metadata from URL */
 const DISCOVER_DEBOUNCE_MS = 500
 
-type StepName = 'rss-discovery' | 'flaresolverr' | 'rss-bridge'
+type StepName = 'rss-discovery' | 'flaresolverr'
 type StepStatus = 'pending' | 'running' | 'done' | 'skipped'
 
 interface StepState {
@@ -47,7 +47,6 @@ function StepIndicator({ steps, done, t }: {
   const stepConfig: { key: StepName; label: string; conditional?: boolean; indent?: boolean }[] = [
     { key: 'rss-discovery', label: t('modal.step.rssDiscovery') },
     { key: 'flaresolverr', label: t('modal.step.flaresolverr'), conditional: true, indent: true },
-    { key: 'rss-bridge', label: t('modal.step.rssBridge') },
   ]
 
   function renderIcon(state: StepState) {
@@ -171,7 +170,6 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
     const initSteps: Record<StepName, StepState> = {
       'rss-discovery': { status: 'pending' },
       'flaresolverr': { status: 'pending' },
-      'rss-bridge': { status: 'pending' },
     }
     setAddingSteps(initSteps)
     setAddingDone(false)
@@ -243,7 +241,7 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
             setAddingDone(true)
             const feed = payload.feed as { id: number; rss_url: string | null; rss_bridge_url: string | null }
             onCreated()
-            if (feed.rss_url || feed.rss_bridge_url) {
+            if (feed.rss_url) {
               onFetchStarted?.(feed.id)
             }
           } else if (payload.type === 'error') {

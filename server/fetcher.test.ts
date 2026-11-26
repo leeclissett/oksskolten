@@ -1057,31 +1057,6 @@ describe('fetchSingleFeed — RSS parse fallback', () => {
     fetchSingleFeed = mod.fetchSingleFeed
   })
 
-  it('uses rss_bridge_url when rss_url is null', async () => {
-    const feed = seedFeed({
-      rss_url: null,
-      rss_bridge_url: 'https://bridge.example.com/feed',
-    })
-
-    const rssXml = rss20Xml('Bridge Feed', [
-      { title: 'Bridge Article', link: 'https://example.com/bridge-1' },
-    ])
-    const html = articleHtml()
-
-    mockFetch.mockImplementation((url: string | URL) => {
-      const u = url.toString()
-      if (u === 'https://bridge.example.com/feed')
-        return Promise.resolve(mockResponse(rssXml, { headers: { 'content-type': 'application/rss+xml' } }))
-      return Promise.resolve(mockResponse(html))
-    })
-
-    await fetchSingleFeed(feed)
-
-    const article = getArticleByUrl('https://example.com/bridge-1')
-    expect(article).toBeDefined()
-    expect(article!.title).toBe('Bridge Article')
-  })
-
   it('records error when both rss_url and rss_bridge_url are null', async () => {
     const feed = seedFeed({ rss_url: null, rss_bridge_url: null })
 

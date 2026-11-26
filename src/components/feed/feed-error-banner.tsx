@@ -3,15 +3,15 @@ import { CheckCircle2, XCircle, Circle, ChevronRight, Search, RefreshCw, Loader2
 import { useI18n } from '../../lib/i18n'
 import { authHeaders } from '../../lib/fetcher'
 
-type Stage = 'discovery' | 'bridge' | 'fetch' | 'parse'
+type Stage = 'discovery' | 'fetch' | 'parse'
 
-const STAGES: Stage[] = ['discovery', 'bridge', 'fetch', 'parse']
+const STAGES: Stage[] = ['discovery', 'fetch', 'parse']
 
 /**
  * Processing phase — drives the animated pipeline visualization.
- * detecting-0/1 correspond to discovery/bridge stages being active.
+ * detecting-0 corresponds to the discovery stage being active.
  */
-type Phase = 'idle' | 'detecting-0' | 'detecting-1' | 'fetching' | 'processing'
+type Phase = 'idle' | 'detecting-0' | 'fetching' | 'processing'
 
 interface Classification {
   failedStage: Stage
@@ -23,10 +23,6 @@ interface Classification {
 function classifyError(lastError: string): Classification {
   if (lastError === 'No RSS URL') {
     return { failedStage: 'discovery', i18nKey: 'feedError.noRssUrl', actions: ['reDetect'] }
-  }
-
-  if (lastError.includes('CssSelectorBridge')) {
-    return { failedStage: 'bridge', i18nKey: 'feedError.cssBridgeFailed', actions: ['reDetect', 'fetch'] }
   }
 
   if (lastError === 'FlareSolverr failed') {
@@ -52,20 +48,15 @@ function getStageStatus(stageIndex: number, failedIndex: number, phase: Phase): 
     if (stageIndex === 0) return 'active'
     return 'pending'
   }
-  if (phase === 'detecting-1') {
+  if (phase === 'fetching') {
     if (stageIndex === 0) return 'passed'
     if (stageIndex === 1) return 'active'
     return 'pending'
   }
-  if (phase === 'fetching') {
-    if (stageIndex <= 1) return 'passed'
-    if (stageIndex === 2) return 'active'
-    return 'pending'
-  }
   if (phase === 'processing') {
     // All pipeline stages passed; articles are being processed
-    if (stageIndex <= 2) return 'passed'
-    if (stageIndex === 3) return 'active'
+    if (stageIndex <= 1) return 'passed'
+    if (stageIndex === 2) return 'active'
     return 'pending'
   }
   // idle — show error state
@@ -144,7 +135,6 @@ export function FeedErrorBanner({ lastError, feedId, onMutate, onFetch, override
       setPhase('detecting-0')
       await reDetectSSE(feedId, (stage) => {
         if (stage === 'discovery') setPhase('detecting-0')
-        else if (stage === 'bridge') setPhase('detecting-1')
       })
       await onMutate?.()
       if (onFetch) {

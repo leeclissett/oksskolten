@@ -25,7 +25,6 @@ import {
 } from '../db.js'
 import { requireJson } from '../auth.js'
 import { fetchSingleFeed, discoverRssUrl } from '../fetcher.js'
-import { queryRssBridge } from '../rss-bridge.js'
 import { parseOpml, generateOpml, type ParsedFeed } from '../opml.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
 import { queueFeedTranslations } from '../translation-worker.js'
@@ -52,7 +51,6 @@ const CreateFeedBody = z
 
 const UpdateFeedBody = z.object({
   name: z.string().optional(),
-  rss_bridge_url: z.string().nullable().optional(),
   disabled: z.number().optional(),
   category_id: z.number().nullable().optional(),
   auto_translate_target: z.enum(['en']).nullable().optional(),
@@ -98,7 +96,6 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
 
       try {
         let rssUrl: string | null = null
-        let rssBridgeUrl: string | null = null
         let discoveredTitle: string | null = null
         let requiresJsChallenge = false
 
@@ -107,7 +104,6 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
           rssUrl = body.discovered_rss_url
           discoveredTitle = body.discovered_rss_title ?? null
           send({ type: 'step', step: 'rss-discovery', status: 'done', found: true })
-          send({ type: 'step', step: 'rss-bridge', status: 'skipped' })
         } else {
           // Phase 1: normal discovery flow
           send({ type: 'step', step: 'rss-discovery', status: 'running' })
@@ -131,15 +127,10 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
             sse.end()
             return
           }
-
-          // Step 2: RSS Bridge fallback
-          send({ type: 'step', step: 'rss-bridge', status: 'running' })
-          rssBridgeUrl = await queryRssBridge(body.url)
-          send({ type: 'step', step: 'rss-bridge', status: 'done', found: !!rssBridgeUrl })
         }
 
-        // If every strategy failed, do not create a feed.
-        if (!rssUrl && !rssBridgeUrl) {
+        // If discovery failed, do not create a feed.
+        if (!rssUrl) {
           send({ type: 'error', error: 'RSS could not be detected for this URL' })
           sse.end()
           return
@@ -151,13 +142,12 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
           name: feedName,
           url: body.url,
           rss_url: rssUrl,
-          rss_bridge_url: rssBridgeUrl,
           category_id: body.category_id ?? null,
           requires_js_challenge: requiresJsChallenge ? 1 : 0,
         })
 
         // Fire-and-forget: fetch articles for the new feed
-        if (feed.rss_url || feed.rss_bridge_url) {
+        if (feed.rss_url) {
           fetchSingleFeed(feed).catch(err => {
             log.error(`Initial fetch for ${feed.name} failed:`, err)
           })
@@ -279,9 +269,8 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
       const sse = startSSE(reply)
 
       let rssUrl: string | null = null
-      let rssBridgeUrl: string | null = null
 
-      // Step 1: RSS auto-discovery
+      // RSS auto-discovery
       sse.send({ type: 'stage', stage: 'discovery' })
       try {
         const result = await discoverRssUrl(feed.url)
@@ -291,28 +280,21 @@ export async function feedRoutes(api: FastifyInstance): Promise<void> {
       }
       sse.send({ type: 'stage-done', stage: 'discovery', found: !!rssUrl })
 
-      // Step 2: RSS Bridge fallback
-      if (!rssUrl) {
-        sse.send({ type: 'stage', stage: 'bridge' })
-        rssBridgeUrl = await queryRssBridge(feed.url)
-        sse.send({ type: 'stage-done', stage: 'bridge', found: !!rssBridgeUrl })
-      }
-
       // Update feed with new URLs
       updateFeed(params.id, {
         rss_url: rssUrl,
-        rss_bridge_url: rssBridgeUrl,
+        rss_bridge_url: null,
       })
 
       // Fire-and-forget: fetch articles with updated config
       const refreshedFeed = getFeedById(params.id)
-      if (refreshedFeed && (rssUrl || rssBridgeUrl)) {
+      if (refreshedFeed && rssUrl) {
         fetchSingleFeed(refreshedFeed).catch(err => {
           log.error(`Re-detect fetch for ${refreshedFeed.name} failed:`, err)
         })
       }
 
-      sse.send({ type: 'done', rss_url: rssUrl, rss_bridge_url: rssBridgeUrl })
+      sse.send({ type: 'done', rss_url: rssUrl, rss_bridge_url: null })
       sse.end()
     },
   )
@@ -517,8 +499,8 @@ function feedWithUrl(url: string): Feed | undefined {
  *
  * Follows the web app's add-feed flow (POST /api/feeds) without its
  * interactive steps: RSS auto-discovery (the URL itself when it is a feed, a
- * <link rel="alternate"> on the page, then the usual feed paths), then the
- * RSS-Bridge fallback. The new feed is fetched in the background, as in the web app.
+ * <link rel="alternate"> on the page, then the usual feed paths). The new feed
+ * is fetched in the background, as in the web app.
  */
 export async function subscribeToFeedUrl(
   url: string,
@@ -530,7 +512,6 @@ export async function subscribeToFeedUrl(
   if (feedWithUrl(url)) throw new AlreadySubscribedError(url)
 
   let rssUrl: string | null = null
-  let rssBridgeUrl: string | null = null
   let discoveredTitle: string | null = null
   let requiresJsChallenge = false
   try {
@@ -539,20 +520,15 @@ export async function subscribeToFeedUrl(
     discoveredTitle = result.title
     requiresJsChallenge = !!result.usedFlareSolverr
   } catch {
-    // Discovery failed; fall back to RSS-Bridge.
+    // Discovery failed.
   }
-  if (rssUrl) {
-    if (feedWithUrl(rssUrl)) throw new AlreadySubscribedError(url)
-  } else {
-    rssBridgeUrl = await queryRssBridge(url)
-  }
-  if (!rssUrl && !rssBridgeUrl) throw new Error('RSS could not be detected for this URL')
+  if (!rssUrl) throw new Error('RSS could not be detected for this URL')
+  if (feedWithUrl(rssUrl)) throw new AlreadySubscribedError(url)
 
   const feed = createFeed({
     name: options.title || discoveredTitle || new URL(url).hostname,
     url,
     rss_url: rssUrl,
-    rss_bridge_url: rssBridgeUrl,
     category_id: options.categoryId ?? null,
     requires_js_challenge: requiresJsChallenge ? 1 : 0,
   })

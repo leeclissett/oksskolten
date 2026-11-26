@@ -15,9 +15,6 @@ services:
     expose:
       - "3000"
 
-  rss-bridge:
-    ports: !override []
-
   flaresolverr:
     ports: !override []
 

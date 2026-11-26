@@ -204,7 +204,7 @@ export async function fetchArticleContent(
   url: string,
   options?: {
     requiresJsChallenge?: boolean
-    /** CSS Bridge listing-page excerpt, used as fullText fallback */
+    /** Feed-provided excerpt, used as fullText fallback */
     listingExcerpt?: string
     /** RSS/Atom language metadata, used only when local detection is uncertain. */
     languageHint?: string
@@ -289,7 +289,7 @@ interface NewArticle {
   url: string
   published_at: string | null
   requires_js_challenge?: boolean
-  /** Excerpt from listing page (CSS Bridge content_selector), used as fullText fallback */
+  /** Excerpt from the feed entry, used as fullText fallback */
   excerpt?: string
   language_hint?: string
 }

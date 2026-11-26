@@ -8,10 +8,9 @@ import type { FastifyInstance } from 'fastify'
 // Mocks
 // ---------------------------------------------------------------------------
 
-const { mockDiscoverRssUrl, mockFetchSingleFeed, mockQueryRssBridge } = vi.hoisted(() => ({
+const { mockDiscoverRssUrl, mockFetchSingleFeed } = vi.hoisted(() => ({
   mockDiscoverRssUrl: vi.fn(),
   mockFetchSingleFeed: vi.fn(),
-  mockQueryRssBridge: vi.fn(),
 }))
 
 vi.mock('../fetcher.js', async () => {
@@ -26,10 +25,6 @@ vi.mock('../fetcher.js', async () => {
     getFeedState: vi.fn(),
   }
 })
-
-vi.mock('../rss-bridge.js', () => ({
-  queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
-}))
 
 vi.mock('../anthropic.js', () => ({
   anthropic: { messages: { stream: vi.fn(), create: vi.fn() } },
@@ -58,7 +53,6 @@ beforeEach(async () => {
   app = await buildApp()
   mockDiscoverRssUrl.mockReset().mockResolvedValue({ rssUrl: null, title: null })
   mockFetchSingleFeed.mockReset().mockResolvedValue(undefined)
-  mockQueryRssBridge.mockReset().mockResolvedValue(null)
 })
 
 // ---------------------------------------------------------------------------
@@ -188,7 +182,6 @@ describe('POST /api/feeds — RSS discovery pipeline', () => {
 
     // Should not create a feed or proceed to further steps
     expect(events.find(e => e.type === 'done')).toBeUndefined()
-    expect(mockQueryRssBridge).not.toHaveBeenCalled()
   })
 
   it('creates feed directly when discovered_rss_url is provided (Phase 2: whole site)', async () => {
@@ -209,28 +202,8 @@ describe('POST /api/feeds — RSS discovery pipeline', () => {
     expect(done.feed.rss_url).toBe('https://example.com/feed.xml')
     expect(done.feed.name).toBe('Blog')
 
-    // Should not run discovery or bridge
+    // Should not run discovery
     expect(mockDiscoverRssUrl).not.toHaveBeenCalled()
-    expect(mockQueryRssBridge).not.toHaveBeenCalled()
-  })
-
-  it('falls back to RSS bridge when discovery fails', async () => {
-    mockDiscoverRssUrl.mockResolvedValue({ rssUrl: null, title: null })
-    mockQueryRssBridge.mockResolvedValue('https://bridge.example.com/rss')
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/feeds',
-      headers: json,
-      payload: { url: 'https://nossl.example.com' },
-    })
-
-    const events = parseSSE(res.body)
-    const bridgeSteps = events.filter(e => e.step === 'rss-bridge')
-    expect(bridgeSteps.some(e => e.status === 'done' && e.found === true)).toBe(true)
-
-    const done = events.find(e => e.type === 'done') as any
-    expect(done.feed.rss_bridge_url).toBe('https://bridge.example.com/rss')
   })
 
   it('uses hostname as feed name when no name and no title (Phase 2)', async () => {
@@ -438,10 +411,9 @@ describe('POST /api/feeds/:id/re-detect', () => {
     expect(done?.rss_bridge_url).toBeNull()
   })
 
-  it('falls back to the RSS bridge when discovery fails', async () => {
+  it('reports no feed when discovery fails', async () => {
     const feed = seedFeed()
     mockDiscoverRssUrl.mockResolvedValue({ rssUrl: null, title: null })
-    mockQueryRssBridge.mockResolvedValue('https://bridge.example.com/rss')
 
     const res = await app.inject({
       method: 'POST',
@@ -452,7 +424,7 @@ describe('POST /api/feeds/:id/re-detect', () => {
     const events = parseSSE(res.body)
     const done = events.find(e => e.type === 'done')
     expect(done?.rss_url).toBeNull()
-    expect(done?.rss_bridge_url).toBe('https://bridge.example.com/rss')
+    expect(done?.rss_bridge_url).toBeNull()
   })
 
   it('returns 404 for non-existent feed', async () => {
@@ -497,7 +469,7 @@ describe('POST /api/feeds/:id/re-detect', () => {
       url: `/api/feeds/${feed.id}/re-detect`,
     })
 
-    // Falls through to bridge step
+    // Discovery errors are swallowed; the stream still completes
     expect(res.statusCode).toBe(200)
   })
 })

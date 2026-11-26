@@ -85,15 +85,14 @@ const dict = {
 
   // FeedErrorBanner - pipeline stages
   'feedError.stage.discovery': { ja: 'RSS検出', en: 'RSS Discovery', zh: 'RSS 发现'},
-  'feedError.stage.bridge': { ja: 'Bridge変換', en: 'Bridge', zh: '桥接'},
   'feedError.stage.fetch': { ja: '記事取得', en: 'Fetch', zh: '获取'},
   'feedError.stage.parse': { ja: '解析', en: 'Parse', zh: '解析'},
 
   // FeedErrorBanner - error explanations
   'feedError.noRssUrl': {
-    ja: 'このサイトからRSSフィードのURLを検出できませんでした。サイトがRSSを提供していない可能性があります。「RSSを再検出」でRSS Bridge経由の取得を試みることができます。',
-    en: 'Could not detect an RSS feed URL from this site. The site may not provide RSS. Try "Re-detect RSS" to attempt fetching via RSS Bridge.',
-    zh: '无法从此站点检测到 RSS 订阅源 URL。该站点可能不提供 RSS。尝试「重新检测 RSS」以通过 RSS Bridge 获取。'
+    ja: 'このサイトからRSSフィードのURLを検出できませんでした。サイトがRSSを提供していない可能性があります。「RSSを再検出」でもう一度検出を試みることができます。',
+    en: 'Could not detect an RSS feed URL from this site. The site may not provide RSS. Try "Re-detect RSS" to run discovery again.',
+    zh: '无法从此站点检测到 RSS 订阅源 URL。该站点可能不提供 RSS。尝试「重新检测 RSS」以再次检测。'
   },
   'feedError.flareSolverrFailed': {
     ja: 'このサイトはBot検出（Cloudflare等）で保護されており、突破に失敗しました。しばらく時間をおいてから「再取得」を試してください。',
@@ -109,11 +108,6 @@ const dict = {
     ja: 'フィードのXMLを解析できませんでした。フィードの形式が壊れているか、RSS/Atom形式でない可能性があります。「RSSを再検出」で別のフィードソースを探すことができます。',
     en: 'Could not parse the feed XML. The feed format may be broken or not RSS/Atom. Try "Re-detect RSS" to find an alternative feed source.',
     zh: '无法解析订阅源 XML。订阅源格式可能损坏或不是 RSS/Atom 格式。尝试「重新检测 RSS」查找替代订阅源。'
-  },
-  'feedError.cssBridgeFailed': {
-    ja: 'CSSセレクタによるスクレイピングで記事を抽出できませんでした。サイトの構造が変わった可能性があります。「RSSを再検出」でセレクタを再推論できます。',
-    en: 'Failed to extract articles via CSS selector scraping. The site structure may have changed. Try "Re-detect RSS" to re-infer the selector.',
-    zh: '通过 CSS 选择器抓取文章失败。站点结构可能已更改。尝试「重新检测 RSS」以重新推断选择器。'
   },
   'feedError.unknown': {
     ja: 'フィードの取得中に予期しないエラーが発生しました。しばらく待ってから「再取得」を試してください。',
@@ -188,7 +182,6 @@ const dict = {
   'modal.genericError': { ja: 'エラーが発生しました', en: 'An error occurred', zh: '发生错误'},
   'modal.step.rssDiscovery': { ja: 'RSS 検出', en: 'RSS discovery', zh: 'RSS 发现'},
   'modal.step.flaresolverr': { ja: 'JSレンダリング', en: 'JS rendering', zh: 'JS 渲染'},
-  'modal.step.rssBridge': { ja: 'RSS Bridge', en: 'RSS Bridge', zh: 'RSS 桥接'},
   'modal.step.done': { ja: 'フィード作成完了', en: 'Feed created', zh: '订阅源已创建'},
   'modal.step.completed': { ja: '完了', en: 'Completed', zh: '已完成'},
   'modal.step.found': { ja: '検出', en: 'Found', zh: '已找到'},

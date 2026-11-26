@@ -7,13 +7,6 @@ import { safeFetch } from './ssrf.js'
 import { fetchViaFlareSolverr } from './flaresolverr.js'
 import { parseHttpCacheInterval, parseRssTtl } from './schedule.js'
 import { cleanUrl } from './url-cleaner.js'
-import {
-  isCssSelectorBridgeUrl,
-  stripCustomBridgeParams,
-  fetchCssSelectorViaFlareSolverr,
-  assignCssBridgePseudoDates,
-  fixGenericTitlesAndEnrichExcerpts,
-} from './css-bridge.js'
 
 export interface RssItem {
   title: string
@@ -58,8 +51,6 @@ function throwIfRateLimited(res: Response): void {
     throw new RateLimitError(res.status, res.headers.get('retry-after'))
   }
 }
-
-const RSS_BRIDGE_URL = process.env.RSS_BRIDGE_URL
 
 /**
  * Decode HTML entities in a string.
@@ -126,10 +117,8 @@ function extractXmlRoot(s: string): string | null {
 
 export async function fetchAndParseRss(feed: Feed, opts?: { skipCache?: boolean }): Promise<FetchRssResult> {
   const skipCache = opts?.skipCache ?? false
-  const rssUrl = feed.rss_url || feed.rss_bridge_url
+  const rssUrl = feed.rss_url
   if (!rssUrl) throw new Error('No RSS URL')
-
-  const isCssBridge = isCssSelectorBridgeUrl(rssUrl)
 
   let xml: string
   let responseEtag: string | null = null
@@ -142,20 +131,16 @@ export async function fetchAndParseRss(feed: Feed, opts?: { skipCache?: boolean 
     if (!flare) throw new Error('FlareSolverr failed')
     xml = extractRssFromFlareSolverr(flare.body)
   } else {
-    const isRssBridgeUrl = RSS_BRIDGE_URL && rssUrl.startsWith(RSS_BRIDGE_URL)
-    if (isRssBridgeUrl) {
-      // RSS Bridge internal URL: use plain fetch (no SSRF check needed)
-      // Strip title_selector/content_selector — these are used by our own code,
-      // not recognized by RSS-Bridge's CssSelectorBridge.
-      const bridgeFetchUrl = isCssBridge ? stripCustomBridgeParams(rssUrl) : rssUrl
-      const headers: Record<string, string> = { 'User-Agent': USER_AGENT }
-      if (!skipCache && feed.etag) headers['If-None-Match'] = feed.etag
-      if (!skipCache && feed.last_modified) headers['If-Modified-Since'] = feed.last_modified
+    // Use safeFetch with conditional headers
+    const headers: Record<string, string> = { 'User-Agent': USER_AGENT }
+    if (!skipCache && feed.etag) headers['If-None-Match'] = feed.etag
+    if (!skipCache && feed.last_modified) headers['If-Modified-Since'] = feed.last_modified
 
-      const res = await fetch(bridgeFetchUrl, {
+    try {
+      const res = await safeFetch(rssUrl, {
         headers,
-        signal: AbortSignal.timeout(DISCOVERY_TIMEOUT),
-      })
+        signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
+      }, { allowPrivateNetwork: true })
 
       if (res.status === 304) {
         return { items: [], notModified: true, etag: feed.etag, lastModified: feed.last_modified, contentHash: feed.last_content_hash, httpCacheSeconds: null, rssTtlSeconds: null }
@@ -167,55 +152,18 @@ export async function fetchAndParseRss(feed: Feed, opts?: { skipCache?: boolean 
 
       if (!res.ok) {
         throwIfRateLimited(res)
-        if (isCssBridge) {
-          const items = cleanItems(assignCssBridgePseudoDates(await fetchCssSelectorViaFlareSolverr(rssUrl), rssUrl))
-          return { items, notModified: false, etag: responseEtag, lastModified: responseLastModified, contentHash: null, httpCacheSeconds: null, rssTtlSeconds: null }
-        }
+        // Non-200: try FlareSolverr fallback (no conditional request support)
         const flare = await fetchViaFlareSolverr(rssUrl)
         if (!flare) throw new Error(`HTTP ${res.status}`)
         xml = extractRssFromFlareSolverr(flare.body)
       } else {
         xml = await decodeResponse(res)
       }
-    } else {
-      // External URL: use safeFetch with conditional headers
-      const headers: Record<string, string> = { 'User-Agent': USER_AGENT }
-      if (!skipCache && feed.etag) headers['If-None-Match'] = feed.etag
-      if (!skipCache && feed.last_modified) headers['If-Modified-Since'] = feed.last_modified
-
-      try {
-        const res = await safeFetch(rssUrl, {
-          headers,
-          signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
-        }, { allowPrivateNetwork: true })
-
-        if (res.status === 304) {
-          return { items: [], notModified: true, etag: feed.etag, lastModified: feed.last_modified, contentHash: feed.last_content_hash, httpCacheSeconds: null, rssTtlSeconds: null }
-        }
-
-        responseEtag = res.headers.get('etag')
-        responseLastModified = res.headers.get('last-modified')
-        responseHeaders = res.headers
-
-        if (!res.ok) {
-          throwIfRateLimited(res)
-          // Non-200: try FlareSolverr fallback (no conditional request support)
-          const flare = await fetchViaFlareSolverr(rssUrl)
-          if (!flare) throw new Error(`HTTP ${res.status}`)
-          xml = extractRssFromFlareSolverr(flare.body)
-        } else {
-          xml = await decodeResponse(res)
-        }
-      } catch (err) {
-        if (isCssBridge) {
-          const items = cleanItems(assignCssBridgePseudoDates(await fetchCssSelectorViaFlareSolverr(rssUrl), rssUrl))
-          return { items, notModified: false, etag: null, lastModified: null, contentHash: null, httpCacheSeconds: null, rssTtlSeconds: null }
-        }
-        // Network-level failure (ECONNRESET, DNS, timeout, etc.) — try FlareSolverr
-        const flare = await fetchViaFlareSolverr(rssUrl)
-        if (!flare) throw err
-        xml = extractRssFromFlareSolverr(flare.body)
-      }
+    } catch (err) {
+      // Network-level failure (ECONNRESET, DNS, timeout, etc.) — try FlareSolverr
+      const flare = await fetchViaFlareSolverr(rssUrl)
+      if (!flare) throw err
+      xml = extractRssFromFlareSolverr(flare.body)
     }
   }
 
@@ -228,38 +176,12 @@ export async function fetchAndParseRss(feed: Feed, opts?: { skipCache?: boolean 
     return { items: [], notModified: true, etag: responseEtag, lastModified: responseLastModified, contentHash, httpCacheSeconds, rssTtlSeconds }
   }
 
-  const result = { notModified: false as const, etag: responseEtag, lastModified: responseLastModified, contentHash, httpCacheSeconds, rssTtlSeconds }
-
-  // Parse XML and collect items — wrapped in try/catch for Fallback C
-  let items: RssItem[]
-  try {
-    items = await parseRssXml(xml, rssUrl)
-  } catch (err) {
-    // Fallback C: CssSelectorBridge parse failure → FlareSolverr direct scrape
-    if (isCssBridge) {
-      return { ...result, items: cleanItems(assignCssBridgePseudoDates(await fetchCssSelectorViaFlareSolverr(rssUrl), rssUrl)) }
-    }
-    throw err
-  }
-
-  // Fallback B: CssSelectorBridge returned 0 items → FlareSolverr direct scrape
-  if (items.length === 0 && isCssBridge) {
-    return { ...result, items: cleanItems(assignCssBridgePseudoDates(await fetchCssSelectorViaFlareSolverr(rssUrl), rssUrl)) }
-  }
-
-  if (!isCssBridge) return { ...result, items: cleanItems(items) }
-
-  // CssSelectorBridge: fix generic titles + enrich excerpts, then assign pseudo dates
-  items = await fixGenericTitlesAndEnrichExcerpts(items, rssUrl)
-  return { ...result, items: cleanItems(assignCssBridgePseudoDates(items, rssUrl)) }
+  const items = await parseRssXml(xml, rssUrl)
+  return { notModified: false, etag: responseEtag, lastModified: responseLastModified, contentHash, httpCacheSeconds, rssTtlSeconds, items: cleanItems(items) }
 }
 
-const RSS_BRIDGE_ERROR_RE = /^Bridge returned error/i
-
 function cleanItems(items: RssItem[]): RssItem[] {
-  return items
-    .filter(item => !RSS_BRIDGE_ERROR_RE.test(item.title))
-    .map(item => ({ ...item, url: cleanUrl(item.url) }))
+  return items.map(item => ({ ...item, url: cleanUrl(item.url) }))
 }
 
 /**
