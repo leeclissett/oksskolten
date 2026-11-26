@@ -39,6 +39,7 @@ let articles: SeedArticle[] = structuredClone(seedArticles) as SeedArticle[]
 resolveSeedDates()
 let nextFeedId = Math.max(...feeds.map(f => f.id)) + 1
 let nextArticleId = Math.max(...articles.map(a => a.id)) + 1
+const translatedIds = new Set<number>()
 
 interface SeedFeed {
   id: number
@@ -68,6 +69,9 @@ interface SeedArticle {
   title: string
   url: string
   full_text: string | null
+  full_text_translated: string | null
+  summary: string | null
+  summary_ja: string | null
   excerpt: string | null
   lang: string | null
   og_image: string | null
@@ -112,6 +116,9 @@ function createArticle(overrides: Partial<SeedArticle> & Pick<SeedArticle, 'feed
   return {
     id: nextArticleId++,
     full_text: null,
+    full_text_translated: null,
+    summary: null,
+    summary_ja: null,
     excerpt: null,
     lang: null,
     og_image: null,
@@ -135,6 +142,7 @@ function toArticleListItem(a: SeedArticle): ArticleListItem {
     url: a.url,
     published_at: a.published_at,
     lang: a.lang,
+    summary: null,
     excerpt: a.excerpt,
     og_image: a.og_image,
     seen_at: a.seen_at,
@@ -149,6 +157,8 @@ function toArticleDetail(a: SeedArticle): ArticleDetail {
     ...toArticleListItem(a),
     source_url: a.url,
     full_text: a.full_text,
+    full_text_translated: translatedIds.has(a.id) ? (a.full_text_translated ?? null) : null,
+    translated_lang: translatedIds.has(a.id) ? getLocale() : null,
     images_archived_at: null,
     feed_type: feeds.find(f => f.id === a.feed_id)?.type ?? 'rss',
     imageArchivingEnabled: false,
@@ -261,6 +271,7 @@ export const demoStore = {
         title: `${sampleLabel} ${n} — ${feed.name}`,
         url: `${baseUrl}/sample-${n}`,
         full_text: `# ${sampleLabel} ${n}\n\n${sampleBody}`,
+        summary: sampleBody,
         excerpt: sampleBody,
         lang: feed.lang,
         published_at: new Date(Date.now() - i * 86400000).toISOString(),
@@ -398,6 +409,22 @@ export const demoStore = {
     return total / feedArticles.length
   },
 
+  /** Get full_text length for realistic input_tokens metric. */
+  getArticleFullTextLength(id: number): number {
+    const a = articles.find(a => a.id === id)
+    return a?.full_text?.length ?? 0
+  },
+
+  /** Get pre-prepared translation for streaming. */
+  getArticleTranslation(id: number): string | null {
+    const a = articles.find(a => a.id === id)
+    return a?.full_text_translated ?? null
+  },
+
+  /** Mark an article as translated so full_text_translated becomes searchable. */
+  markTranslated(id: number) {
+    translatedIds.add(id)
+  },
 
   /** Parse OPML and return preview with duplicate detection (no DB writes). */
   previewOpml(xml: string): {

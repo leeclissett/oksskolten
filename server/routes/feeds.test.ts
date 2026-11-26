@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { createFeed, getDb } from '../db.js'
+import { createFeed, getDb, insertArticle } from '../db.js'
 import type { FastifyInstance } from 'fastify'
 
 // ---------------------------------------------------------------------------
@@ -20,6 +20,8 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: (...args: unknown[]) => mockFetchSingleFeed(...args),
     discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
+    translateArticle: vi.fn(),
+    streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
     getFeedState: vi.fn(),
   }
@@ -27,6 +29,10 @@ vi.mock('../fetcher.js', async () => {
 
 vi.mock('../rss-bridge.js', () => ({
   queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
+}))
+
+vi.mock('../anthropic.js', () => ({
+  anthropic: { messages: { stream: vi.fn(), create: vi.fn() } },
 }))
 
 // ---------------------------------------------------------------------------
@@ -89,6 +95,73 @@ describe('GET /api/discover-title', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json().title).toBeNull()
+  })
+})
+
+describe('PATCH /api/feeds/:id automatic translation', () => {
+  it('re-detects existing articles and queues only non-English content', async () => {
+    const feed = seedFeed()
+    const dutchId = insertArticle({
+      feed_id: feed.id,
+      title: 'Nederlands nieuws',
+      url: 'https://example.com/nl',
+      published_at: '2026-01-01T00:00:00Z',
+      lang: 'en', // Legacy detector incorrectly stored this as English.
+      full_text: 'De gemeenteraad heeft vandaag een nieuw plan voor betaalbare woningen besproken. Het voorstel wordt volgende maand opnieuw behandeld.',
+    })
+    const englishId = insertArticle({
+      feed_id: feed.id,
+      title: 'English news',
+      url: 'https://example.com/en',
+      published_at: '2026-01-02T00:00:00Z',
+      lang: 'en',
+      full_text: 'The city council discussed a new plan for affordable housing today. The proposal will be considered again next month.',
+    })
+    getDb().prepare("UPDATE articles SET seen_at = datetime('now'), bookmarked_at = datetime('now') WHERE id = ?").run(dutchId)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/feeds/${feed.id}`,
+      headers: json,
+      payload: { auto_translate_target: 'en', backfill_translations: true },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().auto_translate_target).toBe('en')
+    expect(res.json().auto_translation_queued).toBe(1)
+
+    const dutch = getDb().prepare('SELECT lang, translation_status, seen_at, bookmarked_at FROM articles WHERE id = ?').get(dutchId) as Record<string, unknown>
+    const english = getDb().prepare('SELECT lang, translation_status FROM articles WHERE id = ?').get(englishId) as Record<string, unknown>
+    expect(dutch.lang).toBe('nl')
+    expect(dutch.translation_status).toBe('pending')
+    expect(dutch.seen_at).toBeTruthy()
+    expect(dutch.bookmarked_at).toBeTruthy()
+    expect(english.lang).toBe('en')
+    expect(english.translation_status).toBeNull()
+  })
+
+  it('cancels pending jobs when automatic translation is disabled', async () => {
+    const feed = seedFeed({ auto_translate_target: 'en' })
+    const articleId = insertArticle({
+      feed_id: feed.id,
+      title: 'Nederlands nieuws',
+      url: 'https://example.com/pending',
+      published_at: null,
+      lang: 'nl',
+      full_text: 'Dit is een lang Nederlands artikel met voldoende woorden om automatisch te worden herkend en vertaald.',
+    })
+    getDb().prepare("UPDATE articles SET translation_status = 'pending', translation_target_lang = 'en' WHERE id = ?").run(articleId)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/feeds/${feed.id}`,
+      headers: json,
+      payload: { auto_translate_target: null },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const row = getDb().prepare('SELECT translation_status FROM articles WHERE id = ?').get(articleId) as { translation_status: string | null }
+    expect(row.translation_status).toBeNull()
   })
 })
 
@@ -158,24 +231,6 @@ describe('POST /api/feeds — RSS discovery pipeline', () => {
 
     const done = events.find(e => e.type === 'done') as any
     expect(done.feed.rss_bridge_url).toBe('https://bridge.example.com/rss')
-  })
-
-  it('sends an error and creates no feed when both discovery and bridge fail', async () => {
-    mockDiscoverRssUrl.mockResolvedValue({ rssUrl: null, title: null })
-    mockQueryRssBridge.mockResolvedValue(null)
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/feeds',
-      headers: json,
-      payload: { url: 'https://hard.example.com' },
-    })
-
-    const events = parseSSE(res.body)
-    expect(events.some(e => e.step === 'css-selector')).toBe(false)
-    expect(events.find(e => e.type === 'error')).toEqual({ type: 'error', error: 'RSS could not be detected for this URL' })
-    expect(events.find(e => e.type === 'done')).toBeUndefined()
-    expect((getDb().prepare('SELECT COUNT(*) AS n FROM feeds WHERE url = ?').get('https://hard.example.com') as { n: number }).n).toBe(0)
   })
 
   it('uses hostname as feed name when no name and no title (Phase 2)', async () => {
@@ -383,7 +438,7 @@ describe('POST /api/feeds/:id/re-detect', () => {
     expect(done?.rss_bridge_url).toBeNull()
   })
 
-  it('falls back to the bridge and stops there', async () => {
+  it('falls back to the RSS bridge when discovery fails', async () => {
     const feed = seedFeed()
     mockDiscoverRssUrl.mockResolvedValue({ rssUrl: null, title: null })
     mockQueryRssBridge.mockResolvedValue('https://bridge.example.com/rss')
@@ -395,7 +450,6 @@ describe('POST /api/feeds/:id/re-detect', () => {
 
     expect(res.statusCode).toBe(200)
     const events = parseSSE(res.body)
-    expect(events.some(e => e.stage === 'bridge-llm')).toBe(false)
     const done = events.find(e => e.type === 'done')
     expect(done?.rss_url).toBeNull()
     expect(done?.rss_bridge_url).toBe('https://bridge.example.com/rss')

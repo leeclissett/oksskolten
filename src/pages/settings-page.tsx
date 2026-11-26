@@ -4,19 +4,18 @@ import { Construction, ExternalLink } from 'lucide-react'
 import useSWR from 'swr'
 import { useI18n, APP_NAME } from '../lib/i18n'
 import { PasswordSettings } from '../components/settings/password-settings'
-import { PasskeySettings } from '../components/settings/passkey-settings'
-import { GitHubOAuthSettings } from '../components/settings/github-oauth-settings'
 import { ApiTokenSettings } from '../components/settings/api-token-settings'
 import { GReaderSettings } from '../components/settings/greader-settings'
 import { ImageStorageSettings } from '../components/settings/image-storage-settings'
 import { GeneralTab } from './settings/general-tab'
 const AppearanceTab = lazy(() => import('./settings/appearance-tab').then(m => ({ default: m.AppearanceTab })))
+import { IntegrationTab } from './settings/integration-tab'
 import { DataTab } from './settings/data-tab'
 import { Separator } from '@/components/ui/separator'
 
 declare const __APP_VERSION__: string
 
-const TABS = ['general', 'appearance', 'plugins', 'security', 'data', 'viewer', 'about'] as const
+const TABS = ['general', 'appearance', 'integration', 'plugins', 'security', 'data', 'viewer', 'about'] as const
 
 export function SettingsPage() {
   const { tab: tabParam } = useParams<{ tab?: string }>()
@@ -88,13 +87,13 @@ export function SettingsPage() {
             </Suspense>
           )}
 
+          {tab === 'integration' && (
+            <IntegrationTab />
+          )}
+
           {tab === 'security' && (
             <>
               <PasswordSettings />
-              <Separator />
-              <PasskeySettings />
-              <Separator />
-              <GitHubOAuthSettings />
               <Separator />
               <ApiTokenSettings />
               <Separator />

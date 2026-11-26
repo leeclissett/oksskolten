@@ -13,7 +13,6 @@ Typical RSS readers only display the title and summary provided by the feed, req
 > - [50_frontend.md](./50_frontend.md) — Frontend (Routing, Data Fetching, PWA)
 > - [80_feature_clip.md](./80_feature_clip.md) — Clip
 > - [81_feature_images.md](./81_feature_images.md) — Image Archive
-> - [82_feature_chat.md](./82_feature_chat.md) — Chat
 > - [83_feature_similarity.md](./83_feature_similarity.md) — Similar Article Detection
 > - [84_feature_keyboard_navigation.md](./84_feature_keyboard_navigation.md) — Keyboard Navigation
 > - [85_feature_ollama.md](./85_feature_ollama.md) — Ollama LLM Provider
@@ -94,7 +93,6 @@ All containers are connected via an `internal` bridge network. No ports are expo
 | `GIT_COMMIT` | Git commit SHA at build time | | Returned in `/api/health`. Defaults to `'dev'` |
 | `GIT_TAG` | Git tag at build time | | Returned in `/api/health`. Defaults to `'dev'` |
 | `BUILD_DATE` | Build date (ISO 8601) | | Returned in `/api/health` |
-| `TOOL_LOG_PATH` | Claude Code MCP tool log output path | | Used by Claude Code adapter. No logging if not set |
 | `VITE_DEMO_MODE` | `true` for demo mode build | | Generates a static SPA without backend |
 | `VITE_API_PROXY_TARGET` | Vite dev API proxy target | | Default `http://127.0.0.1:3000` |
 | `VITE_PORT` | Vite dev server port | | Default `5173` |
@@ -108,7 +106,6 @@ All containers are connected via an `internal` bridge network. No ports are expo
 | **Fetcher Pipeline** | `server/fetcher/` | RSS parsing (2.0/Atom/RDF), Readability full-text extraction, HTML cleaner (400+ patterns), Markdown conversion, image archiving. DOM parsing runs in piscina Worker Threads (max 2) to protect the event loop |
 | **AI Providers** | `server/providers/llm/` | Unified `LLMProvider` interface — Anthropic, Gemini, OpenAI, Claude Code |
 | **Translation** | `server/providers/translate/` | Google Cloud Translation API v2 / DeepL (alternative to LLM translation) |
-| **Chat Service** | `server/chat/` | MCP server + tool definitions, 4 backend adapters, conversation persistence |
 | **HTML Cleaner** | `server/lib/cleaner/` | 3-phase pipeline: pre-clean → Readability → post-clean (selector-based, scoring-based, normalization) |
 | **Auth** | `server/auth*.ts`, `server/passkey*.ts`, `server/oauth*.ts` | JWT + bcryptjs + WebAuthn/Passkey + GitHub OAuth |
 | **RSS Bridge** | `server/rss-bridge.ts` | LLM-inferred CSS selectors for sites without RSS feeds |

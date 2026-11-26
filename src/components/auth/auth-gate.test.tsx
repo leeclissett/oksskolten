@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 // --- Mocks ---
 const mockMutate = vi.fn()
@@ -33,8 +33,6 @@ describe('AuthGate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     swrReturn = { data: undefined, error: undefined, isLoading: true }
-    // Ensure no oauth_code in URL
-    window.history.replaceState({}, '', '/')
   })
 
   it('shows loading spinner while authenticating', () => {
@@ -87,67 +85,5 @@ describe('AuthGate', () => {
     window.dispatchEvent(new Event(AUTH_LOGOUT_EVENT))
 
     expect(mockMutate).toHaveBeenCalledWith(undefined, { revalidate: false })
-  })
-
-  it('exchanges OAuth code from URL', async () => {
-    swrReturn = { data: undefined, error: undefined, isLoading: false }
-
-    window.history.replaceState({}, '', '/?oauth_code=abc123')
-
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ token: 'oauth-token' }),
-    }))
-
-    render(<AuthGate><div>App Content</div></AuthGate>)
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('/api/oauth/github/token', expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ code: 'abc123' }),
-      }))
-    })
-
-    await waitFor(() => {
-      expect(setAuthToken).toHaveBeenCalledWith('oauth-token')
-      expect(mockMutate).toHaveBeenCalled()
-    })
-
-    // URL should be cleaned
-    expect(window.location.search).not.toContain('oauth_code')
-  })
-
-  it('handles OAuth exchange failure gracefully', async () => {
-    swrReturn = { data: undefined, error: undefined, isLoading: false }
-
-    window.history.replaceState({}, '', '/?oauth_code=bad')
-
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: () => Promise.resolve({}),
-    }))
-
-    render(<AuthGate><div>App Content</div></AuthGate>)
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalled()
-    })
-
-    // Should not crash, LoginPage shows via error state
-    expect(screen.getByTestId('login-page')).toBeTruthy()
-  })
-
-  it('does not exchange when no oauth_code in URL', () => {
-    swrReturn = { data: { email: 'user@example.com' }, error: undefined, isLoading: false }
-
-    vi.stubGlobal('fetch', vi.fn())
-
-    render(<AuthGate><div>App Content</div></AuthGate>)
-
-    // fetch should not have been called for OAuth exchange
-    // (it might be called by other things, but not with /api/oauth path)
-    const fetchCalls = vi.mocked(fetch).mock.calls
-    const oauthCalls = fetchCalls.filter(c => String(c[0]).includes('/api/oauth'))
-    expect(oauthCalls).toHaveLength(0)
   })
 })

@@ -15,6 +15,7 @@ export default defineConfig({
         'src/components/layout/**',
         'src/App.tsx',
         'src/components/ui/Mascot.tsx',
+        'src/data/aiModels.ts',
         'src/lib/articleFonts.ts',
       ],
     },

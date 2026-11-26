@@ -18,6 +18,8 @@ services:
       FETCH_CONCURRENCY: "5"
       PARSE_MAX_THREADS: "2"
       CRON_SCHEDULE: "*/5 * * * *"
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      VLLM_BASE_URL: http://host.docker.internal:8000
     env_file:
       - path: .env
         required: false

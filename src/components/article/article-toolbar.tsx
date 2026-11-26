@@ -1,11 +1,14 @@
 import { useNavigate } from 'react-router-dom'
 import { ActionChip } from '../ui/action-chip'
-import { Bookmark, ThumbsUp, CloudUpload, CloudCheck, Trash2 } from 'lucide-react'
+import { Bookmark, ThumbsUp, CloudUpload, CloudCheck, Trash2, Languages } from 'lucide-react'
 import { useI18n } from '../../lib/i18n'
 import type { ArticleDetail } from '../../../shared/types'
 
 interface ArticleToolbarProps {
   article: ArticleDetail
+  hasTranslation: boolean
+  translating: boolean
+  onTranslate: () => void
   isBookmarked: boolean
   isLiked: boolean
   archivingImages: boolean
@@ -17,6 +20,9 @@ interface ArticleToolbarProps {
 
 export function ArticleToolbar({
   article,
+  hasTranslation,
+  translating,
+  onTranslate,
   isBookmarked,
   isLiked,
   archivingImages,
@@ -27,6 +33,7 @@ export function ArticleToolbar({
 }: ArticleToolbarProps) {
   const navigate = useNavigate()
   const { t } = useI18n()
+  const automaticTranslationPending = article.translation_status === 'pending' || article.translation_status === 'processing'
 
   return (
     <div className="flex items-stretch flex-wrap gap-2 mb-6 select-none">
@@ -44,6 +51,12 @@ export function ArticleToolbar({
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 1h7v7M11 1L5 7" />
           </svg>
+        </ActionChip>
+      )}
+      {!hasTranslation && !translating && !automaticTranslationPending && (
+        <ActionChip onClick={onTranslate}>
+          <Languages className="w-3.5 h-3.5" />
+          {t('article.translate')}
         </ActionChip>
       )}
       <ActionChip active={!!isBookmarked} onClick={onToggleBookmark} aria-pressed={!!isBookmarked} tooltip={isBookmarked ? t('article.removeBookmark') : t('article.addBookmark')}>

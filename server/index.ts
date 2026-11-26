@@ -6,7 +6,7 @@ import jwt from '@fastify/jwt'
 import rateLimit from '@fastify/rate-limit'
 import multipart from '@fastify/multipart'
 import cron, { type ScheduledTask } from 'node-cron'
-import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, purgeExpiredArticles, shrinkMemory } from './db.js'
+import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, purgeExpiredArticles, shrinkMemory, recoverStuckTranslationJobs } from './db.js'
 import { logger } from './logger.js'
 import { findProjectRoot } from './paths.js'
 import { validateJwtSecret } from './jwt-secret.js'
@@ -19,10 +19,9 @@ const log = logger
 import { getDb } from './db/connection.js'
 import { registerApi } from './api.js'
 import { authRoutes } from './authRoutes.js'
-import { passkeyRoutes } from './passkeyRoutes.js'
-import { oauthRoutes } from './oauthRoutes.js'
 import { greaderRoutes } from './routes/greader.js'
 import { fetchAllFeeds } from './fetcher.js'
+import { drainTranslationQueue } from './translation-worker.js'
 
 // --- Startup guards ---
 if (process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'development') {
@@ -151,8 +150,6 @@ app.get('/api/health', async (_req, reply) => {
 
 // Public auth routes (outside requireAuth)
 app.register(authRoutes)
-app.register(passkeyRoutes)
-app.register(oauthRoutes)
 app.register(greaderRoutes)
 
 // Protected API routes
@@ -167,6 +164,7 @@ if (fs.existsSync(distDir)) {
 // --- Cron ---
 const cronTasks: ScheduledTask[] = []
 let activeFetchPromise: Promise<void> | null = null
+let activeTranslationPromise: Promise<void> | null = null
 
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '*/5 * * * *'
 cronTasks.push(cron.schedule(CRON_SCHEDULE, async () => {
@@ -182,6 +180,30 @@ cronTasks.push(cron.schedule(CRON_SCHEDULE, async () => {
   await p
   activeFetchPromise = null
 }))
+
+// --- Automatic translation queue ---
+// Translation is intentionally serialized and independent of feed fetching:
+// an unavailable provider must never delay or fail RSS refreshes.
+const recoveredTranslationJobs = recoverStuckTranslationJobs()
+if (recoveredTranslationJobs > 0) {
+  log.info(`[translation] Recovered ${recoveredTranslationJobs} interrupted jobs`)
+}
+
+async function runTranslationBatch(): Promise<void> {
+  if (activeTranslationPromise) return
+  const promise = (async () => {
+    const processed = await drainTranslationQueue()
+    if (processed > 0) log.info(`[translation] Processed ${processed} queued articles`)
+  })().catch(err => {
+    log.error('[translation] Queue error:', err)
+  })
+  activeTranslationPromise = promise
+  await promise
+  activeTranslationPromise = null
+}
+
+cronTasks.push(cron.schedule('*/15 * * * * *', () => runTranslationBatch()))
+void runTranslationBatch()
 
 // --- SQLite memory shrink ---
 // Periodic shrink_memory + wal_checkpoint to prevent libsql native heap accumulation.
@@ -246,10 +268,10 @@ async function shutdown(signal: string) {
   await app.close()
 
   // 3. Wait for active feed fetch to finish (with timeout)
-  if (activeFetchPromise) {
-    app.log.info('Waiting for active feed fetch to complete…')
+  if (activeFetchPromise || activeTranslationPromise) {
+    app.log.info('Waiting for active background work to complete…')
     await Promise.race([
-      activeFetchPromise,
+      Promise.all([activeFetchPromise, activeTranslationPromise].filter(Boolean)),
       new Promise(resolve => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
     ])
   }
