@@ -26,7 +26,6 @@ const ProviderParams = z.object({ provider: z.string() })
 const ApiKeyBody = z.object({ apiKey: z.string().optional() })
 
 const PREF_KEYS = [
-  'appearance.color_theme',
   'reading.date_mode',
   'reading.auto_mark_read',
   'reading.unread_indicator',
@@ -35,11 +34,6 @@ const PREF_KEYS = [
   'reading.show_feed_activity',
   'reading.article_open_mode',
   'reading.category_unread_only',
-  'reading.keyboard_navigation',
-  'reading.keybindings',
-  'appearance.mascot',
-  'appearance.highlight_theme',
-  'appearance.font_family',
   'appearance.list_layout',
   'translate.provider',
   'translate.model',
@@ -48,7 +42,6 @@ const PREF_KEYS = [
   'ollama.base_url',
   'ollama.custom_headers',
   'vllm.base_url',
-  'custom_themes',
   'retention.enabled',
   'retention.read_days',
   'retention.unread_days',
@@ -56,7 +49,6 @@ const PREF_KEYS = [
 type PrefKey = typeof PREF_KEYS[number]
 
 const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
-  'appearance.color_theme': null,
   'reading.date_mode': ['relative', 'absolute'],
   'reading.auto_mark_read': ['on', 'off'],
   'reading.unread_indicator': ['on', 'off'],
@@ -65,11 +57,6 @@ const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
   'reading.show_feed_activity': ['on', 'off'],
   'reading.article_open_mode': ['page', 'overlay'],
   'reading.category_unread_only': ['on', 'off'],
-  'reading.keyboard_navigation': ['on', 'off'],
-  'reading.keybindings': null,
-  'appearance.mascot': ['off', 'dream-puff', 'sleepy-giant'],
-  'appearance.highlight_theme': null,
-  'appearance.font_family': null,
   'appearance.list_layout': ['list', 'card', 'magazine', 'compact'],
   'translate.provider': ['anthropic', 'gemini', 'openai', 'claude-code', 'ollama', 'vllm', 'google-translate', 'deepl'],
   'translate.model': getAllModelValues(),
@@ -78,7 +65,6 @@ const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
   'ollama.base_url': null,
   'ollama.custom_headers': null,
   'vllm.base_url': null,
-  'custom_themes': null,
   'retention.enabled': ['on', 'off'],
   'retention.read_days': null,
   'retention.unread_days': null,
@@ -175,34 +161,6 @@ export async function settingsRoutes(api: FastifyInstance): Promise<void> {
       const value = String(body[key])
       if (value === '') {
         deleteSetting(key)
-        updated = true
-        continue
-      }
-      // Custom validation for keybindings JSON
-      if (key === 'reading.keybindings') {
-        try {
-          const parsed = JSON.parse(value)
-          const validKeys = new Set(['next', 'prev', 'bookmark', 'openExternal'])
-          const keys = Object.keys(parsed)
-          if (keys.length !== 4 || !keys.every(k => validKeys.has(k))) {
-            reply.status(400).send({ error: 'Invalid keybindings: keys must be next, prev, bookmark, openExternal' })
-            return
-          }
-          const PRINTABLE_RE = /^[!-~]$/
-          const vals = Object.values(parsed) as string[]
-          if (!vals.every(v => typeof v === 'string' && PRINTABLE_RE.test(v))) {
-            reply.status(400).send({ error: 'Invalid keybindings: values must be single printable ASCII characters' })
-            return
-          }
-          if (new Set(vals).size !== vals.length) {
-            reply.status(400).send({ error: 'Invalid keybindings: duplicate key assignments are not allowed' })
-            return
-          }
-        } catch {
-          reply.status(400).send({ error: 'Invalid keybindings: must be valid JSON' })
-          return
-        }
-        upsertSetting(key, value)
         updated = true
         continue
       }

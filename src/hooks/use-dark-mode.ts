@@ -1,12 +1,4 @@
-import { useState, useEffect, useSyncExternalStore } from 'react'
-
-type ColorMode = 'light' | 'dark' | 'system'
-
-function getStoredMode(): ColorMode {
-  const stored = localStorage.getItem('theme')
-  if (stored === 'dark' || stored === 'light') return stored
-  return 'system'
-}
+import { useEffect, useSyncExternalStore } from 'react'
 
 function getSystemDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -18,11 +10,9 @@ function subscribeSystemDark(callback: () => void) {
   return () => mql.removeEventListener('change', callback)
 }
 
+/** Light or dark, following the device's colour scheme. */
 export function useDarkMode() {
-  const [colorMode, setColorMode] = useState<ColorMode>(getStoredMode)
-  const systemDark = useSyncExternalStore(subscribeSystemDark, getSystemDark)
-
-  const isDark = colorMode === 'system' ? systemDark : colorMode === 'dark'
+  const isDark = useSyncExternalStore(subscribeSystemDark, getSystemDark)
 
   useEffect(() => {
     const root = document.documentElement
@@ -34,9 +24,5 @@ export function useDarkMode() {
     root.style.colorScheme = isDark ? 'dark' : 'light'
   }, [isDark])
 
-  useEffect(() => {
-    localStorage.setItem('theme', colorMode)
-  }, [colorMode])
-
-  return { isDark, colorMode, setColorMode }
+  return { isDark }
 }

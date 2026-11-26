@@ -18,7 +18,6 @@ import { formatDetailDate } from '../../lib/dateFormat'
 import { useAppLayout } from '../../app'
 import { Skeleton } from '../ui/skeleton'
 import { Callout } from '../ui/callout'
-import { ArticleZapNavigation } from './article-zap-navigation'
 import { ArticleToolbar } from './article-toolbar'
 import { ArticleTranslationBanner } from './article-translation-banner'
 import { ArticleContentBody } from './article-content-body'
@@ -26,10 +25,9 @@ import type { ArticleDetail as ArticleDetailData } from '../../../shared/types'
 
 interface ArticleDetailProps {
   articleUrl: string
-  enableZapNavigation?: boolean
 }
 
-export function ArticleDetail({ articleUrl, enableZapNavigation = false }: ArticleDetailProps) {
+export function ArticleDetail({ articleUrl }: ArticleDetailProps) {
   const { settings: { internalLinks, translateTargetLang } } = useAppLayout()
   const navigate = useNavigate()
   const { t, tError, isKeyNotSetError, locale } = useI18n()
@@ -170,13 +168,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
 
   return (
     <>
-      {enableZapNavigation && (
-        <ArticleZapNavigation
-          currentArticleId={String(article.id)}
-          onBookmarkToggle={toggleBookmark}
-          onOpenExternal={() => { if (article.source_url) window.open(article.source_url, '_blank') }}
-        />
-      )}
       <article ref={articleRef} className="article-card max-w-2xl mx-auto px-6 md:px-10 py-8">
       {/* Title */}
       <h1 className="mb-1.5 text-[28px] font-bold leading-[1.3] break-words [overflow-wrap:anywhere]">

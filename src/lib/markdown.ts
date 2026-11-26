@@ -228,8 +228,7 @@ const defaultPipeline: MarkdownPreprocessor[] = [fixLegacyMarkdown, escapeNested
  * Pass additional context-specific preprocessors via the second argument.
  *
  * @example
- *   renderMarkdown(md)                            // article body, summary
- *   renderMarkdown(md, [rewriteLinksToAppPaths])  // chat (with URL rewriting)
+ *   renderMarkdown(md)  // article body, translation preview
  */
 export function renderMarkdown(md: string, preprocessors?: MarkdownPreprocessor[]): string {
   const pipeline = preprocessors

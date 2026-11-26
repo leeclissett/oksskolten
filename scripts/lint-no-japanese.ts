@@ -10,7 +10,6 @@ const JAPANESE_RE =
 const ALLOWLIST: RegExp[] = [
   // i18n translation files
   /^src\/lib\/i18n\.ts$/,
-  /^src\/lib\/demo\/i18n\.ts$/,
   /^src\/lib\/i18n\.test\.ts$/,
 
   // Test files — assertions often contain Japanese text
@@ -20,11 +19,8 @@ const ALLOWLIST: RegExp[] = [
   // Test fixtures (HTML cleaner Japanese corpus)
   /^server\/lib\/cleaner\/fixtures\//,
 
-  // Demo / seed data
+  // Dev seed data
   /^src\/lib\/demo\/seed\//,
-
-  // Font metadata (Japanese font names)
-  /^src\/data\/articleFonts\.ts$/,
 
   // HTML cleaner boilerplate dictionary (Japanese stop-words)
   /^server\/lib\/cleaner\/boilerplate-text\.ts$/,

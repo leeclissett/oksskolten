@@ -11,8 +11,8 @@ Typical RSS readers (FreshRSS, CommaFeed, etc.) display RSS feed XML content (`c
 Oksskolten **fetches HTML directly from the original URL for every article** and extracts the full text using Readability. This provides:
 
 - **Self-contained reading experience**: No need to navigate to the original site to read articles
-- **Higher quality AI processing**: Summaries and translations are based on the complete article body, not RSS fragments
-- **Better full-text search accuracy**: Meilisearch indexes the complete article body
+- **Higher quality translation**: Translations are based on the complete article body, not RSS fragments
+- **Complete bodies for reader apps**: The Reader API serves the extracted full text instead of the feed fragment
 
 > Only Miniflux optionally has a Readability-based Crawler feature, but it requires manual per-feed activation. Oksskolten performs full-text retrieval by default for all articles.
 
@@ -25,9 +25,8 @@ Cron runs at 5-minute intervals (`*/5 * * * *`) and processes only feeds whose `
      AND (next_check_at IS NULL OR next_check_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
    <- Feeds with next_check_at = NULL (initial/unset) are fetched immediately
 2. Fetch each feed's RSS URL (parallel with semaphore, max 5 concurrent)
-   - Prefer rss_url
-   - Use rss_bridge_url only if rss_url is NULL
-   - Skip if both are NULL (record "No RSS URL" in last_error)
+   - Uses rss_url (rss_bridge_url is a legacy column and is ignored)
+   - Skip if rss_url is NULL (record "No RSS URL" in last_error)
    -- Bandwidth Optimization (2-stage early return) --
    2a. Conditional HTTP request (1st line of defense):
        - Send feeds.etag as If-None-Match, feeds.last_modified as If-Modified-Since headers
@@ -57,8 +56,7 @@ Cron runs at 5-minute intervals (`*/5 * * * *`) and processes only feeds whose `
 4. Retrieve existing articles eligible for retry:
    SELECT * FROM articles
    WHERE last_error IS NOT NULL
-     AND (full_text IS NULL OR summary IS NULL
-          OR (lang != 'ja' AND full_text_ja IS NULL))
+     AND full_text IS NULL
 5. Process new + retry candidates in parallel with semaphore (max 5 concurrent):
    a. If full_text is NULL -> HTML cleaning + Readability + Turndown for full-text retrieval
       - pre-clean -> Readability -> post-clean -> Markdown conversion (see pipeline details below)
@@ -66,8 +64,7 @@ Cron runs at 5-minute intervals (`*/5 * * * *`) and processes only feeds whose `
       - Generate 200-character preview (excerpt) — markdown syntax (images, links) stripped to plain text
    b. If lang is NULL -> Local language detection via CJK character ratio (no API required)
    c. New articles: INSERT INTO articles / Retry: UPDATE articles
-   d. New articles: fire-and-forget async similarity detection (see [83_feature_similarity.md](./83_feature_similarity.md))
-   e. On successful processing: clear last_error = NULL
+   d. On successful processing: clear last_error = NULL
 6. Per feed: on fetch success, reset error_count=0, last_error=NULL
 7. Per feed: on fetch failure, error_count++, record in last_error
 8. Feeds with error_count >= 5 are updated to disabled = 1
@@ -109,7 +106,7 @@ flowchart TD
     FXPFormat -- "RSS 1.0<br/>(RDF)" --> RDF["URL = item.link<br/>?? item.@rdf:about"]
 ```
 
-**Note**: Summarization remains on-demand. Translation can be invoked manually, or queued automatically for feeds with `auto_translate_target = 'en'`. The translation worker is serial and independent from feed fetching, so provider latency or failure never blocks ingestion.
+**Note**: Translation can be invoked manually, or queued automatically for feeds with `auto_translate_target = 'en'`. The translation worker is serial and independent from feed fetching, so provider latency or failure never blocks ingestion.
 
 ### Shared Article Fetch Function (`fetchArticleContent`)
 
@@ -250,26 +247,11 @@ Article bodies are classified locally with TinyLD. RSS/Atom language metadata is
 
 ### AI API Calls
 
-Any of Anthropic / Gemini / OpenAI can be selected from the settings screen. Streaming is supported. Provider and model can be configured independently for summarization and translation (`summary.provider`, `summary.model`, `translate.provider`, `translate.model`).
+Translation is the only AI task in this fork. Any of Anthropic / Gemini / OpenAI / Claude Code / Ollama / vLLM can be selected from the settings screen. Streaming is supported. Provider and model are configured with `translate.provider` and `translate.model`.
 
-The max output tokens for each task can also be overridden (`summary.max_tokens`, default 2048; `translate.max_tokens`, default 16384). This matters for local LLM backends (vLLM, Ollama) whose context window is smaller than the defaults: a request whose completion cap exceeds the backend's capacity fails outright, so lowering the cap makes summarization and translation usable on such models. Unset values fall back to the defaults.
+The max output tokens can also be overridden (`translate.max_tokens`, default 16384). This matters for local LLM backends (vLLM, Ollama) whose context window is smaller than the defaults: a request whose completion cap exceeds the backend's capacity fails outright, so lowering the cap makes translation usable on such models. Unset values fall back to the defaults.
 
 In addition to LLMs, Google Cloud Translation API v2 and DeepL API v2 are also available as translation providers. Google Translate is faster than LLMs (instant response) and offers a free tier of 500K characters per month ($20/1M characters beyond that). DeepL provides high-quality neural machine translation with particularly high accuracy for Japanese-European language pairs. API Free allows up to 500K characters per month for free; API Pro costs EUR 5.49/month + EUR 25/1M characters.
-
-**Summarization (Default: Anthropic Haiku)**
-
-```typescript
-const SUMMARIZE_MODEL = 'claude-haiku-4-5-20251001'
-const DEFAULT_PROVIDER = 'anthropic'
-
-// Prompt summary:
-// - Line 1: Concisely summarize the overall point of the article in 1-2 sentences
-// - Line 3+: List key points as bullet points (3-4 ideal, max 7)
-// - Each item in the format "**Key point title** — supplementary explanation"
-// - Output in Markdown (bullet points start with "- ")
-```
-
-Results are saved in `articles.summary` (Markdown format).
 
 **Translation (Default: Anthropic Sonnet)**
 
@@ -357,49 +339,24 @@ type FetchProgressEvent =
 
 ### RSS Auto-Discovery (On Feed Registration)
 
-Resolves the RSS URL through a 3-stage fallback chain.
+RSS auto-discovery is the only way a feed URL is resolved. If it finds nothing, no feed is created (there is no RSS-Bridge or CSS-selector fallback in this fork).
 
 ```mermaid
 flowchart TD
     Start([POST /api/feeds<br/>User enters URL]) --> S1
 
-    subgraph Step1 [Step 1: RSS Auto-Discovery]
+    subgraph Step1 [RSS Auto-Discovery]
         S1["Fetch target URL<br/>look for link rel=alternate"]
         S1 --> S1b{"RSS link<br/>found?"}
         S1b -- No --> S1c["Try candidate paths sequentially<br/>/feed, /feed.xml, /rss,<br/>/rss.xml, /atom.xml, /index.xml"]
         S1c --> S1d{"XML/Atom<br/>response?"}
     end
 
-    S1b -- Yes --> OK1["Save as rss_url"]
+    S1b -- Yes --> OK1["choice_needed event<br/>→ second POST with discovered_rss_url"]
     S1d -- Yes --> OK1
-    S1d -- No --> S2
+    S1d -- No --> Fail["error event:<br/>RSS could not be detected"]
 
-    subgraph Step2 [Step 2: RSS Bridge findfeed]
-        S2{"RSS_BRIDGE_URL<br/>configured?"}
-        S2 -- Yes --> S2b["Query Bridge with<br/>?action=findfeed"]
-        S2b --> S2c{"Feed<br/>found?"}
-    end
-
-    S2 -- No --> S3
-    S2c -- Yes --> OK2["Save as rss_bridge_url"]
-    S2c -- No --> S3
-
-    subgraph Step3 [Step 3: CssSelectorBridge Auto-Inference]
-        S3{"RSS_BRIDGE_URL<br/>& LLM API key<br/>configured?"}
-        S3 -- Yes --> S3b["Fetch HTML -> extract a elements structurally<br/>-> LLM infers CSS selector"]
-        S3b --> S3c["Generate CssSelectorBridge URL<br/>-> validate by fetching via Bridge"]
-        S3c --> S3d{"Article URLs<br/>under original<br/>domain?"}
-    end
-
-    S3 -- No --> Fail
-    S3d -- Yes --> OK3["Save as rss_bridge_url"]
-    S3d -- No --> Fail
-
-    OK1 --> Fetch["Run fetchSingleFeed<br/>in background"]
-    OK2 --> Fetch
-    OK3 --> Fetch
-    Fetch --> Done([201 Created])
-    Fail["rss_url = null<br/>rss_bridge_url = null"] --> Done
+    OK1 --> Fetch["Create feed, run fetchSingleFeed<br/>in background"]
 ```
 
 #### Step 1 Details
@@ -409,81 +366,6 @@ flowchart TD
 3. If Content-Type is XML/Atom, save as `rss_url`
 4. If an RSS URL is found, fetch the feed itself to retrieve the feed title
 
-
-### CssSelectorBridge Auto-Inference (Step 3 Details)
-
-For sites where both RSS auto-discovery and RSS Bridge findfeed fail (e.g., claude.com/blog), the LLM infers CSS selectors for article links from the page HTML and automatically generates an RSS Bridge CssSelectorBridge URL.
-
-When Step 1 discovers a global RSS feed, the user is presented with a choice: **"Subscribe to the whole site"** (uses the discovered RSS) or **"Subscribe to this page only"** (bypasses Steps 1–2 and runs LLM inference). This is useful when a site has a global RSS feed but no per-category or per-page feed (e.g., subscribing to a specific artist page on a music news site).
-
-**Activation conditions**: `RSS_BRIDGE_URL` environment variable is set, and at least one LLM provider API key is configured
-
-**Implementation file**: `server/rss-bridge.ts`
-
-#### Component Roles
-
-| Component | Role | Invocation Timing |
-|---|---|---|
-| Node.js (`inferCssSelectorBridge`) | Fetch page HTML, structured extraction of `<a>` elements, LLM invocation, Bridge URL generation and validation | Feed registration only (once) |
-| LLM | Infer CSS selector for article links from `<a>` element list | Feed registration only (once) |
-| RSS Bridge (CssSelectorBridge) | Generate Atom feed from page HTML using the specified CSS selector | Every scheduled Cron run (ongoing) |
-
-#### Processing Flow
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant S as Node.js Server
-    participant P as Target Site
-    participant L as LLM
-    participant B as RSS Bridge
-
-    Note over U,B: Feed registration (one-time only)
-
-    U->>S: POST /api/feeds url
-    S->>P: safeFetch url
-    P-->>S: HTML
-
-    Note over S: Parse with JSDOM<br/>Remove script/style/svg/noscript<br/>Structured extraction of a elements<br/>(5 ancestor levels + class + href + text)
-
-    S->>L: Structured a element list + URL
-    L-->>S: url_selector: CSS selector
-
-    Note over S: Convert attribute selectors to contains<br/>Assemble CssSelectorBridge URL
-
-    S->>B: Validation fetch with CssSelectorBridge URL
-    B->>P: Fetch HTML + apply selector
-    P-->>B: HTML
-    B-->>S: Atom feed
-
-    Note over S: Verify that URLs in entries<br/>are under the original domain
-
-    S-->>U: 201 Created (rss_bridge_url saved)
-
-    Note over U,B: Subsequent scheduled Cron (no LLM needed)
-
-    S->>B: Saved CssSelectorBridge URL
-    B->>P: Fetch HTML + apply selector
-    P-->>B: HTML
-    B-->>S: Atom feed (latest articles)
-    Note over S: Save new articles to DB
-```
-
-#### LLM Prompt Design
-
-The LLM is instructed to:
-- Explicitly state that the `<a>` element text will become the RSS feed title
-- Select `<a>` elements containing actual article titles, not generic text like "Read more" or category names
-- When multiple `<a>` elements point to the same URL, use ancestor classes to distinguish title links
-- Use `*=` (contains) for `href` attribute selectors (`^=` is not allowed because CssSelectorBridge converts relative URLs to absolute URLs)
-
-#### Maintenance Characteristics
-
-- **The LLM is called only once at registration time**. Afterward, RSS Bridge directly fetches pages using the saved CssSelectorBridge URL
-- **As long as the DOM structure doesn't change**, new articles continue to be automatically fetched
-- If a site redesign invalidates the selector, delete and re-register the feed for the LLM to infer a new selector
-- JS-only rendered sites are not supported (RSS Bridge's PHP fetcher cannot execute JavaScript)
-- LLM cost: Input is a few KB of text, output is a single JSON line. Less than $0.001 per call with Haiku
 
 ### Error Handling
 
@@ -495,18 +377,6 @@ The LLM is instructed to:
 | Feed | Rate limit (429/503) | Set `next_check_at` per `Retry-After` header (default 1 hour). `error_count` is not incremented |
 | Feed | Fetch success | Reset `error_count = 0`, `last_error = NULL`. Update `etag` / `last_modified` / `last_content_hash`. Set `next_check_at` / `check_interval` with adaptive interval |
 | Article | Full-text retrieval failure (fetch failure / Readability extraction failure) | `full_text = NULL`, record in `last_error`. Retry in next Cron cycle |
-| Article | Claude API failure (summarization / translation) | `summary = NULL` or `full_text_ja = NULL`, record in `last_error`. Retry when user requests again |
+| Article | Translation provider failure | Manual: the error is returned to the user, who can retry. Automatic: the queue retries with exponential backoff; feed health is unaffected |
 
 SQLite writes use independent INSERTs per article (minimizing the blast radius of failures).
-
-### Search Index Rebuild (Meilisearch)
-
-The Meilisearch full-text search index is rebuilt at the following times:
-
-- **On startup**: Async rebuild on first startup (with backoff retry: 0s -> 5s -> 15s -> 30s)
-- **Scheduled Cron**: Rebuild every 6 hours (`0 */6 * * *`)
-- During rebuild, the API does not return `503`; instead, `GET /api/health` reports `searchReady: false`. The search endpoint returns `503` when the index is not yet built
-
-### Score Recalculation
-
-After Cron feed fetching completes, `recalculateScores()` recalculates the engagement score for all articles. See [Engagement Score in 10_schema.md](./10_schema.md#engagement-score) for the scoring formula.

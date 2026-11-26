@@ -95,6 +95,15 @@ describe('runMigrations', () => {
     expect(applied.length).toBeGreaterThan(0)
   })
 
+  it('drops the tables of removed features', () => {
+    const tables = getDb()
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('article_similarities', 'chat_messages', 'conversations', 'credentials')",
+      )
+      .all() as { name: string }[]
+    expect(tables).toEqual([])
+  })
+
   it('normalizes legacy LetterFeed synthetic article URLs', () => {
     const db = getDb()
     const feedId = db.prepare(

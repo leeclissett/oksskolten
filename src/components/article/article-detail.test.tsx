@@ -4,7 +4,7 @@ import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
 import { SWRConfig } from 'swr'
 import { LocaleContext } from '../../lib/i18n'
 import { TooltipProvider } from '../ui/tooltip'
-import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
+import { ListNavigationProvider } from '../../contexts/list-navigation-context'
 
 const { mockApiPatch, mockApiPost, mockTrackRead, mockQueueSeenIds } = vi.hoisted(() => ({
   mockApiPatch: vi.fn(),
@@ -86,9 +86,9 @@ const mockSettings = {
 
 function OutletWrapper() {
   return (
-    <KeyboardNavigationProvider>
+    <ListNavigationProvider>
       <Outlet context={{ settings: mockSettings, sidebarOpen: false, setSidebarOpen: vi.fn() }} />
-    </KeyboardNavigationProvider>
+    </ListNavigationProvider>
   )
 }
 

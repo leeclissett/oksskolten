@@ -6,7 +6,7 @@
 
 ### Approach
 
-A hybrid of four methods: password authentication with JWT + bcryptjs, passwordless authentication with WebAuthn/Passkey, social login with GitHub OAuth, and API key authentication for external tool access. Password/Passkey/OAuth can be independently enabled/disabled (with at least one always remaining active). API keys are always available once created.
+Two methods: password authentication with JWT + bcryptjs for the web UI, and API key authentication for external tool access. The Reader API has its own ClientLogin auth (see `docs/greader-compat.md`). Passkeys and GitHub OAuth were removed from this fork.
 
 ### DB Schema
 
@@ -18,17 +18,6 @@ CREATE TABLE users (
   token_version INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE credentials (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  credential_id   TEXT NOT NULL UNIQUE,
-  public_key      BLOB NOT NULL,
-  counter         INTEGER NOT NULL DEFAULT 0,
-  device_type     TEXT NOT NULL,
-  backed_up       INTEGER NOT NULL DEFAULT 0,
-  transports      TEXT,
-  created_at      TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE api_keys (
@@ -56,7 +45,6 @@ When the `users` table is empty, accessing the app in a browser displays the ini
 
 **Notes:**
 
-- Initial setup via Passkey is not supported. Since WebAuthn registration requires an authenticated session, the user must first create an account with a password, then add a Passkey from the settings screen
 - `account_name` is automatically saved to the `settings` table using the registered email as the initial value on the first `GET /api/settings/profile` call (can be changed from the settings screen)
 
 ### Password Authentication Flow
@@ -72,54 +60,6 @@ When the `users` table is empty, accessing the app in a browser displays the ini
 7. Logout → removes token from localStorage → navigates to login screen
 ```
 
-### Passkey Authentication Flow
-
-```
-1. Frontend: checks available auth methods via GET /api/auth/methods
-2. If Passkey is available, shows "Log in with Passkey" button
-3. User clicks the button
-4. Retrieves challenge via GET /api/auth/login/options
-5. Browser's WebAuthn dialog appears
-6. User authenticates with Passkey
-7. Verifies via POST /api/auth/login/verify
-8. Server: matches challenge, updates counter, issues JWT
-9. Frontend: saves token to localStorage → displays app
-```
-
-### Passkey Registration Flow
-
-```
-1. Settings screen → auth tab → "Add Passkey" button
-2. Retrieves challenge via GET /api/auth/register/options (requires authentication)
-3. Browser's WebAuthn registration dialog appears
-4. User registers Passkey
-5. Verifies via POST /api/auth/register/verify (requires authentication)
-6. Server: saves public key, counter, and device info to credentials table
-```
-
-### GitHub OAuth Authentication Flow
-
-```
-1. Click "Log in with GitHub" button on the login screen
-2. Send window.location.origin to POST /api/oauth/github/authorize
-3. Server: generates GitHub authorization URL with arctic, stores state in memory
-4. Frontend: window.location.href = authorization URL (redirects to GitHub)
-5. User clicks Authorize on GitHub
-6. GitHub → redirects to GET /api/oauth/github/callback?code=xxx&state=yyy
-7. Server: validates state → exchanges code for access_token → fetches GitHub user info
-8. Server: checks against allowed users (if not configured, only the OAuth App owner)
-9. Server: issues JWT → generates one-time exchange code (60-second TTL)
-10. Redirects to /?oauth_code=<exchange_code>
-11. AuthGate: detects oauth_code → exchanges for JWT via POST /api/oauth/github/token
-12. Frontend: saves token to localStorage → SWR mutate → displays app
-```
-
-Security considerations:
-- JWT is never placed in the URL (only the one-time exchange code)
-- Exchange code has a 60-second TTL and is single-use (no replay)
-- Client ID/Secret are stored in the `settings` table (zero additional env vars)
-- Can be dynamically toggled ON/OFF from the settings screen
-
 ### JWT Token
 
 - Algorithm: HS256
@@ -130,25 +70,6 @@ Security considerations:
 - Signing secret: persisted in DB (`settings` table). Can be overridden with the `JWT_SECRET` environment variable
 - On 401 response: frontend automatically discards the token and redirects to the login screen
 - Invalidation via `token_version`: incrementing `token_version` on password change invalidates all existing sessions
-
-### WebAuthn Configuration
-
-- `rpName`: `'Oksskolten'`
-- `rpID`: dynamically derived from `Origin` / `Referer` headers (Vite proxy compatible)
-- `residentKey`: `'preferred'`
-- `userVerification`: `'preferred'`
-- Challenge TTL: 60 seconds (managed in memory)
-
-### Lockout Prevention
-
-Invariant: **at least one authentication method is always enabled**
-
-| Action | Allowed when |
-|---|---|
-| Disable password authentication | Passkey > 0 OR GitHub OAuth enabled |
-| Delete last Passkey | Password authentication enabled OR GitHub OAuth enabled |
-| Disable GitHub OAuth | Password authentication enabled OR Passkey > 0 |
-| Clear GitHub OAuth settings (when it is the only auth method) | Blocked |
 
 ### Startup Guard
 
@@ -176,7 +97,7 @@ npx tsx scripts/reset-password.ts
 
 ### API Key Authentication
 
-API keys provide programmatic access for external scripts, bots, and monitoring tools. Unlike JWT/Passkey/OAuth (which are for interactive user sessions), API keys are long-lived bearer tokens with scoped permissions.
+API keys provide programmatic access for external scripts, bots, and monitoring tools. Unlike JWT (which is for interactive user sessions), API keys are long-lived bearer tokens with scoped permissions.
 
 **Key format:** `ok_` prefix + 40 hex characters (e.g., `ok_6ed6d44c17a82e3af429d384ef7baa04d6268917`)
 
@@ -213,9 +134,9 @@ Skip authentication checks with `AUTH_DISABLED=1`. Only effective when `NODE_ENV
 | Endpoint | Limit |
 |---|---|
 | `POST /api/login` | 5 req/min |
-| `POST /api/auth/login/verify` | 5 req/min |
-| `GET /api/oauth/github/callback` | 10 req/min |
-| `POST /api/oauth/github/token` | 5 req/min |
+| `POST /api/auth/setup` | 3 req/min |
+| `POST /api/auth/password/change` | 5 req/min |
+| `POST /api/auth/email/change` | 5 req/min |
 | All other APIs | 100 req/min (global) |
 
 ### Security
@@ -223,12 +144,7 @@ Skip authentication checks with `AUTH_DISABLED=1`. Only effective when `NODE_ENV
 - No CSRF risk since cookies are not used (tokens are explicitly sent as Authorization headers)
 - Write APIs (POST / PATCH / DELETE) require `Content-Type: application/json`; otherwise return `415 Unsupported Media Type`
 - XSS protection: React's automatic escaping + Markdown sanitization with DOMPurify
-- WebAuthn challenges are consumed after a single use (replay attack prevention)
-- WebAuthn counter verification for clone detection
 - bcryptjs cost 12 (sufficient computational cost)
-- GitHub OAuth: uses a one-time exchange code instead of putting JWT in the URL (prevents leakage via logs, Referer, and browser history)
-- GitHub OAuth: CSRF prevention via the state parameter (5-minute TTL)
-- GitHub OAuth: exchange code has a 60-second TTL and is single-use (no replay)
 - API keys: `ok_` prefix enables secret scanning tools (e.g., GitHub) to detect leaked keys
 - API keys: only SHA-256 hashes are stored; plaintext is shown once at creation
 - API keys: scope enforcement via HTTP method check at plugin level (read-only keys cannot mutate data)

@@ -3,7 +3,6 @@ import { Input } from '../components/ui/input'
 import { FormField } from '../components/ui/form-field'
 import { useI18n } from '../lib/i18n'
 import { useDarkMode } from '../hooks/use-dark-mode'
-import { useTheme } from '../hooks/use-theme'
 import { SetupPage } from './setup-page'
 
 interface AuthMethods {
@@ -12,8 +11,7 @@ interface AuthMethods {
 
 export function LoginPage({ onLogin }: { onLogin?: (token: string) => void }) {
   const { t } = useI18n()
-  const { isDark } = useDarkMode()
-  useTheme(isDark)
+  useDarkMode()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)

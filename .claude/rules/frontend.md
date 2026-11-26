@@ -3,12 +3,12 @@ paths:
   - "src/**"
 ---
 
-# Frontend: Theme System
+# Frontend: Colors
 
-This project has a multi-theme system (14 themes, light/dark each). Theme colors are defined in `src/data/themes.ts` and applied as CSS custom properties via `use-theme.ts`. `src/index.css` is just a fallback default.
+There is one palette with a light and a dark variant, defined as CSS custom properties in `src/index.css` (`:root` and `.dark`). The `.dark` class follows the system color scheme. The theme system was removed from this fork.
 
-- Never use raw colors (`text-gray-500`, `bg-white`, `#ccc`, etc.) — use theme tokens (`text-text`, `text-muted`, `bg-bg-card`, `border-border`, `text-accent`, etc.)
-- Do not change color values or add new tokens without user approval — color choices are intentional design decisions across all 18 themes
+- Never use raw colors (`text-gray-500`, `bg-white`, `#ccc`, etc.) — use the color tokens (`text-text`, `text-muted`, `bg-bg-card`, `border-border`, `text-accent`, etc.)
+- Do not change color values or add new tokens without user approval
 
 # Frontend: Z-Index Scale
 
@@ -21,7 +21,6 @@ z-50   tooltip, dropdown, sidebar, popover
 z-60   context-menu
 z-70   dialog / modal (overlay & content)
 z-80   floating UI inside dialogs (select, popover, etc.)
-z-90   chat panel
 z-100  image lightbox
 ```
 

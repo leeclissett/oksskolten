@@ -10,8 +10,6 @@
 erDiagram
     categories ||--o{ feeds : "has"
     feeds ||--o{ articles : "has"
-    articles ||--o{ conversations : "context"
-    conversations ||--o{ chat_messages : "has"
 
     categories {
         INTEGER id PK
@@ -39,26 +37,10 @@ erDiagram
         TEXT summary
         INTEGER category_id FK "nullable, denormalized"
     }
-    conversations {
-        TEXT id PK
-        INTEGER article_id FK "nullable"
-        TEXT title
-    }
-    chat_messages {
-        INTEGER id PK
-        TEXT conversation_id FK
-        TEXT role "user | assistant"
-        TEXT content
-    }
     users {
         INTEGER id PK
         TEXT email UK
         INTEGER token_version
-    }
-    credentials {
-        INTEGER id PK
-        TEXT credential_id UK
-        BLOB public_key
     }
     api_keys {
         INTEGER id PK
@@ -66,11 +48,6 @@ erDiagram
         TEXT key_hash UK
         TEXT key_prefix
         TEXT scopes "read | read,write"
-    }
-    article_similarities {
-        INTEGER article_id PK,FK
-        INTEGER similar_to_id PK,FK
-        REAL score
     }
     settings {
         TEXT key PK
@@ -81,10 +58,7 @@ erDiagram
 - `feeds.category_id → categories.id` (ON DELETE SET NULL)
 - `articles.feed_id → feeds.id` (ON DELETE CASCADE)
 - `articles.category_id → categories.id` (ON DELETE SET NULL; denormalized from feed's category)
-- `conversations.article_id → articles.id` (ON DELETE SET NULL)
-- `chat_messages.conversation_id → conversations.id` (ON DELETE CASCADE)
-- `article_similarities.article_id → articles.id` and `article_similarities.similar_to_id → articles.id` (ON DELETE CASCADE). Bidirectional: both `(A,B)` and `(B,A)` are stored
-- `users` / `credentials` / `settings` / `api_keys` have no foreign keys to other tables
+- `users` / `settings` / `api_keys` have no foreign keys to other tables
 
 ### Table Definitions
 
@@ -172,36 +146,6 @@ CREATE TABLE users (
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE credentials (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  credential_id   TEXT NOT NULL UNIQUE,              -- WebAuthn credential ID
-  public_key      BLOB NOT NULL,                     -- WebAuthn public key
-  counter         INTEGER NOT NULL DEFAULT 0,        -- Signature counter
-  device_type     TEXT NOT NULL,                     -- "singleDevice" / "multiDevice"
-  backed_up       INTEGER NOT NULL DEFAULT 0,        -- Whether synced
-  transports      TEXT,                              -- JSON array ("usb", "ble", "nfc", "internal")
-  aaguid          TEXT,                              -- Authenticator identifier (for AAGUID → name lookup)
-  created_at      TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE conversations (
-  id            TEXT PRIMARY KEY,
-  title         TEXT,
-  article_id    INTEGER REFERENCES articles(id) ON DELETE SET NULL,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE chat_messages (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-  content         TEXT NOT NULL,   -- JSON: stored as-is in Anthropic messages format
-  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX idx_chat_messages_conversation ON chat_messages(conversation_id, id);
-
 CREATE TABLE api_keys (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   name         TEXT    NOT NULL,                    -- Display name: "Monitoring script"
@@ -212,15 +156,6 @@ CREATE TABLE api_keys (
   created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE article_similarities (
-  article_id    INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
-  similar_to_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
-  score         REAL NOT NULL DEFAULT 0,            -- Bigram Dice coefficient (0.0–1.0)
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (article_id, similar_to_id)
-);
-
-CREATE INDEX idx_similarities_similar_to ON article_similarities(similar_to_id);
 ```
 
 - When a feed is deleted, its associated articles are automatically removed via `ON DELETE CASCADE`
@@ -231,7 +166,8 @@ CREATE INDEX idx_similarities_similar_to ON article_similarities(similar_to_id);
 - `etag` / `last_modified` / `last_content_hash` are cache metadata for bandwidth optimization. Conditional HTTP requests (304 responses) and content hash comparison allow skipping XML parsing for unchanged feeds
 - `next_check_at` / `check_interval` are used for adaptive refresh interval scheduling. The maximum value is chosen from three signals: HTTP `Cache-Control` / `Expires`, RSS `<ttl>`, and article update frequency, then clamped to the range of 15 minutes to 4 hours. On notModified, the previous interval stored in `check_interval` is reused. The datetime format is compatible with `strftime('%Y-%m-%dT%H:%M:%SZ')` (no milliseconds)
 - `feeds.type = 'clip'` denotes the clip-only feed (singleton). It is excluded from Cron fetching. See [80_feature_clip.md](./80_feature_clip.md) for details
-- When a conversation is deleted, its associated messages are automatically removed via `ON DELETE CASCADE`. When an article is deleted, the `article_id` of associated conversations is set to NULL via `ON DELETE SET NULL`
+
+Migration `0012_strip.sql` drops four tables left over from removed upstream features: `article_similarities`, `chat_messages`, `conversations` and `credentials`. Unused columns (for example `feeds.rss_bridge_url`, `articles.summary`, `articles.score`) are left in place.
 
 ### Computed Fields (FeedWithCounts)
 
