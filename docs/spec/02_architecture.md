@@ -8,36 +8,31 @@
 graph TD
     subgraph host["Docker Host"]
         subgraph app["oksskolten (Node.js 22, port 3000)"]
-            fastify["Fastify API<br/>/api/*"]
+            fastify["Fastify API<br/>/api/* + Reader API"]
             spa["SPA static serving<br/>(Vite build)"]
             sqlite["SQLite<br/>(WAL mode)"]
             cron["node-cron<br/>Feed fetch every 5 min"]
             fetcher["Fetcher Pipeline<br/>RSS parse → Readability<br/>→ HTML cleaner → Markdown"]
-            ai["AI Provider<br/>Anthropic / Gemini / OpenAI"]
-            chat["Chat Service<br/>MCP Server + 4 Adapters"]
+            ai["Translation providers<br/>LLM / Google Translate / DeepL"]
+            tworker["Translation worker<br/>(serial queue)"]
 
             fastify --> sqlite
             fastify --- spa
             fastify --> fetcher
             fastify --> ai
-            fastify --> chat
             cron --> fetcher
+            cron --> tworker
+            tworker --> ai
             fetcher --> sqlite
-            chat --> sqlite
-            chat --> ai
         end
 
-        bridge["RSS Bridge<br/>(Docker, port 80)"]
-        flare["FlareSolverr<br/>(Docker, port 8191)"]
-        tunnel["cloudflared<br/>(Cloudflare Tunnel)"]
+        flare["FlareSolverr (optional)<br/>(Docker, port 8191)"]
     end
 
-    user(("User")) -- "HTTPS" --> tunnel
-    tunnel --> fastify
+    client(("Reader app /<br/>browser")) -- "HTTPS via reverse proxy" --> fastify
     cron -- "HTTP fetch" --> rss(("RSS Feeds"))
-    fetcher --> bridge
     fetcher --> flare
-    ai -- "API" --> llm_api(("Anthropic / Gemini<br/>/ OpenAI API"))
+    ai -- "API" --> llm_api(("Provider API"))
 ```
 
 ## Data Flow
@@ -48,7 +43,6 @@ graph TD
 1. Fetch enabled RSS feeds from the feeds table (disabled=0, type='rss')
 2. Fetch & parse RSS/Atom/RDF (feedsmith → fast-xml-parser fallback)
    └─ Sites requiring bot auth → via FlareSolverr
-   └─ If rss_bridge_url exists → via RSS Bridge
 3. For each new article (semaphore: 5 concurrent):
    a. Fetch HTML → DOM parsing in Worker Thread (pre-clean → Readability → post-clean → Markdown)
    b. Extract OGP image & excerpt
@@ -61,20 +55,20 @@ graph TD
 
 ```
 1. User opens article → GET /api/articles/by-url
-2. "Summary" tab → POST /api/articles/:id/summarize (SSE streaming)
-   └─ Generate summary via LLM → cache in summary column
-3. "Translation" tab → POST /api/articles/:id/translate (SSE streaming)
-   └─ LLM or Google Translate → cache in full_text_ja column
-4. Subsequent requests return from cache (no API calls)
+2. "Translate" → POST /api/articles/:id/translate (SSE streaming)
+   └─ LLM, Google Translate or DeepL → cached in full_text_translated
+3. Subsequent requests return from cache (no API calls)
 ```
+
+Reader apps do not use these endpoints: they sync through the Reader API (see `docs/greader-compat.md`), which serves the stored (and, where present, translated) article body.
 
 ### Authentication
 
 ```
-3-method hybrid (at least one always active):
+Web UI and /api/*:
 ├─ Password: bcryptjs + JWT (30-day expiry)
-├─ Passkey: WebAuthn (@simplewebauthn) + JWT
-└─ GitHub OAuth: arctic + one-time exchange code → JWT
+└─ API tokens (ok_ prefix, read or read,write scope)
+Reader API: ClientLogin with the same account
 ```
 
 ## Why This Architecture
@@ -112,7 +106,7 @@ We chose React SPA (Vite build) over Next.js or Remix.
 | Architecture | Why Not |
 |---|---|
 | Vercel + Serverless | Can't use SQLite. Adds external DB dependency, losing the simplicity of self-hosting |
-| Edge (Cloudflare Workers, etc.) | Can't have persistent processes, so cron won't work. API execution time limits conflict with summarization/translation |
+| Edge (Cloudflare Workers, etc.) | Can't have persistent processes, so cron won't work. API execution time limits conflict with translation |
 | Next.js / Remix | Overkill for a personal tool that doesn't need SSR. Vercel-centric design philosophy doesn't align well with self-hosting |
 | htmx | UI complexity (context menus, infinite scroll, streaming display) exceeds htmx's sweet spot |
 | Microservices / Queue | Distributed systems are overkill for a personal RSS reader. A single process is simpler to operate and debug |

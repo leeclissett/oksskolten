@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useDarkMode } from './use-dark-mode'
 
 describe('useDarkMode', () => {
-  let matchMediaListeners: Array<(e: { matches: boolean }) => void>
+  let matchMediaListeners: Array<() => void>
   let matchMediaMatches: boolean
 
   beforeEach(() => {
@@ -15,62 +15,48 @@ describe('useDarkMode', () => {
     matchMediaMatches = false
 
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-      matches: matchMediaMatches,
+      get matches() { return matchMediaMatches },
       media: query,
-      addEventListener: (_: string, cb: (e: { matches: boolean }) => void) => {
+      addEventListener: (_: string, cb: () => void) => {
         matchMediaListeners.push(cb)
       },
-      removeEventListener: (_: string, cb: (e: { matches: boolean }) => void) => {
+      removeEventListener: (_: string, cb: () => void) => {
         matchMediaListeners = matchMediaListeners.filter(l => l !== cb)
       },
     })))
   })
 
-  it('defaults to system mode', () => {
+  it('is light when the device is light', () => {
     const { result } = renderHook(() => useDarkMode())
-    expect(result.current.colorMode).toBe('system')
-  })
-
-  it('reads stored dark mode from localStorage', () => {
-    localStorage.setItem('theme', 'dark')
-    const { result } = renderHook(() => useDarkMode())
-    expect(result.current.colorMode).toBe('dark')
-    expect(result.current.isDark).toBe(true)
-  })
-
-  it('reads stored light mode from localStorage', () => {
-    localStorage.setItem('theme', 'light')
-    const { result } = renderHook(() => useDarkMode())
-    expect(result.current.colorMode).toBe('light')
     expect(result.current.isDark).toBe(false)
-  })
-
-  it('adds dark class when isDark is true', () => {
-    localStorage.setItem('theme', 'dark')
-    renderHook(() => useDarkMode())
-    expect(document.documentElement.classList.contains('dark')).toBe(true)
-    expect(document.documentElement.style.colorScheme).toBe('dark')
-  })
-
-  it('removes dark class when light', () => {
-    document.documentElement.classList.add('dark')
-    localStorage.setItem('theme', 'light')
-    renderHook(() => useDarkMode())
     expect(document.documentElement.classList.contains('dark')).toBe(false)
     expect(document.documentElement.style.colorScheme).toBe('light')
   })
 
-  it('persists mode changes to localStorage', () => {
-    const { result } = renderHook(() => useDarkMode())
-    act(() => result.current.setColorMode('dark'))
-    expect(localStorage.getItem('theme')).toBe('dark')
-    expect(result.current.colorMode).toBe('dark')
-  })
-
-  it('in system mode, follows matchMedia', () => {
+  it('is dark when the device is dark', () => {
     matchMediaMatches = true
     const { result } = renderHook(() => useDarkMode())
-    expect(result.current.colorMode).toBe('system')
     expect(result.current.isDark).toBe(true)
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+  })
+
+  it('ignores a colour mode stored by earlier versions', () => {
+    localStorage.setItem('theme', 'dark')
+    const { result } = renderHook(() => useDarkMode())
+    expect(result.current.isDark).toBe(false)
+  })
+
+  it('follows the device when it changes', () => {
+    const { result } = renderHook(() => useDarkMode())
+    expect(result.current.isDark).toBe(false)
+
+    act(() => {
+      matchMediaMatches = true
+      matchMediaListeners.forEach(cb => cb())
+    })
+
+    expect(result.current.isDark).toBe(true)
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 })

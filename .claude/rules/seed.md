@@ -6,7 +6,7 @@ paths:
 
 # Dev Seed Data
 
-Demo seed JSON (`src/lib/demo/seed/*.json`) is the single source of truth for both the demo SPA and the dev database. No generation step needed — `seedDevData()` reads the JSON directly at startup.
+Seed JSON (`src/lib/demo/seed/*.json`) is the source of the dev database's sample data (the demo SPA that shared it has been removed). No generation step needed — `seedDevData()` reads the JSON directly at startup.
 
 - `seedDevData()` runs when `NODE_ENV=development`, `NO_SEED` is not `1`, and no RSS feeds exist in DB
 - Idempotent: skips if feeds already exist, and uses `INSERT OR IGNORE`

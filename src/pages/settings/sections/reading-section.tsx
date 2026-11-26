@@ -1,16 +1,12 @@
-import { useState, useEffect } from 'react'
-import { useI18n, type TranslateFn } from '../../../lib/i18n'
+import { useI18n } from '../../../lib/i18n'
 import { PreviewCard } from '../../../components/settings/preview-card'
 import { useAppLayout } from '../../../app'
 import { RadioGroup } from '@/components/ui/radio-group'
-import type { KeyBindings } from '../../../hooks/use-keyboard-navigation'
 
 export function ReadingSection() {
   const { settings } = useAppLayout()
   const {
     autoMarkRead, setAutoMarkRead,
-    keyboardNavigation, setKeyboardNavigation,
-    keybindings, setKeybindings,
     showUnreadIndicator, setShowUnreadIndicator,
     indicatorStyle,
     internalLinks, setInternalLinks,
@@ -317,91 +313,6 @@ export function ReadingSection() {
           onChange={setCategoryUnreadOnly}
         />
       </div>
-
-      <div className="mt-6">
-        <p className="text-sm text-text mb-1">{t('settings.keyboardNavigation')}</p>
-        <p className="text-xs text-muted mb-3">{t('settings.keyboardNavigationDesc')}</p>
-        <RadioGroup
-          name="keyboardNavigation"
-          options={[
-            { value: 'on' as const, label: t('settings.keyboardNavigationOn') },
-            { value: 'off' as const, label: t('settings.keyboardNavigationOff') },
-          ]}
-          value={keyboardNavigation}
-          onChange={setKeyboardNavigation}
-        />
-      </div>
-
-      {keyboardNavigation === 'on' && (
-        <KeybindingsEditor
-          keybindings={keybindings}
-          setKeybindings={setKeybindings}
-          t={t}
-        />
-      )}
-
     </section>
-  )
-}
-
-function KeybindingsEditor({
-  keybindings,
-  setKeybindings,
-  t,
-}: {
-  keybindings: KeyBindings
-  setKeybindings: (kb: KeyBindings) => void
-  t: TranslateFn
-}) {
-  const [draft, setDraft] = useState<KeyBindings>(keybindings)
-
-  useEffect(() => { setDraft(keybindings) }, [keybindings])
-
-  const actions: Array<{ key: keyof KeyBindings; label: string }> = [
-    { key: 'next', label: t('settings.keybindingsNext') },
-    { key: 'prev', label: t('settings.keybindingsPrev') },
-    { key: 'bookmark', label: t('settings.keybindingsBookmark') },
-    { key: 'openExternal', label: t('settings.keybindingsOpenExternal') },
-  ]
-
-  const values = Object.values(draft)
-  const hasDuplicate = new Set(values).size !== values.length
-
-  const PRINTABLE_RE = /^[!-~]$/
-
-  const handleChange = (action: keyof KeyBindings, value: string) => {
-    const next = { ...draft, [action]: value }
-    setDraft(next)
-    const nextValues = Object.values(next)
-    if (new Set(nextValues).size === nextValues.length && nextValues.every(v => PRINTABLE_RE.test(v))) {
-      setKeybindings(next)
-    }
-  }
-
-  return (
-    <div className="mt-4 ml-1">
-      <p className="text-sm text-text mb-1">{t('settings.keybindings')}</p>
-      <p className="text-xs text-muted mb-3">{t('settings.keybindingsDesc')}</p>
-      <div className="space-y-2">
-        {actions.map(({ key, label }) => (
-          <div key={key} className="flex items-center gap-3">
-            <span className="text-sm text-text w-32">{label}</span>
-            <input
-              type="text"
-              maxLength={1}
-              value={draft[key]}
-              onChange={(e) => handleChange(key, e.target.value)}
-              onBlur={() => {
-                if (!draft[key]) setDraft(prev => ({ ...prev, [key]: keybindings[key] }))
-              }}
-              className="w-10 h-8 text-center text-sm border border-border rounded bg-bg-card text-text focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-          </div>
-        ))}
-      </div>
-      {hasDuplicate && (
-        <p className="text-xs text-error mt-2">{t('settings.keybindingsDuplicate')}</p>
-      )}
-    </div>
   )
 }

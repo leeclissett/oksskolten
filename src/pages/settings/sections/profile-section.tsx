@@ -2,32 +2,27 @@ import { useState, useEffect, useRef } from 'react'
 import useSWR from 'swr'
 import { useI18n } from '../../../lib/i18n'
 import { fetcher, apiPatch } from '../../../lib/fetcher'
-import { AvatarPicker } from '../../../components/settings/avatar-picker'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
 
 export function ProfileSection() {
   const { t } = useI18n()
-  const { data: profile, mutate: mutateProfile } = useSWR<{ account_name: string; avatar_seed: string | null }>('/api/settings/profile', fetcher)
+  const { data: profile, mutate: mutateProfile } = useSWR<{ account_name: string }>('/api/settings/profile', fetcher)
   const [editName, setEditName] = useState('')
-  const [editAvatarSeed, setEditAvatarSeed] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const initialized = useRef(false)
 
   useEffect(() => {
     if (profile && !initialized.current) {
       setEditName(profile.account_name)
-      setEditAvatarSeed(profile.avatar_seed ?? null)
       initialized.current = true
     }
   }, [profile])
 
-  const isDirty = editName.trim() !== (profile?.account_name ?? '') ||
-    (editAvatarSeed ?? '') !== (profile?.avatar_seed ?? '')
+  const isDirty = editName.trim() !== (profile?.account_name ?? '')
 
   function handleCancel() {
     setEditName(profile?.account_name ?? '')
-    setEditAvatarSeed(profile?.avatar_seed ?? null)
   }
 
   async function handleSave() {
@@ -37,8 +32,7 @@ export function ProfileSection() {
     try {
       const newData = await apiPatch('/api/settings/profile', {
         account_name: trimmed,
-        avatar_seed: editAvatarSeed,
-      }) as { account_name: string; avatar_seed: string | null }
+      }) as { account_name: string }
       void mutateProfile(newData, { revalidate: false })
     } catch {
       // keep draft on failure
@@ -51,22 +45,12 @@ export function ProfileSection() {
     <section>
       <h2 className="text-base font-semibold text-text mb-4">{t('settings.profile')}</h2>
       <FormField label={t('settings.accountName')} hint={t('settings.accountNameHint')} compact>
-      <div className="flex items-center gap-3">
-        <AvatarPicker
-          name={editName || profile?.account_name || '?'}
-          currentSeed={editAvatarSeed}
-          onSelect={setEditAvatarSeed}
-          sizeClass="w-12 h-12"
-          textClass="text-lg"
-        />
         <Input
           type="text"
           value={editName}
           onChange={e => setEditName(e.target.value)}
           disabled={saving}
-          className="flex-1"
         />
-      </div>
       </FormField>
       {isDirty && (
         <div className="flex items-center justify-end gap-2 mt-4">

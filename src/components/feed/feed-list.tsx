@@ -20,7 +20,6 @@ import { FeedContextMenu, MultiSelectContextMenu, CategoryContextMenu } from './
 import { SidebarMenu } from '../layout/sidebar-menu'
 import { SidebarNavItem } from '../layout/sidebar-nav-item'
 import { FeedListHeader } from './feed-list-header'
-import { useGlobalShortcuts } from '../../hooks/use-global-shortcuts'
 import { useAppLayout } from '../../app'
 import { extractDomain } from '../../lib/url'
 import type { FeedWithCounts, Category } from '../../../shared/types'
@@ -77,10 +76,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
   const categories = useMemo(() => categoriesData?.categories ?? [], [categoriesData])
 
   const [feedModalOpen, setFeedModalOpen] = useState(false)
-
-  useGlobalShortcuts({
-    onAddFeed: () => setFeedModalOpen(true),
-  })
 
   // Lock body scroll when sidebar is open on mobile
   useEffect(() => {

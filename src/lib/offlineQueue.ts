@@ -1,3 +1,5 @@
+import { authHeaders } from './fetcher'
+
 const DB_NAME = 'reader-offline'
 const STORE_NAME = 'read-queue'
 const DB_VERSION = 1
@@ -57,7 +59,6 @@ async function doFlush(): Promise<void> {
   const ids = [...new Set(items.map(i => i.articleId))]
 
   // Attempt to send to server
-  const { authHeaders } = await import('./fetcher')
   const res = await fetch('/api/articles/batch-seen', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },

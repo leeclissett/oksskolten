@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
 import { LocaleContext } from '../../lib/i18n'
-import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
+import { ListNavigationProvider } from '../../contexts/list-navigation-context'
 import type { ArticleListItem } from '../../../shared/types'
 
 // --- Mocks ---
@@ -75,16 +75,6 @@ vi.mock('../../contexts/fetch-progress-context', () => ({
   }),
 }))
 
-
-vi.mock('../ui/mascot', () => ({
-  Mascot: () => <div data-testid="mascot" />,
-}))
-
-vi.mock('./swipeable-article-card', () => ({
-  SwipeableArticleCard: ({ article }: { article: ArticleListItem }) => (
-    <div data-testid={`swipeable-${article.id}`}>{article.title}</div>
-  ),
-}))
 
 vi.mock('./article-card', () => ({
   ArticleCard: ({ article }: { article: ArticleListItem }) => (
@@ -164,9 +154,9 @@ const mockSettings = {
 
 function OutletWrapper() {
   return (
-    <KeyboardNavigationProvider>
+    <ListNavigationProvider>
       <Outlet context={{ settings: mockSettings, sidebarOpen: false, setSidebarOpen: vi.fn() }} />
-    </KeyboardNavigationProvider>
+    </ListNavigationProvider>
   )
 }
 
@@ -267,7 +257,7 @@ describe('ArticleList', () => {
     expect(screen.getByText('Second Article')).toBeTruthy()
   })
 
-  it('shows mascot at end of feed', () => {
+  it('shows the caught-up note at the end of a feed', () => {
     mockSettings.autoMarkRead = 'on' as any
     swrInfiniteReturn = {
       data: [{ articles: [makeArticle({ id: 1 })], total: 1, has_more: false }],
@@ -279,25 +269,10 @@ describe('ArticleList', () => {
       mutate: vi.fn(),
     }
     renderArticleList()
-    expect(screen.getByTestId('mascot')).toBeTruthy()
     expect(screen.getByText("You're all caught up!")).toBeTruthy()
   })
 
-  it('does not show mascot when article list is empty', () => {
-    swrInfiniteReturn = {
-      data: [{ articles: [], total: 0, has_more: false }],
-      error: undefined,
-      size: 1,
-      setSize: vi.fn(),
-      isLoading: false,
-      isValidating: false,
-      mutate: vi.fn(),
-    }
-    renderArticleList()
-    expect(screen.queryByTestId('mascot')).toBeNull()
-  })
-
-  it('uses ArticleCard on non-touch devices', () => {
+  it('renders each article as an ArticleCard', () => {
     swrInfiniteReturn = {
       data: [{ articles: [makeArticle({ id: 10, title: 'Desktop Article' })], total: 1, has_more: false }],
       error: undefined,
@@ -309,28 +284,6 @@ describe('ArticleList', () => {
     }
     renderArticleList()
     expect(screen.getByTestId('article-10')).toBeTruthy()
-  })
-
-  it('uses SwipeableArticleCard on touch devices', async () => {
-    const { useIsTouchDevice } = await import('../../hooks/use-is-touch-device')
-    vi.mocked(useIsTouchDevice).mockReturnValue(true)
-
-    swrInfiniteReturn = {
-      data: [{ articles: [makeArticle({ id: 20, title: 'Mobile Article' })], total: 1, has_more: false }],
-      error: undefined,
-      size: 1,
-      setSize: vi.fn(),
-      isLoading: false,
-      isValidating: false,
-      mutate: vi.fn(),
-    }
-    renderArticleList()
-    expect(screen.getByTestId('swipeable-20')).toBeTruthy()
-  })
-
-  it('does not show mascot when still loading', () => {
-    renderArticleList()
-    expect(screen.queryByTestId('mascot')).toBeNull()
   })
 
   it('renders multiple pages of articles', () => {

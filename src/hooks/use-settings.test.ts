@@ -3,31 +3,13 @@ import { renderHook, act } from '@testing-library/react'
 
 // --- Sub-hook mocks ---
 
-const mockSetTheme = vi.fn()
 const mockSetDateMode = vi.fn()
 const mockSetAutoMarkRead = vi.fn()
 const mockSetShowUnreadIndicator = vi.fn()
 const mockSetInternalLinks = vi.fn()
-const mockSetHighlightTheme = vi.fn()
-const mockSetColorMode = vi.fn()
 
 vi.mock('./use-dark-mode', () => ({
-  useDarkMode: () => ({
-    isDark: false,
-    colorMode: 'system' as const,
-    setColorMode: mockSetColorMode,
-  }),
-}))
-
-vi.mock('./use-theme', () => ({
-  useTheme: () => ({
-    themeName: 'default',
-    setTheme: mockSetTheme,
-    themes: [
-      { name: 'default', highlight: 'github', indicatorStyle: 'dot' },
-      { name: 'dark-theme', highlight: 'github-dark' },
-    ],
-  }),
+  useDarkMode: () => ({ isDark: false }),
 }))
 
 vi.mock('./use-date-mode', () => ({
@@ -59,11 +41,7 @@ vi.mock('./use-internal-links', () => ({
 }))
 
 vi.mock('./use-highlight-theme', () => ({
-  useHighlightTheme: () => ({
-    highlightTheme: 'github',
-    highlightThemeOverride: null,
-    setHighlightTheme: mockSetHighlightTheme,
-  }),
+  useHighlightTheme: () => {},
 }))
 
 // --- SWR mock ---
@@ -95,12 +73,10 @@ import { useSettings } from './use-settings'
 describe('useSettings', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    mockSetTheme.mockReset()
     mockSetDateMode.mockReset()
     mockSetAutoMarkRead.mockReset()
     mockSetShowUnreadIndicator.mockReset()
     mockSetInternalLinks.mockReset()
-    mockSetHighlightTheme.mockReset()
     mockApiPatch.mockReset()
     mockAuthHeaders.mockReset()
     mockAuthHeaders.mockReturnValue({ Authorization: 'Bearer test-token' })
@@ -116,40 +92,20 @@ describe('useSettings', () => {
   it('returns all expected fields', () => {
     const { result } = renderHook(() => useSettings())
     expect(result.current).toHaveProperty('isDark')
-    expect(result.current).toHaveProperty('themeName')
-    expect(result.current).toHaveProperty('setTheme')
     expect(result.current).toHaveProperty('dateMode')
     expect(result.current).toHaveProperty('setDateMode')
     expect(result.current).toHaveProperty('autoMarkRead')
     expect(result.current).toHaveProperty('showUnreadIndicator')
     expect(result.current).toHaveProperty('internalLinks')
-    expect(result.current).toHaveProperty('highlightTheme')
     expect(result.current).toHaveProperty('indicatorStyle')
-  })
-
-  it('hydrates theme from DB prefs', () => {
-    swrData = {
-      'appearance.color_theme': 'solarized',
-      'reading.date_mode': null,
-      'reading.auto_mark_read': null,
-      'reading.unread_indicator': null,
-      'reading.internal_links': null,
-      'appearance.highlight_theme': null,
-    }
-
-    renderHook(() => useSettings())
-
-    expect(mockSetTheme).toHaveBeenCalledWith('solarized')
   })
 
   it('hydrates dateMode from DB prefs', () => {
     swrData = {
-      'appearance.color_theme': null,
       'reading.date_mode': 'absolute',
       'reading.auto_mark_read': null,
       'reading.unread_indicator': null,
       'reading.internal_links': null,
-      'appearance.highlight_theme': null,
     }
 
     renderHook(() => useSettings())
@@ -159,12 +115,10 @@ describe('useSettings', () => {
 
   it('sends backfill PATCH for unset prefs', async () => {
     swrData = {
-      'appearance.color_theme': null,
       'reading.date_mode': null,
       'reading.auto_mark_read': null,
       'reading.unread_indicator': null,
       'reading.internal_links': null,
-      'appearance.highlight_theme': null,
     }
 
     renderHook(() => useSettings())
@@ -172,7 +126,6 @@ describe('useSettings', () => {
     expect(mockApiPatch).toHaveBeenCalledWith(
       '/api/settings/preferences',
       expect.objectContaining({
-        'appearance.color_theme': 'default',
         'reading.date_mode': 'relative',
       }),
     )
@@ -180,44 +133,28 @@ describe('useSettings', () => {
 
   it('dirty tracking prevents hydration overwrite', () => {
     swrData = {
-      'appearance.color_theme': 'old-theme',
-      'reading.date_mode': null,
+      'reading.date_mode': 'relative',
       'reading.auto_mark_read': null,
       'reading.unread_indicator': null,
       'reading.internal_links': null,
-      'appearance.highlight_theme': null,
     }
 
     const { result, rerender } = renderHook(() => useSettings())
 
-    // User changes theme — marks dirty
+    // User changes the date mode — marks dirty
     act(() => {
-      result.current.setTheme('user-theme')
+      result.current.setDateMode('absolute')
     })
+    const callsBefore = mockSetDateMode.mock.calls.length
 
-    // Simulate prefs update from SWR (re-render)
-    swrData = {
-      ...swrData,
-      'appearance.color_theme': 'server-theme',
-    }
+    // Simulate a prefs update from SWR that still carries the old value (re-render)
+    swrData = { ...swrData }
     rerender()
 
-    // setTheme should have been called with 'user-theme' but not 'server-theme' after dirty
-    const calls = mockSetTheme.mock.calls.map((c: unknown[]) => c[0])
-    // First call: hydration with 'old-theme', second: user 'user-theme'
-    // Should NOT have 'server-theme' after dirty
-    expect(calls).toContain('user-theme')
-  })
-
-  it('syncedSetTheme: sets theme + resets highlight', () => {
-    const { result } = renderHook(() => useSettings())
-
-    act(() => {
-      result.current.setTheme('new-theme')
-    })
-
-    expect(mockSetTheme).toHaveBeenCalledWith('new-theme')
-    expect(mockSetHighlightTheme).toHaveBeenCalledWith(null)
+    // The stale server value must not overwrite the user's choice
+    const callsAfterDirty = mockSetDateMode.mock.calls.slice(callsBefore).map((c: unknown[]) => c[0])
+    expect(mockSetDateMode).toHaveBeenCalledWith('absolute')
+    expect(callsAfterDirty).not.toContain('relative')
   })
 
   it('syncedSetDateMode: marks dirty and schedules save', () => {
@@ -311,45 +248,5 @@ describe('useSettings', () => {
     unmount()
 
     expect(mockFetch).not.toHaveBeenCalled()
-  })
-
-  it('syncedSetHighlightTheme: null maps to empty string for DB', () => {
-    const { result } = renderHook(() => useSettings())
-
-    act(() => {
-      result.current.setHighlightTheme(null)
-    })
-
-    expect(mockSetHighlightTheme).toHaveBeenCalledWith(null)
-
-    act(() => {
-      vi.advanceTimersByTime(500)
-    })
-
-    // Check that the PATCH contains appearance.highlight_theme: '' (empty string for DB delete)
-    const patchCalls = mockApiPatch.mock.calls.filter(
-      (c: unknown[]) => {
-        const body = c[1] as Record<string, unknown>
-        return 'appearance.highlight_theme' in body
-      },
-    )
-    expect(patchCalls.length).toBeGreaterThanOrEqual(1)
-    const lastPatch = patchCalls[patchCalls.length - 1][1] as Record<string, unknown>
-    expect(lastPatch['appearance.highlight_theme']).toBe('')
-  })
-
-  it('hydrates highlight_theme from DB prefs', () => {
-    swrData = {
-      'appearance.color_theme': null,
-      'reading.date_mode': null,
-      'reading.auto_mark_read': null,
-      'reading.unread_indicator': null,
-      'reading.internal_links': null,
-      'appearance.highlight_theme': 'monokai',
-    }
-
-    renderHook(() => useSettings())
-
-    expect(mockSetHighlightTheme).toHaveBeenCalledWith('monokai')
   })
 })

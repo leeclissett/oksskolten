@@ -16,9 +16,7 @@
 /feeds/:feedId                 → Articles by feed (clip feeds also use this route)
 /categories/:categoryId        → Articles by category
 /settings                      → Redirect to /settings/general
-/settings/:tab                 → Settings page (general / appearance / ai / security / plugins / viewer / about)
-/chat                          → Chat page (new conversation)
-/chat/:conversationId          → Chat page (conversation detail)
+/settings/:tab                 → Settings page (general / integration / plugins / security / data / about)
 /*                             → Article detail (catch-all, original article URL with scheme removed)
 ```
 
@@ -31,29 +29,6 @@ https://blog.cloudflare.com/new-features-2025
 The frontend prepends `https://` to the splat path to reconstruct the original article URL, then fetches the article data via `GET /api/articles/by-url?url=...`.
 
 Paths ending with `.md` are treated as Markdown source view pages (`ArticleRawPage`).
-
-
-### Command Palette & Keyboard Shortcuts
-
-The command palette (`Cmd+K`) provides unified access to navigation, actions, feeds, and appearance settings. It uses `cmdk` (shadcn/ui `CommandDialog`).
-
-| Shortcut | Action |
-|---|---|
-| `Cmd+K` | Open command palette |
-| `Cmd+Shift+K` | Open article search |
-| `Cmd+N` | Add new feed |
-| `Cmd+,` | Open settings |
-| `Cmd+1`–`5` | Navigate to Inbox / Bookmarks / Likes / History / Chat |
-
-Command palette groups:
-- **Navigation** — Inbox, Bookmarks, Likes, History, Chat, Settings
-- **Actions** — Search articles, Add feed, Import/Export OPML
-- **Feeds** — Dynamic list from SWR, shown only when search input is non-empty (clip feeds excluded)
-- **Appearance** — Theme, layout, and color mode switching
-
-All items include English `keywords` for cross-language matching (e.g., typing "chat" matches the localized label in Japanese locale).
-
-Global shortcuts are managed by `useGlobalShortcuts` hook in `src/hooks/use-global-shortcuts.ts` and registered in `FeedList`.
 
 
 ### Data Fetching
@@ -126,20 +101,17 @@ Each preprocessor is a pure function `(md: string) => string`. The pipeline runs
 |---|---|---|
 | `fixLegacyMarkdown` | Default | Repairs malformed HTML in articles stored before server-side normalization (e.g. `<picture>` → `![](src)`, multi-line link collapsing) |
 | `escapeNestedBrackets` | Default | Escapes `[` `]` inside link text so titles like `[AINews] Title` render correctly |
-| `rewriteLinksToAppPaths` | Optional (chat) | Rewrites external URLs in links to in-app paths |
 
 **Usage by context**
 
 | Context | Call | Files |
 |---|---|---|
 | Article body | `renderMarkdown(md)` | `article-detail.tsx` |
-| Article summary | `renderMarkdown(summary)` | `use-summarize.ts` |
 | Translation preview | `renderMarkdown(text)` | `use-streaming-ai.ts` |
-| Chat messages | `renderMarkdown(md, [rewriteLinksToAppPaths])` | `chat-message-bubble.tsx` |
 
 **Shared utilities**
 
-`walkLinks(s, visitor)` provides bracket-aware markdown link scanning (handles nested brackets, skips image links). Used by both `escapeNestedBrackets` and `rewriteLinksToAppPaths` to avoid duplicated link-parsing logic.
+`walkLinks(s, visitor)` provides bracket-aware markdown link scanning (handles nested brackets, skips image links). Used by `escapeNestedBrackets` to avoid duplicated link-parsing logic.
 
 **Implementation files**
 - `src/lib/markdown.ts` — `renderMarkdown`, `walkLinks`, preprocessors, `markedInstance`
@@ -147,7 +119,7 @@ Each preprocessor is a pure function `(md: string) => string`. The pipeline runs
 
 ### Article List Display Layouts
 
-Four layout options are available for the article list. Independent from the theme (color), allowing free combination.
+Four layouts exist for the article list. This fork has no layout picker: the list renders with the stored `appearance.list_layout` value (default `list`), which can still be changed through `PATCH /api/settings/preferences`.
 
 | Layout | Key | Description |
 |---|---|---|
@@ -157,42 +129,10 @@ Four layout options are available for the article list. Independent from the the
 | Compact | `compact` | High-density list with title and date only. No thumbnails |
 
 - Setting key: `appearance.list_layout` (allowed values: `list` / `card` / `magazine` / `compact`)
-- Settings page: Selectable with preview in the layout section of `/settings/appearance`
 - Persistence: `localStorage` (instant reflection) + DB sync (500ms debounced PATCH)
 - Layout definitions: `src/data/layouts.ts`
-- Hook: `src/hooks/useLayout.ts` (based on `createLocalStorageHook`)
+- Hook: `src/hooks/use-layout.ts`
 - Skeleton UI: Dedicated skeletons corresponding to each layout
-
-### PWA Support
-
-Progressive Web App support via `vite-plugin-pwa`.
-
-| Item | Configuration |
-|---|---|
-| Registration method | `autoUpdate` |
-| Display mode | `standalone` |
-| Start URL | `/inbox` |
-| Cache strategy (Favicon) | CacheFirst (30 days) |
-| Cache strategy (Article detail API) | StaleWhileRevalidate (7 days) |
-| Cache strategy (General API) | NetworkFirst (24 hours, 5s timeout) |
-| Cache strategy (Images) | CacheFirst (30 days) |
-| Offline queue | Accumulates unsynced read IDs in IndexedDB (`reader-offline` DB) and batch-syncs via `POST /api/articles/batch-seen` when back online |
-| Update notification | When a new service worker is available, a persistent toast ("New version available") with a reload button is displayed via `sonner`. Clicking reload activates the new worker and refreshes the page |
-
-### Custom Theme Import
-
-Users can import custom color themes via JSON in `/settings/appearance`.
-
-| Item | Detail |
-|---|---|
-| Import method | Paste JSON into syntax-highlighted editor dialog, or load from file |
-| Sample theme | "Sample" button loads an Everforest theme as a starting point |
-| Edit | Previously imported custom themes can be edited via the same dialog |
-| Validation | Theme name must match `[a-z0-9_-]+`, cannot override builtin names, must include both `light` and `dark` variants with all required color keys |
-| Max custom themes | 20 |
-| Persistence | localStorage + DB sync |
-| Required color keys | `background`, `background.sidebar`, `background.subtle`, `background.avatar`, `text`, `text.muted`, `accent`, `accent.text`, `error`, `border`, `hover`, `overlay` |
-| Optional fields | `indicatorStyle` (`'line'` / `'dot'`), `highlight` (code block theme, default: `'github'`) |
 
 ### Feed Multi-Select and Bulk Actions
 

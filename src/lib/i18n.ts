@@ -8,17 +8,12 @@ const dict = {
   // Header
   'header.menu': { ja: 'メニュー', en: 'Menu', zh: '菜单'},
   'header.back': { ja: '戻る', en: 'Back', zh: '返回'},
-  'header.modeSystem': { ja: 'システム', en: 'System', zh: '系统'},
-  'header.modeDark': { ja: 'ダークモード', en: 'Dark', zh: '深色'},
-  'header.modeLight': { ja: 'ライトモード', en: 'Light', zh: '浅色'},
   'header.title': { ja: APP_NAME, en: APP_NAME, zh: APP_NAME },
 
   // FeedList
   'feeds.title': { ja: 'フィード', en: 'Feeds', zh: '订阅源'},
   'feeds.inbox': { ja: 'Inbox', en: 'Inbox', zh: '收件箱'},
   'feeds.add': { ja: 'フィード', en: 'Feed', zh: '订阅源'},
-  'feeds.theme': { ja: 'テーマ', en: 'Theme', zh: '主题'},
-  'feeds.colorMode': { ja: 'カラーモード', en: 'Color mode', zh: '颜色模式'},
   'feeds.rename': { ja: '名前を変更', en: 'Rename', zh: '重命名'},
   'feeds.markAllRead': { ja: 'すべて既読にする', en: 'Mark all as read', zh: '全部标为已读'},
   'feeds.delete': { ja: '削除', en: 'Delete', zh: '删除'},
@@ -202,19 +197,9 @@ const dict = {
   // Settings page
   'settings.title': { ja: '設定', en: 'Settings', zh: '设置'},
   'settings.general': { ja: '一般', en: 'General', zh: '通用'},
-  'settings.appearance': { ja: '外観', en: 'Appearance', zh: '外观'},
-  'settings.colorMode': { ja: 'カラーモード', en: 'Color mode', zh: '颜色模式'},
-  'settings.colorModeDesc': { ja: 'アプリ全体の明暗を切り替えます。「自動」はOSの設定に連動します', en: 'Switch between light and dark appearance. "Auto" follows your OS setting', zh: '在浅色和深色外观之间切换。「自动」跟随系统设置' },
-  'settings.colorModeLight': { ja: 'ライト', en: 'Light', zh: '浅色'},
-  'settings.colorModeDark': { ja: 'ダーク', en: 'Dark', zh: '深色'},
-  'settings.colorModeAuto': { ja: '自動', en: 'Auto', zh: '自动'},
-  'settings.colorTheme': { ja: '配色テーマ', en: 'Color Theme', zh: '颜色主题'},
-  'settings.themeDesc': { ja: 'サイドバー・背景・アクセントカラーなどアプリ全体の配色が変わります', en: 'Changes sidebar, background, and accent colors across the entire app', zh: '更改整个应用的侧边栏、背景和强调色' },
   'settings.dateFormat': { ja: '日付表示', en: 'Date format', zh: '日期格式'},
   'settings.dateFormatDesc': { ja: '相対または絶対表示', en: 'Relative or absolute display', zh: '相对或绝对显示' },
   'settings.plugins': { ja: 'プラグイン', en: 'Plugins', zh: '插件'},
-  'settings.viewer': { ja: 'フィード管理', en: 'Feeds', zh: '订阅源'},
-  'settings.underDevelopment': { ja: 'この機能は現在開発中です', en: 'This feature is currently under development', zh: '此功能正在开发中'},
   'settings.profile': { ja: 'プロフィール', en: 'Profile', zh: '个人资料'},
   'settings.accountName': { ja: 'アカウント名', en: 'Account name', zh: '账户名称'},
   'settings.accountNameHint': { ja: 'このRSSリーダーアプリはあなた専用です。アカウント名はどこにも公開されないので、愛着の湧く好きな名前をつけてあげてください。', en: "This RSS reader app is just for you. Your account name won't be shown anywhere, so pick whatever feels right.", zh: "这个 RSS 阅读器只属于您。您的账户名称不会在任何地方显示，随便取个喜欢的名字就好。" },
@@ -295,17 +280,6 @@ const dict = {
   'settings.articleOpenModeDesc': { ja: '記事をクリックしたときの表示方法を選択します', en: 'Choose how articles are displayed when clicked', zh: '选择点击文章时的显示方式'},
   'settings.articleOpenModePage': { ja: 'ページ遷移', en: 'Full page', zh: '整页'},
   'settings.articleOpenModeOverlay': { ja: 'オーバーレイ', en: 'Overlay', zh: '覆盖层'},
-  'settings.keyboardNavigation': { ja: 'キーボードナビゲーション', en: 'Keyboard Navigation', zh: '键盘导航'},
-  'settings.keyboardNavigationDesc': { ja: 'j/k キーで記事リストを移動し、b でブックマーク、; で元記事を開きます', en: 'Navigate the article list with j/k, bookmark with b, and open the original article with ;', zh: '使用 j/k 导航文章列表，b 添加书签，; 打开原文' },
-  'settings.keyboardNavigationOn': { ja: '有効', en: 'On', zh: '开'},
-  'settings.keyboardNavigationOff': { ja: '無効', en: 'Off', zh: '关'},
-  'settings.keybindings': { ja: 'キーバインド設定', en: 'Key Bindings', zh: '快捷键绑定'},
-  'settings.keybindingsDesc': { ja: '各アクションに割り当てるキーを変更できます', en: 'Customize the key assigned to each action', zh: '自定义每个操作的快捷键'},
-  'settings.keybindingsNext': { ja: '次の記事', en: 'Next article', zh: '下一篇文章'},
-  'settings.keybindingsPrev': { ja: '前の記事', en: 'Previous article', zh: '上一篇文章'},
-  'settings.keybindingsBookmark': { ja: 'ブックマーク', en: 'Bookmark', zh: '书签'},
-  'settings.keybindingsOpenExternal': { ja: '元記事を開く', en: 'Open original', zh: '打开原文'},
-  'settings.keybindingsDuplicate': { ja: '同じキーが複数のアクションに割り当てられています', en: 'Duplicate key assignment detected', zh: '检测到重复的快捷键分配'},
   'feeds.inactive': { ja: 'inactive', en: 'inactive', zh: '未活跃'},
   'metrics.articles': { ja: '記事', en: 'articles', zh: '篇文章'},
   'metrics.perWeek': { ja: '/週', en: '/wk', zh: '/周'},
@@ -401,56 +375,14 @@ const dict = {
   },
 
   // Highlight theme
-  'settings.highlightTheme': { ja: 'コードハイライト', en: 'Code Highlighting', zh: '代码高亮'},
-  'settings.highlightThemeDesc': { ja: '記事内のコードブロックに適用される配色です。「自動」は配色テーマに合わせて切り替わります', en: 'Applied to code blocks in articles. "Auto" switches based on the color theme', zh: '应用于文章中的代码块。「自动」根据颜色主题切换' },
-  'settings.highlightThemeAuto': { ja: '自動（テーマ連動）', en: 'Auto (follows theme)', zh: '自动（跟随主题）'},
-  'settings.highlightThemeNone': { ja: 'なし', en: 'None', zh: '无'},
 
   // Custom themes
-  'settings.customThemes': { ja: 'カスタムテーマ', en: 'Custom Themes', zh: '自定义主题'},
-  'settings.customThemesDesc': { ja: 'JSON ファイルまたはテキストからテーマをインポートできます', en: 'Import themes from a JSON file or text', zh: '从 JSON 文件或文本导入主题'},
-  'settings.importTheme': { ja: 'テーマをインポート', en: 'Import Theme', zh: '导入主题'},
-  'settings.importFromFile': { ja: 'ファイルを選択', en: 'Choose File', zh: '选择文件'},
-  'settings.importFromText': { ja: 'JSON を貼り付け', en: 'Paste JSON', zh: '粘贴 JSON'},
-  'settings.importButton': { ja: 'インポート', en: 'Import', zh: '导入'},
-  'settings.deleteTheme': { ja: 'テーマを削除', en: 'Delete theme', zh: '删除主题'},
-  'settings.deleteThemeConfirm': { ja: 'このカスタムテーマを削除しますか？', en: 'Delete this custom theme?', zh: '确定删除此自定义主题？'},
-  'settings.themeImported': { ja: 'テーマをインポートしました', en: 'Theme imported successfully', zh: '主题导入成功'},
-  'settings.themeDeleted': { ja: 'テーマを削除しました', en: 'Theme deleted', zh: '主题已删除'},
-  'settings.themeUpdated': { ja: 'テーマを更新しました', en: 'Theme updated successfully', zh: '主题更新成功'},
-  'settings.editTheme': { ja: 'テーマを編集', en: 'Edit theme', zh: '编辑主题'},
-  'settings.updateButton': { ja: '更新', en: 'Update', zh: '更新'},
-  'settings.sampleButton': { ja: 'サンプル', en: 'Sample', zh: '示例'},
-  'settings.themeLimit': { ja: 'カスタムテーマは最大20個までです', en: 'Maximum 20 custom themes allowed', zh: '最多允许 20 个自定义主题'},
 
   // Theme JSON validation errors
-  'themeJson.invalidJson': { ja: '無効なJSON: オブジェクトが必要です', en: 'Invalid JSON: expected an object', zh: '无效 JSON：需要对象'},
-  'themeJson.missingName': { ja: '必須フィールド "name" がありません', en: 'Missing required field: "name"', zh: '缺少必填字段："name"'},
-  'themeJson.invalidName': { ja: '"name" は小文字英数字・ハイフン・アンダースコアのみ使用可能です（入力値: "${name}"）', en: '"name" must be lowercase alphanumeric, hyphens, or underscores (got "${name}")', zh: '"name" 只能使用小写字母、数字、连字符或下划线（输入值："${name}"）'},
-  'themeJson.builtinConflict': { ja: '"${name}" はビルトインテーマ名と競合しています', en: '"${name}" conflicts with a built-in theme name', zh: '"${name}" 与内置主题名冲突'},
-  'themeJson.duplicateName': { ja: '"${name}" という名前のカスタムテーマは既に存在します', en: 'A custom theme named "${name}" already exists', zh: '名为 "${name}" 的自定义主题已存在'},
-  'themeJson.missingLabel': { ja: '必須フィールド "label" がありません', en: 'Missing required field: "label"', zh: '缺少必填字段："label"'},
-  'themeJson.missingColors': { ja: '必須フィールド "colors" がありません', en: 'Missing required field: "colors"', zh: '缺少必填字段："colors"'},
-  'themeJson.missingColorsVariant': { ja: '"colors.${variant}" は必須です', en: '"colors.${variant}" is required', zh: '"colors.${variant}" 为必填项'},
-  'themeJson.missingColor': { ja: '必須カラー "${path}" がありません', en: 'Missing required color "${path}"', zh: '缺少必填颜色 "${path}"'},
 
   // Mascot
-  'settings.mascot': { ja: 'マスコット', en: 'Mascot', zh: '吉祥物'},
-  'settings.mascotDesc': { ja: '記事を全て読み終えたときに表示されるピクセルアートのマスコットです', en: 'Pixel art mascot shown when all articles are read', zh: '所有文章读完后显示的像素风吉祥物'},
-  'settings.mascotOff': { ja: 'オフ', en: 'Off', zh: '关'},
-  'settings.mascotDreamPuff': { ja: 'Dream Puff', en: 'Dream Puff', zh: 'Dream Puff'},
-  'settings.mascotSleepyGiant': { ja: 'Sleepy Giant', en: 'Sleepy Giant', zh: 'Sleepy Giant'},
-  'settings.mascotRequiresAutoMark': { ja: '「スクロールで自動既読」がオンのときのみ設定できます', en: 'Requires "Auto-Mark As Read On Scroll" to be enabled', zh: '需要启用"滚动时自动标为已读"'},
 
   // Article font
-  'settings.articleFont': { ja: '記事フォント', en: 'Article Font', zh: '文章字体'},
-  'settings.articleFontDesc': { ja: '記事一覧のタイトル・抜粋と記事本文に適用されます。Google Fontsから読み込むため初回表示が少し遅れる場合があります', en: 'Applied to article list titles, excerpts, and article body. Loaded from Google Fonts, so the first render may be slightly delayed', zh: '应用于文章列表标题、摘要和正文。从 Google Fonts 加载，首次渲染可能稍有延迟' },
-  'settings.layout': { ja: 'レイアウト', en: 'Layout', zh: '布局'},
-  'settings.layoutDesc': { ja: '記事一覧の並べ方を変更します。リスト・カード・マガジン・コンパクトから選べます', en: 'Change how articles are displayed. Choose from list, card, magazine, or compact views', zh: '更改文章显示方式。可选列表、卡片、杂志或紧凑视图' },
-  'settings.layoutList': { ja: 'リスト', en: 'List', zh: '列表'},
-  'settings.layoutCard': { ja: 'カード', en: 'Card', zh: '卡片'},
-  'settings.layoutMagazine': { ja: 'マガジン', en: 'Magazine', zh: '杂志'},
-  'settings.layoutCompact': { ja: 'コンパクト', en: 'Compact', zh: '紧凑'},
 
   // ConfirmDialog
   'confirm.cancel': { ja: 'キャンセル', en: 'Cancel', zh: '取消'},
@@ -704,8 +636,6 @@ const dict = {
   'toast.fetchedArticles': { ja: '${name}: ${count}件の新しい記事を取得', en: '${name}: Fetched ${count} new articles', zh: '${name}：获取了 ${count} 篇新文章'},
   'toast.noNewArticles': { ja: '${name}: 新着なし', en: '${name}: No new articles', zh: '${name}：无新文章'},
   'toast.fetchError': { ja: '${name}: フェッチに失敗しました', en: '${name}: Fetch failed', zh: '${name}：获取失败'},
-  'toast.newVersion': { ja: '新しいバージョンが利用可能です', en: 'A new version is available', zh: '有新版本可用'},
-  'toast.reload': { ja: '更新', en: 'Reload', zh: '重新加载'},
 } as const
 
 type MessageKey = keyof typeof dict

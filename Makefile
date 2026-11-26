@@ -1,4 +1,4 @@
-.PHONY: help ci test test-server test-client typecheck lint lint-docs build-demo dev dev-down dev-scratch prod prod-down
+.PHONY: help ci test test-server test-client typecheck lint dev dev-down dev-scratch prod prod-down
 
 COMPOSE ?= docker compose
 
@@ -17,7 +17,7 @@ help: ## Show this help
 # CI
 # ---------------------------------------------------------------------------
 
-ci: typecheck lint test build-demo ## Run all CI checks (typecheck + lint + test + demo build)
+ci: typecheck lint test ## Run all CI checks (typecheck + lint + test)
 
 test: test-server test-client ## Run all tests
 
@@ -33,22 +33,6 @@ typecheck: ## Run TypeScript type checking
 lint: ## Run ESLint + Japanese character check
 	npm run lint
 	npx tsx scripts/lint-no-japanese.ts
-
-lint-docs: ## Lint docs (spec and guide structure policies)
-	conftest verify --policy policy/spec
-	conftest verify --policy policy/guides
-	conftest verify --policy policy/adr
-	@bash scripts/lint-docs.sh
-
-build-demo: ## Build demo site (catches demo-mode export mismatches)
-	@npx vite build --mode demo 2>&1 \
-		| grep -v "didn't resolve at build time" \
-		| grep -v '\[plugin vite:reporter\]' \
-		| grep -v 'dynamically imported by' \
-		| grep -v 'dynamic import will not move' \
-		| grep -v '\.woff' \
-		| grep -v '\.woff2' \
-		| grep -v '^\s*$$'
 
 # ---------------------------------------------------------------------------
 # Dev  — project name: oksskolten (default), DB: ./data

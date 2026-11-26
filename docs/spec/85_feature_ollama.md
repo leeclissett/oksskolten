@@ -4,12 +4,12 @@
 
 ## Overview
 
-Add Ollama as a self-hosted LLM provider. Ollama runs locally or on a private server and exposes an OpenAI-compatible chat completion API. This allows users to run summarization, translation, and chat entirely on their own hardware without sending data to external APIs.
+Add Ollama as a self-hosted LLM provider. Ollama runs locally or on a private server and exposes an OpenAI-compatible chat completion API. This allows users to run translation (the only AI task in this fork) entirely on their own hardware without sending data to external APIs.
 
 ## Motivation
 
 - **Privacy**: Article content stays on the user's network; no data is sent to third-party APIs.
-- **Cost**: No per-token charges. Useful for high-volume summarization/translation workloads.
+- **Cost**: No per-token charges. Useful for high-volume translation workloads.
 - **Offline**: Works without internet access once models are downloaded.
 - **Flexibility**: Users can run any GGUF model available in the Ollama library.
 
@@ -72,10 +72,6 @@ Ollama returns token usage in the OpenAI-compatible response format (`usage.prom
 
 `AiBillingMode` in `server/fetcher/ai.ts` is extended with `'ollama'`. Since Ollama is local, pricing is zero. `getModelPricing()` returns `undefined` for dynamic Ollama models; the UI displays "Local" or "—" where cost would normally appear.
 
-### Chat Adapter
-
-The chat adapter reuses `runOpenAITurn()` from `adapter-openai.ts` by adding an optional `externalClient` parameter. When the provider is `ollama`, `adapter.ts` passes the Ollama client to `runOpenAITurn()`. No separate `adapter-ollama.ts` is needed. When `externalClient` is provided, the OpenAI API key check is skipped.
-
 ### Streaming
 
 Ollama supports streaming via the OpenAI-compatible SSE format. The `streamMessage()` implementation follows the same pattern as the OpenAI provider.
@@ -88,12 +84,8 @@ All Ollama settings are stored in the SQLite settings table, consistent with oth
 |---|---|---|---|
 | `ollama.base_url` | string | `$OLLAMA_BASE_URL` or `http://localhost:11434` | Ollama server address |
 | `ollama.custom_headers` | string (JSON) | `""` | Custom HTTP headers as JSON object (e.g. `{"CF-Access-Client-Id":"..."}`) |
-| `chat.provider` | string | — | Set to `ollama` to use Ollama for chat |
-| `chat.model` | string | — | Ollama model name (e.g. `llama3.2:latest`) |
-| `summary.provider` | string | — | Set to `ollama` for summarization |
-| `summary.model` | string | — | Ollama model name |
 | `translate.provider` | string | — | Set to `ollama` for translation |
-| `translate.model` | string | — | Ollama model name |
+| `translate.model` | string | — | Ollama model name (e.g. `llama3.2:latest`) |
 
 ### Settings UI
 
@@ -159,8 +151,6 @@ No Ollama-specific log fields. The existing AI task logging records `provider`, 
 |---|---|
 | `server/providers/llm/ollama.ts` | Ollama LLM provider implementation |
 | `server/providers/llm/index.ts` | Register `ollama` in the provider map |
-| `server/chat/adapter.ts` | Add `ollama` routing case |
-| `server/chat/adapter-openai.ts` | Add optional `externalClient` parameter to `runOpenAITurn()` |
 | `server/fetcher/ai.ts` | Add `'ollama'` to `AiBillingMode` union |
 | `shared/models.ts` | Add Ollama to provider constants and label map |
 | `server/routes/settings.ts` | Add `ollama` to allowed provider values, add Ollama API endpoints |

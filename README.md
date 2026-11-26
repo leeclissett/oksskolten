@@ -1,158 +1,36 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://assets.babarot.dev/files/2026/03/aeeb41766d888243.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://assets.babarot.dev/files/2026/03/c11e0ce04f0d06e6.png">
-    <img alt="Inbox" src="https://assets.babarot.dev/files/2026/03/c11e0ce04f0d06e6.png" alt="Oksskolten — The AI-native RSS reader">
-  </picture>
-</p>
-<!--
-<p align="center">
-  <img src="./public/og-image.png" alt="Oksskolten — The AI-native RSS reader" width="640" />
-</p>
--->
+# Oksskolten (leeclissett fork)
 
-<p align="center">
-  <a href="https://github.com/babarot/oksskolten/actions/workflows/test.yaml"><img src="https://github.com/babarot/oksskolten/actions/workflows/test.yaml/badge.svg" alt="Tests" /></a>
-</p>
+A self-hosted feed backend: it fetches feeds, extracts the full text of every article, optionally translates it, and serves the result to native reader apps over a FreshRSS-compatible Google Reader API. A small web UI is kept for managing feeds and settings.
 
-<p align="center">
-  <strong>Oksskolten</strong> <em>(pronounced "ooks-SKOL-ten")</em> — every article, full text, by default.
-</p>
+This is a hard fork of [babarot/oksskolten](https://github.com/babarot/oksskolten) that diverged in July 2026. It is not kept in sync with upstream and does not aim to be a full web reader.
 
-## Why Oksskolten?
+## What it does
 
-Most RSS readers show what the feed gives you — a title and maybe a summary. Some (like Miniflux and FreshRSS) can fetch full article text, but it's opt-in per feed and requires configuration. Oksskolten does it for every article automatically: it fetches the original article, extracts the full text using Mozilla's Readability + 500 noise-removal patterns, converts it to clean Markdown, and stores it locally. No per-feed toggles, no manual CSS selectors — it just works.
+- **Full-text extraction** — every article is fetched from its source URL and run through Readability plus a noise-removal cleaner, then stored as Markdown
+- **Reader API** — FreshRSS-dialect Google Reader API for apps such as Reeder and NetNewsWire, serving the extracted (and translated) article bodies. See [docs/greader-compat.md](docs/greader-compat.md) and [docs/guides/using-google-reader-api.md](docs/guides/using-google-reader-api.md)
+- **Translation** — manual per article, or automatic per feed through a serial background queue. Providers: Anthropic, Gemini, OpenAI, Claude Code, Ollama, vLLM, Google Translate, DeepL
+- **Smart fetching** — adaptive per-feed scheduling, conditional requests (ETag / Last-Modified), content-hash change detection, exponential backoff, tracking-parameter removal
+- **Bot bypass** — optional FlareSolverr fallback for sites behind a JavaScript challenge
+- **Clipping and image archiving** — save any URL as an article; optionally archive article images
+- **Retention** — optional purge of old read and unread articles
+- **Management UI** — add, edit and delete feeds and categories, OPML import and export, read articles, translation and image-storage settings, API tokens
 
-Because Oksskolten always has the complete text, AI translation produces meaningful results, full-text search actually covers everything, and you never need to leave the app to read an article.
+## What was removed from upstream
 
-## See it in action
+Chat and the MCP server, article summaries, LLM-inferred CSS selectors, RSS-Bridge, Meilisearch search, similarity detection and scoring, GitHub OAuth and passkeys, the demo build, the PWA and service worker, themes, fonts and custom theme import, the mascot, keyboard navigation and swipe gestures.
 
-🕺 Live Demo → [demo.oksskolten.com](https://demo.oksskolten.com)
+Auth is a single password account plus API tokens. The UI follows the system light or dark setting.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/home-default-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshots/home-default-light.png">
-    <img alt="Home" src="docs/images/screenshots/home-default-dark.png" width="49%">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/inbox-default-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshots/inbox-default-light.png">
-    <img alt="Inbox" src="docs/images/screenshots/inbox-default-dark.png" width="49%">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/article-chat-default-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshots/article-chat-default-light.png">
-    <img alt="Article" src="docs/images/screenshots/article-chat-default-dark.png" width="49%">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/appearance-default-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshots/appearance-default-light.png">
-    <img alt="Appearance" src="docs/images/screenshots/appearance-default-dark.png" width="49%">
-  </picture>
-</p>
-
-## Features
-
-- **Full-Text Extraction** — Every article is fetched from its source and processed through Readability + 500 noise-removal patterns. You read complete articles inside Oksskolten, never needing to click through to the original site
-- **AI Translation** — On-demand or automatic per-feed translation via Anthropic, Gemini, OpenAI, Ollama, Google Translate or DeepL. Works on full article text, not RSS excerpts
-- **Full-Text Search** — Meilisearch-powered search across your entire article archive
-- **Smart Fetching** — Adaptive per-feed scheduling, conditional HTTP requests (ETag/Last-Modified), content-hash deduplication, exponential backoff, and tracking parameter removal
-- **PWA** — Offline reading, background sync, and add-to-home-screen support
-- **Multi-Auth** — Password, Passkey (WebAuthn), and GitHub OAuth — each independently configurable
-- **Smart Feed Management** — Auto-discovery, bot bypass (FlareSolverr), and automatic disabling of dead feeds
-- **Article Clipping** — Save any URL as an article, with full content extraction
-- **Theming** — 14 built-in color themes + custom theme import via JSON, 9 article fonts, 8 code highlighting styles
-- **Single Container** — API, SPA, and cron scheduler all run in one Docker container
-
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Backend | [Node.js 22](https://nodejs.org/) + [Fastify](https://fastify.dev/) |
-| Frontend | [React 19](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) |
-| Database | [SQLite](https://sqlite.org/) via [libsql](https://github.com/tursodatabase/libsql) (WAL mode) |
-| AI | [Anthropic](https://docs.anthropic.com/) / [Gemini](https://ai.google.dev/) / [OpenAI](https://platform.openai.com/) |
-| Search | [Meilisearch](https://www.meilisearch.com/) |
-| Auth | JWT + [Passkey / WebAuthn](https://webauthn.io/) + GitHub OAuth |
-| Deployment | Docker Compose + [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) |
-
-## Architecture
-
-```mermaid
-graph TD
-    subgraph host["Docker Host"]
-        subgraph app["oksskolten (Node.js 22, port 3000)"]
-            fastify["Fastify API<br/>/api/*"]
-            spa["SPA static serving<br/>(Vite build)"]
-            sqlite["SQLite<br/>(WAL mode)"]
-            cron["node-cron<br/>Feed fetch every 5 min"]
-            fetcher["Fetcher Pipeline<br/>RSS parse → Readability<br/>→ HTML cleaner → Markdown"]
-            ai["AI Provider<br/>Anthropic / Gemini / OpenAI"]
-
-            fastify --> sqlite
-            fastify --- spa
-            fastify --> fetcher
-            fastify --> ai
-            cron --> fetcher
-            fetcher --> sqlite
-        end
-
-        flare["FlareSolverr<br/>(Docker, port 8191)"]
-        tunnel["cloudflared<br/>(Cloudflare Tunnel)"]
-    end
-
-    user(("User")) -- "HTTPS" --> tunnel
-    tunnel --> fastify
-    cron -- "HTTP fetch" --> rss(("RSS Feeds"))
-    fetcher --> flare
-    ai -- "API" --> llm_api(("Anthropic / Gemini<br/>/ OpenAI API"))
-```
-
-Everything runs in a single long-lived process — SQLite needs local disk, and node-cron needs a process that stays alive. This rules out serverless/edge runtimes but keeps the stack simple: one container, no external queues or coordination. For cloud deployment, a small VM or [Fly.io + Turso](docs/guides/deploying-to-fly-io.md) works well.
-
-> **What's in a name?** Oksskolten is the highest peak in northern Norway — a mountain of knowledge for your feeds.
-
-### Content Pipeline
-
-Unlike traditional RSS readers that rely on feed-provided summaries, Oksskolten fetches every article directly from its source URL and extracts the full text. This means the reader is self-contained — no need to leave the app to read an article.
-
-1. **Fetch RSS** — Adaptive per-feed scheduling with conditional requests (ETag/Last-Modified/content hash)
-2. **Parse** — RSS/Atom/RDF parsed via feedsmith + fast-xml-parser, tracking parameters stripped
-3. **Fetch Article** — Original article URL fetched directly (with FlareSolverr fallback for bot-protected sites)
-4. **Extract** — Full article content extracted with Readability in isolated Worker Threads
-5. **Clean** — ~500 noise-removal patterns strip ads, nav, sidebars, and tracking elements
-6. **Convert** — HTML converted to Markdown with GFM support
-7. **Enrich** — Language detection, OGP image extraction, excerpt generation
-8. **Index** — Articles indexed in Meilisearch for full-text search
-
-### Smart Fetching
-
-The feed fetcher minimizes bandwidth and adapts to each feed's behavior, inspired by best practices from FreshRSS, Miniflux, and CommaFeed:
-
-- **3-layer change detection** — HTTP 304 (ETag/Last-Modified) → content hash (SHA-256) → full parse. Unchanged feeds are caught early without parsing XML
-- **Adaptive scheduling** — Each feed gets its own check interval (15min–4h) based on three signals: HTTP `Cache-Control`, RSS `<ttl>`, and actual article frequency. Active blogs are checked often; dormant ones back off automatically
-- **Resilient error handling** — Exponential backoff on errors (1h–4h cap), but feeds are never disabled. Rate limits (429/503) respect `Retry-After` headers without counting as errors
-- **URL deduplication** — 60+ tracking parameters (utm_*, fbclid, gclid, etc.) are stripped before duplicate checking, preventing the same article from being inserted twice
-
-## Comparison
-
-| | Oksskolten | [Miniflux](https://github.com/miniflux/v2) | [FreshRSS](https://github.com/FreshRSS/FreshRSS) | [Feedly](https://feedly.com/) |
-|---|---|---|---|---|
-| **Full-text extraction** | Every article, by default | Opt-in per feed | Opt-in per feed | Auto (best-effort) |
-| **Extraction engine** | Readability.js + 500 patterns | Go Readability (~390 lines, ~60 rules) | Manual CSS selectors | Proprietary |
-| **JS-rendered sites** | FlareSolverr | — | — | Enterprise only |
-| **AI translation** | Built-in, manual or automatic per feed (+ Google Translate, DeepL) | — | — | Enterprise only |
-| **Search** | Meilisearch (typo-tolerant) | PostgreSQL full-text | SQL LIKE | Pro+ (Power Search) |
-| **Database** | SQLite (embedded, WAL) | PostgreSQL (external) | MySQL/PG/SQLite | SaaS |
-| **Deployment** | Single container | Binary + PostgreSQL | PHP + web server + DB | SaaS |
-| **Offline reading** | PWA with background sync | — | — | Mobile apps only |
-| **Auth** | Password + Passkey/WebAuthn + GitHub OAuth | Password + API key | Password + API key | Google/Apple/social + SAML (Enterprise) |
-| **Themes** | 14 + custom JSON import | Light/Dark | ~10 themes | — |
-| **Language** | Node.js (TypeScript) | Go | PHP | — |
-| **Price** | Free / OSS (AGPL-3.0) | Free / OSS (Apache-2.0) | Free / OSS (AGPL-3.0) | $12.99/mo (Pro+) |
-
-Miniflux and FreshRSS are excellent, mature projects. Oksskolten's focus is different: full-text extraction and AI as first-class defaults, not optional add-ons.
+| Backend | Node.js 22 + Fastify |
+| Frontend | React 19 + Vite + Tailwind CSS + shadcn/ui |
+| Database | SQLite via libsql (WAL mode) at `/data/rss.db` |
+| Extraction | @mozilla/readability + jsdom + turndown, in piscina worker threads |
+| Auth | JWT + bcryptjs, API tokens, Reader API ClientLogin |
+| Deployment | One container: API, SPA and cron in a single process |
 
 ## Development
 
@@ -161,40 +39,45 @@ docker compose up --build   # HMR enabled
 # Frontend: http://localhost:5173
 # Backend:  http://localhost:3000
 
-npm test                    # Run all tests
-npm run build               # Production build
+npm run typecheck
+npm run lint
+npm test                    # needs mise; or: npx vitest run
+npm run build
 ```
 
-On first startup with an empty database, sample feeds and articles are automatically loaded from the demo seed data (`src/lib/demo/seed/*.json`). This gives you a populated UI to work with immediately. The seed is idempotent — it only runs when no RSS feeds exist in the database. To start with an empty database instead, set `NO_SEED=1`.
+On first start in development with an empty database, sample feeds and articles are loaded from `src/lib/demo/seed/*.json`. Set `NO_SEED=1` to skip this.
 
-See [`.env.example`](.env.example) for available environment variables. AI provider keys are configured through the Settings UI.
+See [`.env.example`](.env.example) for environment variables. Provider API keys are configured in the settings UI and stored in the database.
 
 ## Deployment
 
-Runs anywhere Docker runs — a home NAS, a Raspberry Pi, or a cloud VM.
-
-### Using pre-built images
-
-Pre-built multi-architecture Docker images (amd64/arm64) are published to GHCR on every release:
+Images are built on every push to `main` and published to GHCR, tagged with the short commit SHA:
 
 ```bash
-docker pull ghcr.io/babarot/oksskolten:latest
+docker pull ghcr.io/leeclissett/oksskolten:sha-<commit>
 ```
 
-To use the pre-built image instead of building locally, edit `compose.prod.yaml` and swap the `build` directive for the commented-out `image` line, then:
+The container needs one volume mounted at `/data` and listens on port 3000. Minimal compose service:
 
-```bash
-docker compose -f compose.yaml -f compose.prod.yaml up -d
+```yaml
+services:
+  oksskolten:
+    image: ghcr.io/leeclissett/oksskolten:sha-<commit>
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/data/rss.db
+    volumes:
+      - ./data:/data
+    ports:
+      - "3000:3000"
 ```
 
-### Building locally
+`compose.yaml` and `compose.prod.yaml` in this repository are the upstream development and Cloudflare Tunnel setups.
 
-```bash
-# Production with Cloudflare Tunnel
-docker compose -f compose.yaml -f compose.prod.yaml up --build -d
-```
+## Documentation
 
-The production compose file includes a `cloudflared` sidecar that exposes the app via Cloudflare Tunnel — no port forwarding or static IP required.
+Specs live in [docs/spec/](docs/spec/01_overview.md).
 
 ## License
 

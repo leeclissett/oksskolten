@@ -1,20 +1,17 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams, useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, lazy, Suspense } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import useSWR, { SWRConfig } from 'swr'
 import { useSettings, type Settings } from './hooks/use-settings'
 import { fetcher } from './lib/fetcher'
 import { LocaleContext, APP_NAME, type Locale, useI18n } from './lib/i18n'
 import { MD_BREAKPOINT } from './lib/breakpoints'
-import { useIsTouchDevice } from './hooks/use-is-touch-device'
 import { saveScrollPosition, restoreScrollPosition } from './hooks/use-scroll-restoration'
-import { useSwipeDrawer } from './hooks/use-swipe-drawer'
 import { Header } from './components/layout/header'
 import { ArticleList, type ArticleListHandle } from './components/article/article-list'
 import { ArticleDetail } from './components/article/article-detail'
 import { ArticleRawPage } from './components/article/article-raw-page'
 import { PageLayout } from './components/layout/page-layout'
-import { KeyboardNavigationProvider, useKeyboardNavigationContext } from './contexts/keyboard-navigation-context'
+import { ListNavigationProvider, useListNavigationContext } from './contexts/list-navigation-context'
 const SettingsPage = lazy(() => import('./pages/settings-page').then(m => ({ default: m.SettingsPage })))
 import { AuthShell } from './lib/auth-shell'
 import { ErrorBoundary } from './components/auth/error-boundary'
@@ -41,11 +38,9 @@ function AppLayout() {
     return () => mq.removeEventListener('change', handler)
   }, [])
 
-  useSwipeDrawer(sidebarOpen, setSidebarOpen)
-
   const { data: profile } = useSWR<{ language: string | null }>('/api/settings/profile', fetcher)
 
-  // Query parameter ?lang=ja|en|zh takes highest priority (useful for demo sharing links)
+  // Query parameter ?lang=ja|en|zh takes highest priority
   const langFromUrl = useMemo(() => {
     const p = new URLSearchParams(window.location.search).get('lang')
     return p === 'ja' || p === 'en' || p === 'zh' ? p : null
@@ -89,9 +84,9 @@ function AppLayout() {
       <TooltipProvider delayDuration={300}>
         <div className="min-h-screen bg-bg text-text">
           <FetchProgressProvider>
-            <KeyboardNavigationProvider>
+            <ListNavigationProvider>
               <Outlet context={{ settings, sidebarOpen, setSidebarOpen }} />
-            </KeyboardNavigationProvider>
+            </ListNavigationProvider>
           </FetchProgressProvider>
           <Toaster
             theme="system"
@@ -179,7 +174,7 @@ function SettingsPageWrapper() {
 
 function ArticleDetailPage() {
   const { '*': splat } = useParams()
-  const { lastListUrl } = useKeyboardNavigationContext()
+  const { lastListUrl } = useListNavigationContext()
   const navigate = useNavigate()
 
   if (!splat) return null
@@ -196,12 +191,12 @@ function ArticleDetailPage() {
   return (
     <>
       <Header mode="detail" onBack={() => navigate(lastListUrl || '/inbox')} />
-      <ArticleDetail articleUrl={articleUrl} enableZapNavigation />
+      <ArticleDetail articleUrl={articleUrl} />
     </>
   )
 }
 
-// Determine the "page type" for animation decisions
+// Determine the "page type": list pages share one mounted layout, detail pages remount per article
 function getPageType(pathname: string): 'detail' | 'list' {
   if (pathname === '/' || pathname === '/inbox' || pathname === '/bookmarks' || pathname === '/likes' || pathname === '/history' || pathname === '/clips' || pathname.startsWith('/feeds/') || pathname.startsWith('/categories/') || pathname.startsWith('/settings')) {
     return 'list'
@@ -210,9 +205,8 @@ function getPageType(pathname: string): 'detail' | 'list' {
 }
 
 /**
- * Renders nothing. Lives inside the motion.div so it mounts/unmounts with it.
- * useLayoutEffect restores scroll synchronously before the browser paints,
- * meaning the fade-in animation already shows the page at the saved position.
+ * Renders nothing. useLayoutEffect restores the list's scroll position
+ * synchronously before the browser paints.
  */
 function ScrollRestore({ pathname, pageType }: { pathname: string; pageType: string }) {
   useLayoutEffect(() => {
@@ -223,23 +217,9 @@ function ScrollRestore({ pathname, pageType }: { pathname: string; pageType: str
   return null
 }
 
-function AnimatedRoutes() {
+function AppRoutes() {
   const location = useLocation()
-  const isTouchDevice = useIsTouchDevice()
   const pageType = getPageType(location.pathname)
-
-  // Track navigation direction to avoid double-animation on swipe-back.
-  // Browser's native swipe-back already animates, so we only slide on PUSH.
-  const navAction = useRef<'PUSH' | 'POP' | 'REPLACE'>('PUSH')
-  useEffect(() => {
-    const handler = () => { navAction.current = 'POP' }
-    window.addEventListener('popstate', handler)
-    return () => window.removeEventListener('popstate', handler)
-  }, [])
-
-  // Reset to PUSH after each render so link navigations get the slide
-  const currentAction = navAction.current
-  useEffect(() => { navAction.current = 'PUSH' })
 
   // Save scroll position when navigating away from a page
   const prevPathname = useRef(location.pathname)
@@ -250,45 +230,25 @@ function AnimatedRoutes() {
     }
   }, [location.pathname])
 
-  // Only slide-in on touch devices navigating forward to a detail page
-  const isDetailSlide = isTouchDevice && pageType === 'detail' && currentAction === 'PUSH'
-  // On POP (swipe-back), skip the exit slide to avoid doubling with the native animation
-  const isExitSlide = isTouchDevice && pageType === 'detail' && currentAction === 'PUSH'
-  const isPop = currentAction === 'POP'
-
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={pageType === 'detail' ? location.pathname : pageType}
-        initial={isPop ? false : (isDetailSlide ? { x: '100%', opacity: 1 } : { opacity: 0 })}
-        animate={isDetailSlide ? { x: 0, opacity: 1 } : { opacity: 1 }}
-        exit={isPop ? { opacity: 1 } : (isExitSlide ? { x: '100%', opacity: 1 } : { opacity: 0 })}
-        transition={isPop
-          ? { duration: 0 }
-          : isDetailSlide
-            ? { type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }
-            : { duration: 0.15 }
-        }
-        style={{ minHeight: '100vh' }}
-      >
-        <ScrollRestore pathname={location.pathname} pageType={pageType} />
-        <Routes location={location}>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<Navigate to="/inbox" replace />} />
-            <Route path="/inbox" element={<ArticleListPage />} />
-            <Route path="/bookmarks" element={<ArticleListPage />} />
-            <Route path="/likes" element={<ArticleListPage />} />
-            <Route path="/history" element={<ArticleListPage />} />
-            <Route path="/clips" element={<ArticleListPage />} />
-            <Route path="/feeds/:feedId" element={<ArticleListPage />} />
-            <Route path="/categories/:categoryId" element={<ArticleListPage />} />
-            <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
-            <Route path="/settings/:tab" element={<SettingsPageWrapper />} />
-            <Route path="/*" element={<ArticleDetailPage />} />
-          </Route>
-        </Routes>
-      </motion.div>
-    </AnimatePresence>
+    <div key={pageType === 'detail' ? location.pathname : pageType} style={{ minHeight: '100vh' }}>
+      <ScrollRestore pathname={location.pathname} pageType={pageType} />
+      <Routes location={location}>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Navigate to="/inbox" replace />} />
+          <Route path="/inbox" element={<ArticleListPage />} />
+          <Route path="/bookmarks" element={<ArticleListPage />} />
+          <Route path="/likes" element={<ArticleListPage />} />
+          <Route path="/history" element={<ArticleListPage />} />
+          <Route path="/clips" element={<ArticleListPage />} />
+          <Route path="/feeds/:feedId" element={<ArticleListPage />} />
+          <Route path="/categories/:categoryId" element={<ArticleListPage />} />
+          <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+          <Route path="/settings/:tab" element={<SettingsPageWrapper />} />
+          <Route path="/*" element={<ArticleDetailPage />} />
+        </Route>
+      </Routes>
+    </div>
   )
 }
 
@@ -305,7 +265,7 @@ export default function App() {
       <BrowserRouter>
         <ErrorBoundary>
           <AuthShell>
-            <AnimatedRoutes />
+            <AppRoutes />
           </AuthShell>
         </ErrorBoundary>
       </BrowserRouter>

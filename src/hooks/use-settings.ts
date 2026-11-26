@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import useSWR from 'swr'
 import { useDarkMode } from './use-dark-mode'
-import { useTheme } from './use-theme'
 import { useDateMode } from './use-date-mode'
 import { useAutoMarkRead } from './use-auto-mark-read'
 import { useUnreadIndicator } from './use-unread-indicator'
@@ -11,66 +10,42 @@ import { useShowFeedActivity } from './use-show-feed-activity'
 import { useArticleOpenMode, type ArticleOpenMode } from './use-article-open-mode'
 import { useCategoryUnreadOnly } from './use-category-unread-only'
 import { useHighlightTheme } from './use-highlight-theme'
-import { useArticleFont } from './use-article-font'
 import { useLayout } from './use-layout'
-import { useMascot, type MascotChoice } from './use-mascot'
-import { useKeyboardNavSetting } from './use-keyboard-nav-setting'
-import { useKeybindingsSetting } from './use-keybindings-setting'
-import type { LayoutName } from '../data/layouts'
-import type { Theme } from '../data/themes'
 import { fetcher, apiPatch, authHeaders } from '../lib/fetcher'
 
 /** Debounce delay (ms) before syncing settings to backend */
 const SETTINGS_SYNC_DEBOUNCE_MS = 500
 
 interface Prefs {
-  'appearance.color_theme': string | null
   'reading.date_mode': string | null
   'reading.auto_mark_read': string | null
   'reading.unread_indicator': string | null
   'reading.internal_links': string | null
   'reading.show_thumbnails': string | null
   'reading.show_feed_activity': string | null
-  'appearance.highlight_theme': string | null
-  'appearance.font_family': string | null
   'reading.article_open_mode': string | null
   'reading.category_unread_only': string | null
   'appearance.list_layout': string | null
-  'appearance.mascot': string | null
-  'reading.keyboard_navigation': string | null
-  'reading.keybindings': string | null
   'translate.provider': string | null
   'translate.model': string | null
   'translate.max_tokens': string | null
   'translate.target_lang': string | null
-  'custom_themes': string | null
 }
 
 export function useSettings() {
-  const { isDark, colorMode, setColorMode } = useDarkMode()
-  const [customThemes, setCustomThemesState] = useState<Theme[]>(() => {
-    try {
-      const stored = localStorage.getItem('custom-themes')
-      return stored ? JSON.parse(stored) : []
-    } catch { return [] }
-  })
-  const { themeName, setTheme, themes } = useTheme(isDark, customThemes)
+  const { isDark } = useDarkMode()
+  useHighlightTheme(isDark)
   const { dateMode, setDateMode } = useDateMode()
   const { autoMarkRead, setAutoMarkRead } = useAutoMarkRead()
   const { showUnreadIndicator, setShowUnreadIndicator } = useUnreadIndicator()
   const { internalLinks, setInternalLinks } = useInternalLinks()
-  const currentTheme = themes.find(t => t.name === themeName) ?? themes[0]
-  const { highlightTheme, highlightThemeOverride, setHighlightTheme } = useHighlightTheme(currentTheme.highlight, isDark)
-  const { articleFont, setArticleFont } = useArticleFont()
-  const indicatorStyle = currentTheme.indicatorStyle ?? 'dot'
+  // Unread marker style. Themes used to choose between a dot and a line; the single built-in look uses the dot.
+  const indicatorStyle = 'dot' as 'dot' | 'line'
   const { showThumbnails, setShowThumbnails } = useShowThumbnails()
   const { showFeedActivity, setShowFeedActivity } = useShowFeedActivity()
   const { articleOpenMode, setArticleOpenMode } = useArticleOpenMode()
   const { categoryUnreadOnly, setCategoryUnreadOnly } = useCategoryUnreadOnly()
   const { layout, setLayout } = useLayout()
-  const { mascot, setMascot } = useMascot()
-  const { keyboardNavigation, setKeyboardNavigation } = useKeyboardNavSetting()
-  const { keybindings, setKeybindings } = useKeybindingsSetting()
   const [translateProvider, setTranslateProviderState] = useState<string | null>(null)
   const [translateModel, setTranslateModelState] = useState<string | null>(null)
   const [translateTargetLang, setTranslateTargetLangState] = useState<string | null>(null)
@@ -90,8 +65,6 @@ export function useSettings() {
   const fireSaveRef = useRef<() => void>(() => {})
 
   // Stable refs for backfill values (only needed for keys that backfill to DB)
-  const themeNameRef = useRef(themeName)
-  themeNameRef.current = themeName
   const dateModeRef = useRef(dateMode)
   dateModeRef.current = dateMode
   const autoMarkReadRef = useRef(autoMarkRead)
@@ -110,10 +83,6 @@ export function useSettings() {
   categoryUnreadOnlyRef.current = categoryUnreadOnly
   const layoutRef = useRef(layout)
   layoutRef.current = layout
-  const mascotRef = useRef(mascot)
-  mascotRef.current = mascot
-  const keyboardNavigationRef = useRef(keyboardNavigation)
-  keyboardNavigationRef.current = keyboardNavigation
 
   // DB → local hydration (data-driven)
   useEffect(() => {
@@ -127,7 +96,6 @@ export function useSettings() {
       backfillRef?: React.MutableRefObject<string>
       validate?: (v: string) => boolean
     }> = [
-      { key: 'appearance.color_theme', setter: setTheme, backfillRef: themeNameRef },
       { key: 'reading.date_mode', setter: setDateMode, backfillRef: dateModeRef,
         validate: v => v === 'relative' || v === 'absolute' },
       { key: 'reading.auto_mark_read', setter: setAutoMarkRead, backfillRef: autoMarkReadRef,
@@ -146,15 +114,6 @@ export function useSettings() {
         validate: v => v === 'on' || v === 'off' },
       { key: 'appearance.list_layout', setter: setLayout, backfillRef: layoutRef,
         validate: v => v === 'list' || v === 'card' || v === 'magazine' || v === 'compact' },
-      { key: 'appearance.mascot', setter: setMascot, backfillRef: mascotRef,
-        validate: v => v === 'off' || v === 'dream-puff' || v === 'sleepy-giant' },
-      { key: 'reading.keyboard_navigation', setter: setKeyboardNavigation, backfillRef: keyboardNavigationRef,
-        validate: v => v === 'on' || v === 'off' },
-      { key: 'reading.keybindings', setter: (v: string) => {
-        try { const parsed = JSON.parse(v); setKeybindings(parsed) } catch { /* ignore invalid JSON */ }
-      } },
-      { key: 'appearance.highlight_theme', setter: setHighlightTheme },
-      { key: 'appearance.font_family', setter: setArticleFont },
       { key: 'translate.provider', setter: setTranslateProviderState },
       { key: 'translate.model', setter: setTranslateModelState },
       { key: 'translate.target_lang', setter: setTranslateTargetLangState },
@@ -175,20 +134,7 @@ export function useSettings() {
     if (Object.keys(backfill).length > 0) {
       apiPatch('/api/settings/preferences', backfill).catch(() => {})
     }
-  }, [prefs, setTheme, setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setArticleOpenMode, setCategoryUnreadOnly, setLayout, setMascot, setHighlightTheme, setArticleFont, setKeyboardNavigation, setKeybindings])
-
-  // Hydrate custom themes from DB
-  useEffect(() => {
-    if (!prefs) return
-    const raw = prefs['custom_themes']
-    if (raw && !dirtyKeysRef.current.has('custom_themes')) {
-      try {
-        const parsed = JSON.parse(raw) as Theme[]
-        setCustomThemesState(parsed)
-        localStorage.setItem('custom-themes', raw)
-      } catch { /* ignore malformed JSON from DB — keep existing localStorage themes */ }
-    }
-  }, [prefs])
+  }, [prefs, setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setArticleOpenMode, setCategoryUnreadOnly, setLayout])
 
   // Serialize PATCHes so client send order matches server apply order. A new
   // PATCH is fired only when no other PATCH is in flight; otherwise the new
@@ -287,11 +233,6 @@ export function useSettings() {
     syncedSetShowFeedActivity,
     syncedSetArticleOpenMode,
     syncedSetCategoryUnreadOnly,
-    syncedSetLayout,
-    syncedSetArticleFont,
-    syncedSetMascot,
-    syncedSetKeyboardNavigation,
-    syncedSetKeybindings,
     syncedSetTranslateProvider,
     syncedSetTranslateModel,
     syncedSetTranslateTargetLang,
@@ -313,16 +254,6 @@ export function useSettings() {
       syncedSetShowFeedActivity: make<'on' | 'off'>('reading.show_feed_activity', setShowFeedActivity),
       syncedSetArticleOpenMode: make<ArticleOpenMode>('reading.article_open_mode', setArticleOpenMode),
       syncedSetCategoryUnreadOnly: make<'on' | 'off'>('reading.category_unread_only', setCategoryUnreadOnly),
-      syncedSetLayout: make<LayoutName>('appearance.list_layout', setLayout),
-      syncedSetArticleFont: make<string>('appearance.font_family', setArticleFont),
-      syncedSetMascot: make<MascotChoice>('appearance.mascot', setMascot),
-      syncedSetKeyboardNavigation: make<'on' | 'off'>('reading.keyboard_navigation', setKeyboardNavigation),
-      syncedSetKeybindings: (value: import('./use-keyboard-navigation').KeyBindings) => {
-        dirtyKeysRef.current.add('reading.keybindings')
-        setKeybindings(value)
-        pendingRef.current['reading.keybindings'] = JSON.stringify(value)
-        scheduleSaveRef.current()
-      },
       syncedSetTranslateProvider: make<string>('translate.provider', setTranslateProviderState),
       syncedSetTranslateModel: make<string>('translate.model', setTranslateModelState),
       syncedSetTranslateTargetLang: make<string>('translate.target_lang', setTranslateTargetLangState),
@@ -330,47 +261,10 @@ export function useSettings() {
     }
     // scheduleSave and dirtyKeysRef are stable refs; remaining setters are useState/useCallback-stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setArticleOpenMode, setCategoryUnreadOnly, setLayout, setArticleFont, setMascot])
-
-  // Special: theme setter updates 2 keys + resets highlight
-  const syncedSetTheme = useCallback((name: string) => {
-    dirtyKeysRef.current.add('appearance.color_theme')
-    dirtyKeysRef.current.add('appearance.highlight_theme')
-    setTheme(name)
-    setHighlightTheme(null) // reset to auto on app theme change
-    pendingRef.current['appearance.color_theme'] = name
-    pendingRef.current['appearance.highlight_theme'] = '' // empty string = delete from DB
-    scheduleSave()
-  }, [setTheme, setHighlightTheme, scheduleSave])
-
-  // Special: highlight setter converts null → '' for DB
-  const syncedSetHighlightTheme = useCallback((value: string | null) => {
-    dirtyKeysRef.current.add('appearance.highlight_theme')
-    setHighlightTheme(value)
-    pendingRef.current['appearance.highlight_theme'] = value || '' // empty string = delete from DB (auto)
-    scheduleSave()
-  }, [setHighlightTheme, scheduleSave])
-
-  // Custom themes setter: updates local state + syncs JSON blob to DB
-  const setCustomThemes = useCallback((updater: (prev: Theme[]) => Theme[]) => {
-    setCustomThemesState(prev => {
-      const next = updater(prev)
-      const json = JSON.stringify(next)
-      localStorage.setItem('custom-themes', json)
-      dirtyKeysRef.current.add('custom_themes')
-      pendingRef.current['custom_themes'] = json
-      scheduleSave()
-      return next
-    })
-  }, [scheduleSave])
+  }, [setDateMode, setAutoMarkRead, setShowUnreadIndicator, setInternalLinks, setShowThumbnails, setShowFeedActivity, setArticleOpenMode, setCategoryUnreadOnly])
 
   return {
     isDark,
-    colorMode,
-    setColorMode,
-    themeName,
-    setTheme: syncedSetTheme,
-    themes,
     dateMode,
     setDateMode: syncedSetDateMode,
     autoMarkRead,
@@ -388,17 +282,7 @@ export function useSettings() {
     categoryUnreadOnly,
     setCategoryUnreadOnly: syncedSetCategoryUnreadOnly,
     layout,
-    setLayout: syncedSetLayout,
-    highlightTheme,
-    highlightThemeOverride,
-    setHighlightTheme: syncedSetHighlightTheme,
-    articleFont,
-    setArticleFont: syncedSetArticleFont,
-    mascot,
-    setMascot: syncedSetMascot,
     indicatorStyle,
-    customThemes,
-    setCustomThemes,
     translateProvider,
     setTranslateProvider: syncedSetTranslateProvider,
     translateModel,
@@ -407,10 +291,6 @@ export function useSettings() {
     setTranslateTargetLang: syncedSetTranslateTargetLang,
     translateMaxTokens,
     setTranslateMaxTokens: syncedSetTranslateMaxTokens,
-    keyboardNavigation,
-    setKeyboardNavigation: syncedSetKeyboardNavigation,
-    keybindings,
-    setKeybindings: syncedSetKeybindings,
   }
 }
 

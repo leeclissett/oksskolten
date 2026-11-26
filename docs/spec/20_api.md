@@ -35,14 +35,13 @@ All error responses follow this format:
 // Response: 200
 {
   "ok": true,
-  "searchReady": true,
   "gitCommit": "abc1234",
   "gitTag": "v1.0.0",
   "buildDate": "2026-03-10T00:00:00Z"
 }
 ```
 
-Includes `Cache-Control: no-store` header. `searchReady` indicates whether the Meilisearch index build is complete.
+Includes `Cache-Control: no-store` header.
 
 #### Auth Endpoints (Public)
 
@@ -75,72 +74,16 @@ The frontend removes the token from `localStorage`. The server returns `{ "ok": 
 
 Compares the JWT's `token_version` against the DB value; returns `401` on mismatch (automatic logout after password change).
 
-#### Passkey/WebAuthn Endpoints
+#### Account Endpoints
 
-**GET /api/auth/methods** — Available auth methods (public)
-
-```json
-// Response: 200
-{
-  "password": { "enabled": true },
-  "passkey": { "enabled": true, "count": 2 },
-  "github": { "enabled": true }
-}
-```
-
-Includes `Cache-Control: no-store` header.
-
-**GET /api/auth/login/options** — Get Passkey login challenge (public)
-
-Returns WebAuthn authentication options. The challenge is stored in memory (TTL 60 seconds). `rpID` is dynamically derived from the `Origin` / `Referer` headers (Vite proxy compatible).
-
-**POST /api/auth/login/verify** — Verify Passkey login (public, rate limit: 5 requests/minute)
+**GET /api/auth/methods** — Setup state (public)
 
 ```json
 // Response: 200
-{ "ok": true, "token": "eyJhbGciOiJIUzI1NiIs..." }
+{ "setup_required": false }
 ```
 
-On successful verification, updates the credential counter and issues a JWT token.
-
-**GET /api/auth/register/options** — Get Passkey registration challenge (auth required)
-
-Existing credentials are included in the exclude list. `residentKey: 'preferred'`, `userVerification: 'preferred'`.
-
-**POST /api/auth/register/verify** — Verify Passkey registration (auth required)
-
-On successful verification, saves the public key, counter, and device info to the `credentials` table.
-
-**GET /api/auth/passkeys** — List registered Passkeys (auth required)
-
-```json
-// Response: 200
-[
-  {
-    "id": 1,
-    "credential_id": "abc...",
-    "device_type": "multiDevice",
-    "backed_up": 1,
-    "created_at": "2026-02-28T10:00:00Z"
-  }
-]
-```
-
-**DELETE /api/auth/passkeys/:id** — Delete Passkey (auth required)
-
-Lockout prevention: returns `400` if password auth is disabled, GitHub OAuth is also disabled, and this is the last Passkey.
-
-**POST /api/auth/password/toggle** — Toggle password auth on/off (auth required)
-
-```json
-// Request
-{ "enabled": false }
-
-// Response: 200
-{ "ok": true, "enabled": false }
-```
-
-Returns `400` if attempting to disable password auth when no Passkeys are registered and GitHub OAuth is also disabled.
+`setup_required` is `true` while no user exists. Password login is the only auth method.
 
 **POST /api/auth/password/change** — Change password (auth required, rate limit: 5 requests/minute)
 
@@ -149,7 +92,7 @@ Returns `400` if attempting to disable password auth when no Passkeys are regist
 { "currentPassword": "old-password", "newPassword": "new-password" }
 ```
 
-`newPassword` must be at least 8 characters. If a Passkey or GitHub OAuth is configured, `currentPassword` can be omitted (functions as a password reset). On success, increments `token_version` and returns a new JWT.
+`newPassword` must be at least 8 characters. `currentPassword` is required (`400` if missing, `401` if wrong). On success, increments `token_version` and returns a new JWT.
 
 ```json
 // Response: 200
@@ -171,80 +114,9 @@ Returns `409` if the email is already in use. Returns `401` on password mismatch
 { "ok": true, "token": "eyJhbGciOiJIUzI1NiIs..." }
 ```
 
-#### GitHub OAuth Endpoints
-
-**POST /api/oauth/github/authorize** — Get GitHub authorization URL (public)
-
-```json
-// Request
-{ "origin": "http://localhost:5174" }
-
-// Response: 200
-{ "url": "https://github.com/login/oauth/authorize?client_id=...&state=...&redirect_uri=..." }
-```
-
-The frontend sends `window.location.origin`, and the server uses it to construct the callback URL (prevents mismatch in Vite proxy environments). State is stored in memory (TTL 5 minutes).
-
-**GET /api/oauth/github/callback** — GitHub callback (public, rate limit: 10 requests/minute)
-
-Redirect target from GitHub. State verification → exchange code for access_token → fetch user info via GitHub API → match against allowed users → issue JWT → generate one-time exchange code (60-second TTL) → redirect to `/?oauth_code=<code>`. The JWT is not placed in the URL.
-
-If no allowed users are configured, fetches the OAuth App owner via `GET /applications/{client_id}` (Basic auth) and permits only the owner.
-
-**POST /api/oauth/github/token** — Exchange code for JWT (public, rate limit: 5 requests/minute)
-
-```json
-// Request
-{ "code": "exchange-code-uuid" }
-
-// Response: 200
-{ "ok": true, "token": "eyJhbGciOiJIUzI1NiIs..." }
-```
-
-Consumes the one-time exchange code and returns the associated JWT. The code can only be used once (no replay).
-
-**GET /api/oauth/github/config** — Get GitHub OAuth config (auth required)
-
-```json
-// Response: 200
-{ "enabled": true, "configured": true, "clientId": "Iv1.xxx", "allowedUsers": "your-github-username" }
-```
-
-`clientSecret` is never returned.
-
-**POST /api/oauth/github/config** — Update GitHub OAuth config (auth required)
-
-```json
-// Request
-{ "clientId": "Iv1.xxx", "clientSecret": "xxx", "allowedUsers": "your-github-username" }
-```
-
-If `clientSecret` is an empty string, the existing value is preserved (can be omitted). If GitHub OAuth is the only auth method, updates that clear `clientId` or `clientSecret` are blocked.
-
-**POST /api/oauth/github/toggle** — Toggle GitHub OAuth on/off (auth required)
-
-```json
-// Request
-{ "enabled": true }
-
-// Response: 200
-{ "ok": true, "enabled": true }
-```
-
-Enabling checks if configured. Disabling checks for lockout prevention (Password or Passkey must be enabled).
-
-GitHub OAuth settings are stored in the `settings` table (zero additional env vars):
-
-| key | Example value |
-|---|---|
-| `oauth_github_enabled` | `1` / `0` |
-| `oauth_github_client_id` | `Iv1.xxxxxxxxxxxx` |
-| `oauth_github_client_secret` | `xxxxxxxxxxxxxxxx` |
-| `oauth_github_allowed_users` | Comma-separated GitHub usernames (empty means App owner only) |
-
 #### Auth Required (JWT or API Key)
 
-All API endpoints except auth endpoints and public Passkey endpoints require authentication via one of:
+All API endpoints except the public auth endpoints and the Reader API (which has its own auth) require authentication via one of:
 
 1. **JWT**: `Authorization: Bearer <jwt-token>` — full access (used by the web UI)
 2. **API Key**: `Authorization: Bearer ok_<hex>` — scoped access (for external scripts/tools)
@@ -338,7 +210,6 @@ Query parameters:
 | `bookmarked` | `"1"` | — | When specified, returns only bookmarked articles |
 | `liked` | `"1"` | — | When specified, returns only liked articles |
 | `read` | `"1"` | — | When specified, returns only read articles (`read_at IS NOT NULL`). For the `/history` route |
-| `sort` | `"score"` | — | When specified, sorts by score descending. When omitted, uses existing logic (liked→`liked_at DESC`, read→`read_at DESC`, otherwise→`published_at DESC`) |
 | `limit` | number | 20 | Number of items to fetch (max 100) |
 | `offset` | number | 0 | Offset |
 
@@ -392,25 +263,6 @@ The floor is **not applied** in:
 - Inbox (`unread=1`), Bookmarks, Likes, History views
 - Clip feed views (saved articles should always be visible)
 - When `no_floor=1` query parameter is specified (used by the "show older articles" button)
-
-
-**GET /api/articles/search** — Article search (Meilisearch full-text search)
-
-- `q`: Required. Full-text search via Meilisearch (with typo tolerance and relevance ranking). Search targets are `title`, `full_text`, `full_text_ja`
-- `feed_id`: Optional. Filter by feed ID (Meilisearch filter)
-- `category_id`: Optional. Filter by category ID (Meilisearch filter)
-- `since`: Optional. Start datetime ISO 8601 (Meilisearch filter)
-- `until`: Optional. End datetime ISO 8601 (Meilisearch filter)
-- `unread`: Optional. `1` for unread only, `0` for read only (SQLite post-filter)
-- `liked`: Optional. `1` for liked only (SQLite post-filter)
-- `bookmarked`: Optional. `1` for bookmarked only (SQLite post-filter)
-- `limit`: Optional (default 20, max 50)
-- Returns `503` when the search index is not yet built
-
-```json
-// Response: 200
-{ "articles": [{ "id": 1, "title": "...", "url": "...", "feed_name": "...", "published_at": "..." }, ...] }
-```
 
 
 **GET /api/articles/by-url?url=...** — Article detail (fetch by URL)
@@ -531,33 +383,13 @@ When `liked` is `false`, returns `{ "liked_at": null }`. Returns `404` if the ar
 Maximum 100 items. Only updates articles where `seen_at IS NULL`.
 
 
-**POST /api/articles/:id/summarize** — Article summary (on-demand)
-
-Returns the cached summary if one already exists. Returns `400` if `full_text` is NULL.
-
-Query parameter `stream=1` for SSE streaming response:
-
-```
-data: {"type":"delta","text":"Markdown features"}
-data: {"type":"delta","text":" designed for AI agents..."}
-data: {"type":"done","summary":"...", "usage":{"input_tokens":1234,"output_tokens":456}}
-```
-
-Batch response (without `stream` parameter):
-
-```json
-// Response: 200
-{ "text": "Markdown features designed for AI agents...", "usage": { "input_tokens": 1234, "output_tokens": 456 } }
-```
-
-
 **POST /api/articles/:id/translate** — Article translation (on-demand)
 
 Translates the article into the user's configured language (`general.language` setting). Returns the cached translation if `full_text_translated` exists and `translated_lang` matches the current language. If the language setting changes, stale translations are treated as absent and re-translated on next request.
 
 Returns `400` if `full_text` is NULL. Returns `400` if the article is already in the user's language.
 
-Query parameter `stream=1` for SSE streaming response (same format as summarize).
+Query parameter `stream=1` for SSE streaming response.
 
 
 **POST /api/articles/from-url** — Clip and save an article from URL
@@ -637,53 +469,42 @@ Response headers:
 {
   "name": "Cloudflare Blog",
   "url": "https://blog.cloudflare.com",
-  "rss_bridge_url": null,
   "category_id": 1
 }
 ```
 
 | Field | Required | Description |
 |---|---|---|
-| `url` | Yes | Blog top URL |
+| `url` | Yes | Blog top URL or feed URL |
 | `name` | No | Display name (auto-uses RSS feed title or hostname if omitted) |
-| `rss_bridge_url` | No | URL when using RSSBridge |
 | `category_id` | No | Category ID |
-| `discovered_rss_url` | No | HTTPS URL of a previously discovered RSS feed. When set, skip discovery and use this URL directly (Phase 2: user chose "whole site"). |
+| `discovered_rss_url` | No | URL of a previously discovered RSS feed. When set, skip discovery and use this URL directly (Phase 2). |
 | `discovered_rss_title` | No | Title of the discovered RSS feed. Used for auto-naming when `name` is omitted. |
-| `force_page_selector` | No | If `true`, skip Steps 1–2 and go straight to LLM CSS selector inference (Phase 2: user chose "this page only"). Mutually exclusive with `discovered_rss_url`. |
 
 Processing flow:
 1. Check `url` for duplicates → `409 { "error": "Feed URL already exists" }` on duplicate
-2. If `rss_bridge_url` is specified, use it as-is
-3. If not specified, resolve the RSS URL through a 3-step fallback chain:
-   - **Step 1: RSS auto-discovery** — Fetch the URL; if Content-Type is `xml`/`atom`/`rss`, adopt it directly as a feed. Otherwise, parse as HTML and look for `<link rel="alternate">` → try candidate paths (`/feed`, `/feed.xml`, `/rss`, `/rss.xml`, `/atom.xml`, `/index.xml`) → save to `rss_url` if found
-     - **Bot auth fallback**: If the normal fetch returns 403, retry via FlareSolverr. When FlareSolverr is used, automatically set `requires_js_challenge = 1`, and all subsequent RSS fetching and article full-text fetching also go through FlareSolverr
-   - **Step 2: RSS Bridge findfeed** — If `RSS_BRIDGE_URL` is set, query with `?action=findfeed` → save to `rss_bridge_url` if found
-   - **Step 3: CssSelectorBridge auto-estimation** — Use an LLM to analyze the page HTML and estimate the article list CSS selector → generate and validate a CssSelectorBridge URL → save to `rss_bridge_url` (see the "CssSelectorBridge Auto-Estimation" section for details)
-   - All failed → return `201` with `rss_url = null`, `rss_bridge_url = null`. The frontend prompts the user to enter `rss_bridge_url`
+2. **RSS auto-discovery** — Fetch the URL; if Content-Type is `xml`/`atom`/`rss`, adopt it directly as a feed. Otherwise, parse as HTML and look for `<link rel="alternate">` → try candidate paths (`/feed`, `/feed.xml`, `/rss`, `/rss.xml`, `/atom.xml`, `/index.xml`)
+   - **Bot auth fallback**: If the normal fetch returns 403, retry via FlareSolverr. When FlareSolverr is used, automatically set `requires_js_challenge = 1`, and all subsequent RSS fetching and article full-text fetching also go through FlareSolverr
+3. If no feed is found, no feed is created and the stream ends with an `error` event (`RSS could not be detected for this URL`). There is no RSS-Bridge or CSS-selector fallback in this fork.
 4. Once the RSS URL is determined, execute `fetchSingleFeed` in the background (fire-and-forget)
 
-The response is `text/event-stream` (SSE), notifying progress for each step in real time:
+The response is `text/event-stream` (SSE), notifying progress in real time:
 
 ```
 data: {"type":"step","step":"rss-discovery","status":"running"}
 data: {"type":"step","step":"flaresolverr","status":"running"}       // Only appears when bot auth is needed
 data: {"type":"step","step":"flaresolverr","status":"done","found":true}
 data: {"type":"step","step":"rss-discovery","status":"done","found":true}
-data: {"type":"step","step":"rss-bridge","status":"skipped"}
-data: {"type":"step","step":"css-selector","status":"skipped"}
-data: {"type":"done","feed":{"id":1,"name":"...","rss_url":"...","rss_bridge_url":null}}
+data: {"type":"done","feed":{"id":1,"name":"...","rss_url":"..."}}
 ```
 
-Step names: `rss-discovery`, `flaresolverr` (conditional), `rss-bridge`, `css-selector`
-Statuses: `pending`, `running`, `done`, `skipped`
-The `flaresolverr` step is a child step of RSS discovery and is displayed hierarchically in the UI. It does not appear under normal conditions (when bot auth is not needed).
+Step names: `rss-discovery`, `flaresolverr` (conditional)
 
-**Two-phase choice flow**: When Step 1 finds an RSS feed, the server sends a `choice_needed` event and ends the SSE stream without creating a feed:
+**Two-phase flow**: When discovery finds an RSS feed, the server sends a `choice_needed` event and ends the SSE stream without creating a feed:
 ```
 data: {"type":"choice_needed","rss_url":"https://example.com/rss","rss_title":"Example Feed"}
 ```
-The frontend then presents the user with a choice: "Subscribe to the whole site" or "Subscribe to this page only". The user's choice triggers a second `POST /api/feeds` with either `discovered_rss_url`/`discovered_rss_title` or `force_page_selector: true`.
+The frontend confirms with the user and sends a second `POST /api/feeds` with `discovered_rss_url`/`discovered_rss_title`, which creates the feed.
 
 ```json
 // Response (feed object from the final event):
@@ -698,6 +519,8 @@ The frontend then presents the user with a choice: "Subscribe to the whole site"
 }
 ```
 
+`rss_bridge_url` is a legacy column: it is still returned but never set or read.
+
 
 **PATCH /api/feeds/:id** — Update feed
 
@@ -705,7 +528,6 @@ The frontend then presents the user with a choice: "Subscribe to the whole site"
 // Request (all optional, only specified fields are updated)
 {
   "name": "New Name",
-  "rss_bridge_url": "http://rss-bridge/?...",
   "disabled": 0,
   "category_id": 2,
   "auto_translate_target": "en",
@@ -713,7 +535,7 @@ The frontend then presents the user with a choice: "Subscribe to the whole site"
 }
 ```
 
-Updatable fields: `name`, `rss_bridge_url`, `disabled` (`0` or `1`), `category_id`, and `auto_translate_target` (`"en"` or `null`). When enabling automatic translation, `backfill_translations: true` locally re-detects existing articles and queues the non-English ones. `url` and `rss_url` cannot be changed (ignored even if included in the request). Setting `disabled: 0` also resets `error_count` to `0` and `last_error` to `NULL`.
+Updatable fields: `name`, `disabled` (`0` or `1`), `category_id`, and `auto_translate_target` (`"en"` or `null`). When enabling automatic translation, `backfill_translations: true` locally re-detects existing articles and queues the non-English ones. `url` and `rss_url` cannot be changed (ignored even if included in the request). Setting `disabled: 0` also resets `error_count` to `0` and `last_error` to `NULL`.
 
 ```json
 // Response: 200 (returns all feed fields)
@@ -856,59 +678,62 @@ If `account_name` is not set, the auth email address is saved as the initial val
 
 `language` must be `"ja"` or `"en"`.
 
-**GET /api/settings/preferences** — Get display preferences
+**GET /api/settings/preferences** — Get preferences
 
 ```json
 // Response: 200
 {
-  "appearance.color_theme": "nord",
   "reading.date_mode": "relative",
   "reading.auto_mark_read": "on",
   "reading.unread_indicator": "on",
   "reading.internal_links": "off",
   "reading.show_thumbnails": "on",
   "reading.show_feed_activity": "on",
-  "reading.chat_position": "fab",
   "reading.article_open_mode": "page",
-  "appearance.highlight_theme": "github-dark",
-  "appearance.font_family": null,
+  "reading.category_unread_only": "off",
   "appearance.list_layout": "list",
-  "appearance.mascot": "off"
+  "translate.provider": "deepl",
+  "translate.model": null,
+  "translate.max_tokens": null,
+  "translate.target_lang": "en",
+  "ollama.base_url": null,
+  "ollama.custom_headers": null,
+  "vllm.base_url": null,
+  "retention.enabled": "off",
+  "retention.read_days": null,
+  "retention.unread_days": null
 }
 ```
 
 Unset items are `null`.
 
-**PATCH / POST /api/settings/preferences** — Update display preferences
+**PATCH / POST /api/settings/preferences** — Update preferences
 
 ```json
 // Request (all optional)
-{ "appearance.color_theme": "nord", "reading.date_mode": "absolute" }
+{ "reading.date_mode": "absolute" }
 ```
+
+An empty string deletes the key. Unknown keys are ignored.
 
 | Key | Allowed values |
 |---|---|
-| `appearance.color_theme` | Any string (theme name) |
 | `reading.date_mode` | `"relative"` / `"absolute"` |
 | `reading.auto_mark_read` | `"on"` / `"off"` |
 | `reading.unread_indicator` | `"on"` / `"off"` |
 | `reading.internal_links` | `"on"` / `"off"` |
 | `reading.show_thumbnails` | `"on"` / `"off"` |
 | `reading.show_feed_activity` | `"on"` / `"off"` |
-| `reading.chat_position` | `"fab"` / `"inline"` |
 | `reading.article_open_mode` | `"page"` / `"overlay"` |
-| `appearance.highlight_theme` | Any string (theme name). Empty string to delete |
-| `appearance.font_family` | Any string (font name). Empty string to delete |
-| `appearance.list_layout` | `"list"` / `"card"` / `"magazine"` / `"compact"` |
-| `appearance.mascot` | `"off"` / `"dream-puff"` / `"sleepy-giant"` |
-| `chat.provider` | `"anthropic"` / `"gemini"` / `"openai"` / `"claude-code"` |
-| `chat.model` | Model ID depending on the provider |
-| `summary.provider` | `"anthropic"` / `"gemini"` / `"openai"` / `"claude-code"` |
-| `summary.model` | Model ID depending on the provider |
-| `summary.max_tokens` | Positive integer 1-200000 (max output tokens for summarization; default 2048). Empty string to delete |
-| `translate.provider` | `"anthropic"` / `"gemini"` / `"openai"` / `"claude-code"` / `"google-translate"` / `"deepl"` |
-| `translate.model` | Model ID depending on the provider (not needed for google-translate / deepl) |
-| `translate.max_tokens` | Positive integer 1-200000 (max output tokens for translation; default 16384). Empty string to delete |
+| `reading.category_unread_only` | `"on"` / `"off"` |
+| `appearance.list_layout` | `"list"` / `"card"` / `"magazine"` / `"compact"` (no picker in the UI; the stored value is used) |
+| `translate.provider` | `"anthropic"` / `"gemini"` / `"openai"` / `"claude-code"` / `"ollama"` / `"vllm"` / `"google-translate"` / `"deepl"` |
+| `translate.model` | Model ID depending on the provider (not needed for google-translate / deepl / ollama / vllm) |
+| `translate.max_tokens` | Positive integer (max output tokens for translation) |
+| `translate.target_lang` | `"ja"` / `"en"` / `"zh"` |
+| `ollama.base_url`, `ollama.custom_headers`, `vllm.base_url` | Free-form strings |
+| `retention.enabled` | `"on"` / `"off"` |
+| `retention.read_days`, `retention.unread_days` | Positive integers |
 
 
 **GET /api/settings/api-keys/:provider** — Check API key configuration status (auth required)
@@ -1035,32 +860,6 @@ Sends a GET request to the URL configured in `images.healthcheck_url` to verify 
 |---|---|
 | 200 | Connectivity check succeeded |
 | 400 | `images.healthcheck_url` not set / SSRF blocked / connectivity failure |
-
-
-#### Similar Articles Endpoint
-
-**GET /api/articles/:id/similar** — Get similar articles from other sources (auth required)
-
-```json
-// Response: 200
-{
-  "similar": [
-    {
-      "id": 123,
-      "feed_name": "TechCrunch",
-      "title": "Apple announces iPhone 17",
-      "url": "https://techcrunch.com/...",
-      "published_at": "2026-03-18T10:00:00Z",
-      "read_at": "2026-03-18T11:05:00Z",
-      "score": 0.82
-    }
-  ]
-}
-```
-
-Returns similar articles detected via title similarity (bigram Dice coefficient >= 0.4) from different feeds. Sorted by similarity score descending. See [83_feature_similarity.md](./83_feature_similarity.md) for detection algorithm details.
-
-Article list and detail responses include `similar_count` (integer) — the number of similar articles from other sources.
 
 
 #### API Token Endpoints

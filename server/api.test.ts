@@ -878,12 +878,11 @@ describe('GET /api/settings/preferences', () => {
     const res = await app.inject({ method: 'GET', url: '/api/settings/preferences' })
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body).toHaveProperty('appearance.color_theme')
     expect(body).toHaveProperty('reading.date_mode')
     expect(body).toHaveProperty('reading.auto_mark_read')
     expect(body).toHaveProperty('reading.unread_indicator')
     expect(body).toHaveProperty('reading.internal_links')
-    expect(body).toHaveProperty('appearance.highlight_theme')
+    expect(body).toHaveProperty('translate.provider')
   })
 })
 
@@ -927,7 +926,7 @@ describe('PATCH /api/settings/preferences', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'appearance.color_theme': 'dark' },
+      payload: { 'reading.date_mode': 'absolute' },
     })
 
     // Then delete it
@@ -935,10 +934,10 @@ describe('PATCH /api/settings/preferences', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'appearance.color_theme': '' },
+      payload: { 'reading.date_mode': '' },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json()['appearance.color_theme']).toBeNull()
+    expect(res.json()['reading.date_mode']).toBeNull()
   })
 
   it('returns 400 when no valid fields provided', async () => {
@@ -949,17 +948,6 @@ describe('PATCH /api/settings/preferences', () => {
       payload: { unknown_key: 'value' },
     })
     expect(res.statusCode).toBe(400)
-  })
-
-  it('accepts free-form string for appearance.color_theme', async () => {
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/api/settings/preferences',
-      headers: json,
-      payload: { 'appearance.color_theme': 'solarized' },
-    })
-    expect(res.statusCode).toBe(200)
-    expect(res.json()['appearance.color_theme']).toBe('solarized')
   })
 })
 

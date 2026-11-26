@@ -14,7 +14,7 @@ Addresses the need to save articles without subscribing to a feed — one-off vi
 
 ### Clip Feed
 
-Clipped articles belong to a special singleton feed called the "clip feed." This allows article management (read status, bookmarks, summaries, translations, search, etc.) to be fully unified with regular RSS articles.
+Clipped articles belong to a special singleton feed called the "clip feed." This allows article management (read status, bookmarks, translations, etc.) to be fully unified with regular RSS articles.
 
 | Aspect | RSS Feed | Clip Feed |
 |---|---|---|
@@ -56,7 +56,7 @@ POST /api/articles/from-url
     └─ 5. insertArticle() → 201
 ```
 
-After saving, the article supports summary, translation, bookmark, like, and chat — just like regular RSS articles.
+After saving, the article supports translation, bookmark and like — just like regular RSS articles.
 
 ### Shared Fetch Pipeline with RSS Feeds
 
