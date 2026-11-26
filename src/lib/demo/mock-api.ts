@@ -136,10 +136,6 @@ export async function demoFetcher(url: string): Promise<unknown> {
     return { results: [] }
   }
 
-  if (path === '/api/settings/auth-methods') {
-    return { password: true, passkey: false, github: false }
-  }
-
   // API key status: Anthropic and DeepL are "configured" in demo
   const apiKeyMatch = path.match(/^\/api\/settings\/api-keys\/(.+)$/)
   if (apiKeyMatch) {
