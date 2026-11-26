@@ -56,15 +56,3 @@ export async function parseSSEStream<T>(
     }
   }
 }
-
-export interface ChatSSEEvent {
-  type: 'conversation_id' | 'text_delta' | 'thinking_start' | 'thinking_end' | 'tool_use_start' | 'tool_use_end' | 'done' | 'error'
-  conversation_id?: string
-  text?: string
-  name?: string
-  tool_use_id?: string
-  usage?: { input_tokens: number; output_tokens: number }
-  elapsed_ms?: number
-  model?: string
-  error?: string
-}

@@ -26,8 +26,6 @@ vi.mock('../providers/llm/index.js', () => ({
 
 import {
   detectLanguage,
-  summarizeArticle,
-  streamSummarizeArticle,
   translateArticle,
   translateArticleFields,
   streamTranslateArticle,
@@ -74,124 +72,6 @@ describe('detectLanguage', () => {
 
   it('detects katakana-heavy text as Japanese', () => {
     expect(detectLanguage('プログラミングのテストケースをチェックする')).toBe('ja')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// summarizeArticle
-// ---------------------------------------------------------------------------
-describe('summarizeArticle', () => {
-  it('returns summary with token usage', async () => {
-    mockCreateMessage.mockResolvedValue({
-      text: '要約テキスト',
-      inputTokens: 100,
-      outputTokens: 50,
-    })
-
-    const result = await summarizeArticle('Article body text')
-
-    expect(result.summary).toBe('要約テキスト')
-    expect(result.inputTokens).toBe(100)
-    expect(result.outputTokens).toBe(50)
-    expect(result.billingMode).toBe('anthropic')
-    expect(result.model).toBeDefined()
-  })
-
-  it('calls requireKey before making request', async () => {
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    await summarizeArticle('text')
-    expect(mockRequireKey).toHaveBeenCalled()
-  })
-
-  it('uses createMessage (non-streaming)', async () => {
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    await summarizeArticle('text')
-    expect(mockCreateMessage).toHaveBeenCalled()
-    expect(mockStreamMessage).not.toHaveBeenCalled()
-  })
-
-  it('passes article text in prompt', async () => {
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    await summarizeArticle('My article content here')
-
-    const params = mockCreateMessage.mock.calls[0][0]
-    expect(params.messages[0].content).toContain('My article content here')
-  })
-
-  it('sets maxTokens to 2048 for summarize', async () => {
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    await summarizeArticle('text')
-
-    const params = mockCreateMessage.mock.calls[0][0]
-    expect(params.maxTokens).toBe(2048)
-  })
-
-  it('uses summary.max_tokens override from settings', async () => {
-    mockGetSetting.mockImplementation((key: string) => {
-      if (key === 'summary.max_tokens') return '512'
-      return null
-    })
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    await summarizeArticle('text')
-
-    const params = mockCreateMessage.mock.calls[0][0]
-    expect(params.maxTokens).toBe(512)
-  })
-
-  it('falls back to default when summary.max_tokens is not a positive integer', async () => {
-    mockGetSetting.mockImplementation((key: string) => {
-      if (key === 'summary.max_tokens') return 'not-a-number'
-      return null
-    })
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    await summarizeArticle('text')
-
-    const params = mockCreateMessage.mock.calls[0][0]
-    expect(params.maxTokens).toBe(2048)
-  })
-
-  it('uses custom model from settings', async () => {
-    mockGetSetting.mockImplementation((key: string) => {
-      if (key === 'summary.model') return 'claude-sonnet-4-6'
-      return null
-    })
-    mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
-    const result = await summarizeArticle('text')
-    expect(result.model).toBe('claude-sonnet-4-6')
-  })
-
-  it('propagates provider errors', async () => {
-    mockCreateMessage.mockRejectedValue(new Error('API rate limit'))
-    await expect(summarizeArticle('text')).rejects.toThrow('API rate limit')
-  })
-
-  it('propagates requireKey errors', async () => {
-    mockRequireKey.mockImplementation(() => {
-      throw new Error('ANTHROPIC_KEY_NOT_SET')
-    })
-    await expect(summarizeArticle('text')).rejects.toThrow('ANTHROPIC_KEY_NOT_SET')
-    mockRequireKey.mockReset()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// streamSummarizeArticle
-// ---------------------------------------------------------------------------
-describe('streamSummarizeArticle', () => {
-  it('uses streamMessage and passes onText callback', async () => {
-    mockStreamMessage.mockResolvedValue({ text: 'streamed summary', inputTokens: 10, outputTokens: 5 })
-
-    const deltas: string[] = []
-    const result = await streamSummarizeArticle('text', (d) => deltas.push(d))
-
-    expect(result.summary).toBe('streamed summary')
-    expect(mockStreamMessage).toHaveBeenCalled()
-    expect(mockCreateMessage).not.toHaveBeenCalled()
-
-    // Verify onText was passed through
-    const onText = mockStreamMessage.mock.calls[0][1]
-    onText('chunk')
-    expect(deltas).toEqual(['chunk'])
   })
 })
 

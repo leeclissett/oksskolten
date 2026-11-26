@@ -18,7 +18,6 @@ import { registerSpaFallback } from './lib/spa-fallback.js'
 const log = logger
 import { getDb } from './db/connection.js'
 import { registerApi } from './api.js'
-import { registerChatApi } from './chatRoutes.js'
 import { authRoutes } from './authRoutes.js'
 import { passkeyRoutes } from './passkeyRoutes.js'
 import { oauthRoutes } from './oauthRoutes.js'
@@ -161,7 +160,6 @@ app.register(greaderRoutes)
 
 // Protected API routes
 registerApi(app)
-registerChatApi(app)
 
 // SPA static serving (production)
 const distDir = path.join(projectRoot, 'dist')

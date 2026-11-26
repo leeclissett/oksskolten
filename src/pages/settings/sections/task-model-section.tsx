@@ -43,7 +43,7 @@ export function TaskModelSection({ settings, t }: { settings: Settings; t: TFunc
   const googleTranslateKey = useSWR<{ configured: boolean }>(`/api/settings/api-keys/google-translate`, fetcher, SWR_KEY_OPTS)
   const deeplKey = useSWR<{ configured: boolean }>(`/api/settings/api-keys/deepl`, fetcher, SWR_KEY_OPTS)
   const { data: claudeCodeStatus } = useSWR<{ loggedIn?: boolean; error?: string }>(
-    '/api/chat/claude-code-status', fetcher, SWR_KEY_OPTS,
+    '/api/settings/claude-code/status', fetcher, SWR_KEY_OPTS,
   )
 
   const llmKeyStatuses = [anthropicKey, geminiKey, openaiKey]
@@ -71,34 +71,6 @@ export function TaskModelSection({ settings, t }: { settings: Settings; t: TFunc
   const keysLoading = llmKeyStatuses.some(s => !s.data) || translateKeyStatuses.some(s => !s.data)
 
   const tasks: TaskConfig[] = [
-    {
-      labelKey: 'integration.task.chat',
-      providerValue: settings.chatProvider || '',
-      setProvider: (v) => {
-        settings.setChatProvider(v)
-        // Ollama/vLLM models are dynamic; don't set a default (auto-selected by ModelSelect)
-        if (v !== 'ollama' && v !== 'vllm') settings.setChatModel(DEFAULT_MODELS[v] || DEFAULT_MODELS.anthropic)
-        else settings.setChatModel('')
-      },
-      modelValue: settings.chatModel || '',
-      setModel: settings.setChatModel,
-      defaultModel: 'claude-haiku-4-5-20251001',
-    },
-    {
-      labelKey: 'integration.task.summary',
-      providerValue: settings.summaryProvider || '',
-      setProvider: (v) => {
-        settings.setSummaryProvider(v)
-        if (v !== 'ollama' && v !== 'vllm') settings.setSummaryModel(DEFAULT_MODELS[v] || DEFAULT_MODELS.anthropic)
-        else settings.setSummaryModel('')
-      },
-      modelValue: settings.summaryModel || '',
-      setModel: settings.setSummaryModel,
-      defaultModel: 'claude-haiku-4-5-20251001',
-      maxTokensValue: settings.summaryMaxTokens || '',
-      setMaxTokens: settings.setSummaryMaxTokens,
-      defaultMaxTokens: 2048,
-    },
     {
       labelKey: 'integration.task.translate',
       providerValue: settings.translateProvider || '',

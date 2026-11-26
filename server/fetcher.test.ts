@@ -346,56 +346,6 @@ describe('discoverRssUrl', () => {
 })
 
 // ==========================================================================
-// summarizeArticle
-// ==========================================================================
-
-describe('summarizeArticle', () => {
-  let summarizeArticle: typeof import('./fetcher.js').summarizeArticle
-
-  beforeEach(async () => {
-    const mod = await import('./fetcher.js')
-    summarizeArticle = mod.summarizeArticle
-  })
-
-  it('returns summary and token usage', async () => {
-    mockMessagesCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'This is a summary' }],
-      usage: { input_tokens: 100, output_tokens: 50 },
-    })
-
-    const result = await summarizeArticle('Some article text')
-    expect(result.summary).toBe('This is a summary')
-    expect(result.inputTokens).toBe(100)
-    expect(result.outputTokens).toBe(50)
-  })
-
-  it('uses haiku model with 2048 max_tokens', async () => {
-    mockMessagesCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'summary' }],
-      usage: { input_tokens: 10, output_tokens: 5 },
-    })
-
-    await summarizeArticle('text')
-
-    expect(mockMessagesCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
-      }),
-    )
-  })
-
-  it('throws on non-text response', async () => {
-    mockMessagesCreate.mockResolvedValue({
-      content: [{ type: 'tool_use', id: 'x', name: 'y', input: {} }],
-      usage: { input_tokens: 10, output_tokens: 5 },
-    })
-
-    await expect(summarizeArticle('text')).rejects.toThrow('Unexpected response type')
-  })
-})
-
-// ==========================================================================
 // translateArticle
 // ==========================================================================
 
@@ -2345,68 +2295,8 @@ describe('FlareSolverr — fetchFullText', () => {
 })
 
 // ==========================================================================
-// streamSummarizeArticle / streamTranslateArticle
+// streamTranslateArticle
 // ==========================================================================
-
-describe('streamSummarizeArticle', () => {
-  let streamSummarizeArticle: typeof import('./fetcher.js').streamSummarizeArticle
-
-  beforeEach(async () => {
-    const mod = await import('./fetcher.js')
-    streamSummarizeArticle = mod.streamSummarizeArticle
-  })
-
-  it('streams text deltas and returns final message', async () => {
-    const textHandler = vi.fn()
-
-    // Create a mock stream object
-    const handlers: Record<string, ((...args: unknown[]) => void)[]> = {}
-    const mockStream = {
-      on: (event: string, cb: (...args: unknown[]) => void) => {
-        if (!handlers[event]) handlers[event] = []
-        handlers[event].push(cb)
-        return mockStream
-      },
-      finalMessage: () => Promise.resolve({
-        content: [{ type: 'text', text: 'final summary text' }],
-        usage: { input_tokens: 100, output_tokens: 50 },
-      }),
-    }
-    mockMessagesStream.mockReturnValue(mockStream)
-
-    const promise = streamSummarizeArticle('article text', textHandler)
-
-    // Simulate text events
-    handlers['text']?.forEach(h => h('chunk1'))
-    handlers['text']?.forEach(h => h('chunk2'))
-
-    const result = await promise
-
-    expect(textHandler).toHaveBeenCalledWith('chunk1')
-    expect(textHandler).toHaveBeenCalledWith('chunk2')
-    expect(result.summary).toBe('final summary text')
-    expect(result.inputTokens).toBe(100)
-    expect(result.outputTokens).toBe(50)
-  })
-
-  it('throws on non-text response', async () => {
-    const handlers: Record<string, ((...args: unknown[]) => void)[]> = {}
-    const mockStream = {
-      on: (event: string, cb: (...args: unknown[]) => void) => {
-        if (!handlers[event]) handlers[event] = []
-        handlers[event].push(cb)
-        return mockStream
-      },
-      finalMessage: () => Promise.resolve({
-        content: [{ type: 'tool_use', id: 'x', name: 'y', input: {} }],
-        usage: { input_tokens: 10, output_tokens: 5 },
-      }),
-    }
-    mockMessagesStream.mockReturnValue(mockStream)
-
-    await expect(streamSummarizeArticle('text', vi.fn())).rejects.toThrow('Unexpected response type')
-  })
-})
 
 describe('streamTranslateArticle', () => {
   let streamTranslateArticle: typeof import('./fetcher.js').streamTranslateArticle

@@ -37,7 +37,7 @@ const log = logger.child('fetcher')
 export { normalizeDate } from './fetcher/util.js'
 export { type FetchProgressEvent, fetchProgress, getFeedState } from './fetcher/progress.js'
 export { discoverRssUrl } from './fetcher/rss.js'
-export { detectLanguage, summarizeArticle, streamSummarizeArticle, translateArticle, streamTranslateArticle, translateArticleFields } from './fetcher/ai.js'
+export { detectLanguage, translateArticle, streamTranslateArticle, translateArticleFields } from './fetcher/ai.js'
 export type { AiTextResult, AiBillingMode } from './fetcher/ai.js'
 
 /**

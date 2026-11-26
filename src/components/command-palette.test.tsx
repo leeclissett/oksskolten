@@ -176,13 +176,13 @@ describe('CommandPalette', () => {
     expect(screen.queryByText('Inbox')).toBeNull()
   })
 
-  it('matches items by English keywords (e.g. "chat" finds Chat item)', async () => {
+  it('matches items by English keywords (e.g. "archive" finds the history item)', async () => {
     render(<CommandPalette {...defaultProps} />)
     const input = screen.getByPlaceholderText('Type a command or search...')
-    await user.type(input, 'chat')
+    await user.type(input, 'archive')
     await waitFor(() => {
-      // Chat nav item should still be visible (matched via keywords)
-      expect(screen.getByText('Chat')).toBeTruthy()
+      // History nav item should still be visible (matched via keywords)
+      expect(screen.getByText('Read')).toBeTruthy()
     })
   })
 

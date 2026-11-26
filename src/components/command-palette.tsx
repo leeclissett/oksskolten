@@ -21,7 +21,6 @@ import {
   Bookmark,
   ThumbsUp,
   Clock,
-  MessagesSquare,
   Settings,
   Search,
   Plus,
@@ -140,11 +139,6 @@ export function CommandPalette({ open, onOpenChange, onOpenSearch, onOpenAddFeed
             <Clock className="mr-2 h-4 w-4 text-muted" />
             {t('feeds.history')}
             <CommandShortcut>⌘4</CommandShortcut>
-          </CommandItem>
-          <CommandItem keywords={['chat', '/chat', 'ai', 'assistant']} onSelect={() => runAction(() => navigate('/chat'))}>
-            <MessagesSquare className="mr-2 h-4 w-4 text-muted" />
-            {t('chat.title')}
-            <CommandShortcut>⌘5</CommandShortcut>
           </CommandItem>
           <CommandItem keywords={['settings', '/settings', 'preferences', 'config']} onSelect={() => runAction(() => navigate('/settings/general'))}>
             <Settings className="mr-2 h-4 w-4 text-muted" />

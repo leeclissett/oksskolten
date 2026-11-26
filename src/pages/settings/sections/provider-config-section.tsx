@@ -184,7 +184,7 @@ function ApiProviderCard({ provider, t }: { provider: string; t: TFunc }) {
 
 function ClaudeCodeCard({ t }: { t: TFunc }) {
   const { data: authStatus } = useSWR<{ loggedIn?: boolean; email?: string; plan?: string; error?: string }>(
-    '/api/chat/claude-code-status',
+    '/api/settings/claude-code/status',
     fetcher,
     { revalidateOnFocus: false },
   )

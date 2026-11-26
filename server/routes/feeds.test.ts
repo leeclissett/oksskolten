@@ -8,11 +8,10 @@ import type { FastifyInstance } from 'fastify'
 // Mocks
 // ---------------------------------------------------------------------------
 
-const { mockDiscoverRssUrl, mockFetchSingleFeed, mockQueryRssBridge, mockInferCssSelectorBridge } = vi.hoisted(() => ({
+const { mockDiscoverRssUrl, mockFetchSingleFeed, mockQueryRssBridge } = vi.hoisted(() => ({
   mockDiscoverRssUrl: vi.fn(),
   mockFetchSingleFeed: vi.fn(),
   mockQueryRssBridge: vi.fn(),
-  mockInferCssSelectorBridge: vi.fn(),
 }))
 
 vi.mock('../fetcher.js', async () => {
@@ -21,8 +20,6 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: (...args: unknown[]) => mockFetchSingleFeed(...args),
     discoverRssUrl: (...args: unknown[]) => mockDiscoverRssUrl(...args),
-    summarizeArticle: vi.fn(),
-    streamSummarizeArticle: vi.fn(),
     translateArticle: vi.fn(),
     streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
@@ -32,7 +29,6 @@ vi.mock('../fetcher.js', async () => {
 
 vi.mock('../rss-bridge.js', () => ({
   queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
-  inferCssSelectorBridge: (...args: unknown[]) => mockInferCssSelectorBridge(...args),
 }))
 
 vi.mock('../anthropic.js', () => ({
@@ -63,7 +59,6 @@ beforeEach(async () => {
   mockDiscoverRssUrl.mockReset().mockResolvedValue({ rssUrl: null, title: null })
   mockFetchSingleFeed.mockReset().mockResolvedValue(undefined)
   mockQueryRssBridge.mockReset().mockResolvedValue(null)
-  mockInferCssSelectorBridge.mockReset().mockResolvedValue(null)
 })
 
 // ---------------------------------------------------------------------------
@@ -194,7 +189,6 @@ describe('POST /api/feeds — RSS discovery pipeline', () => {
     // Should not create a feed or proceed to further steps
     expect(events.find(e => e.type === 'done')).toBeUndefined()
     expect(mockQueryRssBridge).not.toHaveBeenCalled()
-    expect(mockInferCssSelectorBridge).not.toHaveBeenCalled()
   })
 
   it('creates feed directly when discovered_rss_url is provided (Phase 2: whole site)', async () => {
@@ -235,31 +229,8 @@ describe('POST /api/feeds — RSS discovery pipeline', () => {
     const bridgeSteps = events.filter(e => e.step === 'rss-bridge')
     expect(bridgeSteps.some(e => e.status === 'done' && e.found === true)).toBe(true)
 
-    const cssSteps = events.filter(e => e.step === 'css-selector')
-    expect(cssSteps.some(e => e.status === 'skipped')).toBe(true)
-
     const done = events.find(e => e.type === 'done') as any
     expect(done.feed.rss_bridge_url).toBe('https://bridge.example.com/rss')
-  })
-
-  it('falls back to CSS selector inference when both discovery and bridge fail', async () => {
-    mockDiscoverRssUrl.mockResolvedValue({ rssUrl: null, title: null })
-    mockQueryRssBridge.mockResolvedValue(null)
-    mockInferCssSelectorBridge.mockResolvedValue('https://bridge.example.com/css-bridge')
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/feeds',
-      headers: json,
-      payload: { url: 'https://hard.example.com' },
-    })
-
-    const events = parseSSE(res.body)
-    const cssSteps = events.filter(e => e.step === 'css-selector')
-    expect(cssSteps.some(e => e.status === 'done' && e.found === true)).toBe(true)
-
-    const done = events.find(e => e.type === 'done') as any
-    expect(done.feed.rss_bridge_url).toBe('https://bridge.example.com/css-bridge')
   })
 
   it('uses hostname as feed name when no name and no title (Phase 2)', async () => {
@@ -467,11 +438,10 @@ describe('POST /api/feeds/:id/re-detect', () => {
     expect(done?.rss_bridge_url).toBeNull()
   })
 
-  it('falls back through bridge and CSS selector', async () => {
+  it('falls back to the RSS bridge when discovery fails', async () => {
     const feed = seedFeed()
     mockDiscoverRssUrl.mockResolvedValue({ rssUrl: null, title: null })
-    mockQueryRssBridge.mockResolvedValue(null)
-    mockInferCssSelectorBridge.mockResolvedValue('https://bridge.example.com/css')
+    mockQueryRssBridge.mockResolvedValue('https://bridge.example.com/rss')
 
     const res = await app.inject({
       method: 'POST',
@@ -482,7 +452,7 @@ describe('POST /api/feeds/:id/re-detect', () => {
     const events = parseSSE(res.body)
     const done = events.find(e => e.type === 'done')
     expect(done?.rss_url).toBeNull()
-    expect(done?.rss_bridge_url).toBe('https://bridge.example.com/css')
+    expect(done?.rss_bridge_url).toBe('https://bridge.example.com/rss')
   })
 
   it('returns 404 for non-existent feed', async () => {

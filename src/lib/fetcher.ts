@@ -1,6 +1,5 @@
 import { authHeaders, handleResponseError, parseSSEStream, ApiError } from './api-base'
 export { ApiError, authHeaders } from './api-base'
-export type { ChatSSEEvent } from './api-base'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -113,19 +112,4 @@ export async function fetchOpmlBlob(): Promise<Blob> {
   const res = await fetch('/api/opml', { headers: authHeaders(), signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) })
   if (!res.ok) return handleResponseError(res, '/api/opml')
   return res.blob()
-}
-
-export async function streamPostChat(
-  url: string,
-  body: { message: string; conversation_id?: string; article_id?: number; context?: 'home'; suggestion_key?: string; timeZone?: string },
-  onEvent: (event: import('./api-base').ChatSSEEvent) => void,
-): Promise<void> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) return handleResponseError(res, url)
-
-  await parseSSEStream<import('./api-base').ChatSSEEvent>(res, onEvent)
 }

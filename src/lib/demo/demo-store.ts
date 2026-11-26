@@ -1,16 +1,7 @@
 import seedFeeds from './seed/feeds.json'
 import seedArticles from './seed/articles.json'
-import seedConversationsEn from './seed/en/conversations.json'
-import seedConversationsJa from './seed/ja/conversations.json'
 import { getLocale, dt } from './i18n'
 import type { FeedWithCounts, ArticleListItem, ArticleDetail, Category } from '../../../shared/types'
-
-type DemoLocale = ReturnType<typeof getLocale>
-
-const conversationsByLocale: Partial<Record<DemoLocale, SeedConversation[]>> = {
-  en: seedConversationsEn as SeedConversation[],
-  ja: seedConversationsJa as SeedConversation[],
-}
 
 /**
  * Resolve relative date strings (e.g. "-3d", "-2d23h") to ISO 8601.
@@ -46,20 +37,9 @@ function resolveSeedDates() {
 let feeds: SeedFeed[] = structuredClone(seedFeeds) as SeedFeed[]
 let articles: SeedArticle[] = structuredClone(seedArticles) as SeedArticle[]
 resolveSeedDates()
-let currentConvLocale: DemoLocale = getLocale()
-let conversations: SeedConversation[] = structuredClone(conversationsByLocale[currentConvLocale] ?? conversationsByLocale.en) as SeedConversation[]
 let nextFeedId = Math.max(...feeds.map(f => f.id)) + 1
 let nextArticleId = Math.max(...articles.map(a => a.id)) + 1
 const translatedIds = new Set<number>()
-const summarizedIds = new Set<number>()
-
-/** Re-initialize conversations when locale changes. */
-function ensureConversationLocale() {
-  const locale = getLocale()
-  if (locale === currentConvLocale) return
-  currentConvLocale = locale
-  conversations = structuredClone(conversationsByLocale[locale] ?? conversationsByLocale.en) as SeedConversation[]
-}
 
 interface SeedFeed {
   id: number
@@ -102,30 +82,6 @@ interface SeedArticle {
   liked_at: string | null
   fetched_at: string
   created_at: string
-}
-
-interface SeedConversationMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-interface SeedConversation {
-  id: string
-  title: string | null
-  article_id: number | null
-  article_title: string | null
-  article_url: string | null
-  article_og_image: string | null
-  first_user_message: string | null
-  first_assistant_preview: string | null
-  created_at: string
-  updated_at: string
-  message_count: number
-  messages: SeedConversationMessage[]
-}
-
-function articleSummary(a: SeedArticle): string | null {
-  return (getLocale() === 'ja' ? a.summary_ja : a.summary) ?? a.summary ?? null
 }
 
 function feedName(feedId: number): string {
@@ -186,7 +142,7 @@ function toArticleListItem(a: SeedArticle): ArticleListItem {
     url: a.url,
     published_at: a.published_at,
     lang: a.lang,
-    summary: summarizedIds.has(a.id) ? articleSummary(a) : null,
+    summary: null,
     excerpt: a.excerpt,
     og_image: a.og_image,
     seen_at: a.seen_at,
@@ -482,18 +438,6 @@ export const demoStore = {
     }
   },
 
-  /** Get raw summary text for streaming (not exposed to UI via article fields). */
-  getArticleSummary(id: number): string | null {
-    const a = articles.find(a => a.id === id)
-    if (!a) return null
-    return articleSummary(a)
-  },
-
-  /** Mark an article as summarized so summary persists for the session. */
-  markSummarized(id: number) {
-    summarizedIds.add(id)
-  },
-
   /** Get average full_text length for a feed's articles. */
   getFeedAvgContentLength(feedId: number): number | null {
     const feedArticles = articles.filter(a => a.feed_id === feedId && a.full_text)
@@ -517,46 +461,6 @@ export const demoStore = {
   /** Mark an article as translated so full_text_translated becomes searchable. */
   markTranslated(id: number) {
     translatedIds.add(id)
-  },
-
-  // --- Conversations ---
-  getConversations(articleId?: number) {
-    ensureConversationLocale()
-    let result = conversations
-    if (articleId != null) {
-      result = result.filter(c => c.article_id === articleId)
-    }
-    return {
-      conversations: result.map(({ messages: _m, ...rest }) => rest)
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
-    }
-  },
-
-  getConversationMessages(conversationId: string) {
-    ensureConversationLocale()
-    const conv = conversations.find(c => c.id === conversationId)
-    if (!conv) return { messages: [] }
-    return { messages: conv.messages }
-  },
-
-  createConversation(id: string, firstMessage: string): void {
-    ensureConversationLocale()
-    const now = new Date().toISOString()
-    const content = JSON.stringify([{ type: 'text', text: firstMessage }])
-    conversations.push({
-      id,
-      title: firstMessage.slice(0, 50),
-      article_id: null,
-      article_title: null,
-      article_url: null,
-      article_og_image: null,
-      first_user_message: content,
-      first_assistant_preview: null,
-      created_at: now,
-      updated_at: now,
-      message_count: 1,
-      messages: [{ role: 'user', content }],
-    })
   },
 
   /** Parse OPML and return preview with duplicate detection (no DB writes). */
@@ -696,19 +600,5 @@ export const demoStore = {
     for (const f of grouped.get(null) ?? []) lines.push(outline(f, '    '))
     lines.push('  </body>', '</opml>')
     return lines.join('\n')
-  },
-
-  appendMessage(conversationId: string, role: 'user' | 'assistant', text: string) {
-    ensureConversationLocale()
-    const conv = conversations.find(c => c.id === conversationId)
-    if (!conv) return
-    const content = JSON.stringify([{ type: 'text', text }])
-    conv.messages.push({ role, content })
-    conv.message_count = conv.messages.length
-    conv.updated_at = new Date().toISOString()
-    // Update first_assistant_preview if this is the first assistant reply
-    if (role === 'assistant' && !conv.first_assistant_preview) {
-      conv.first_assistant_preview = content
-    }
   },
 }

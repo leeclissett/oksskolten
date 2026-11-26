@@ -33,7 +33,6 @@ const PREF_KEYS = [
   'reading.internal_links',
   'reading.show_thumbnails',
   'reading.show_feed_activity',
-  'reading.chat_position',
   'reading.article_open_mode',
   'reading.category_unread_only',
   'reading.keyboard_navigation',
@@ -42,11 +41,6 @@ const PREF_KEYS = [
   'appearance.highlight_theme',
   'appearance.font_family',
   'appearance.list_layout',
-  'chat.provider',
-  'chat.model',
-  'summary.provider',
-  'summary.model',
-  'summary.max_tokens',
   'translate.provider',
   'translate.model',
   'translate.max_tokens',
@@ -69,7 +63,6 @@ const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
   'reading.internal_links': ['on', 'off'],
   'reading.show_thumbnails': ['on', 'off'],
   'reading.show_feed_activity': ['on', 'off'],
-  'reading.chat_position': ['fab', 'inline'],
   'reading.article_open_mode': ['page', 'overlay'],
   'reading.category_unread_only': ['on', 'off'],
   'reading.keyboard_navigation': ['on', 'off'],
@@ -78,11 +71,6 @@ const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
   'appearance.highlight_theme': null,
   'appearance.font_family': null,
   'appearance.list_layout': ['list', 'card', 'magazine', 'compact'],
-  'chat.provider': ['anthropic', 'gemini', 'openai', 'claude-code', 'ollama', 'vllm'],
-  'chat.model': getAllModelValues(),
-  'summary.provider': ['anthropic', 'gemini', 'openai', 'claude-code', 'ollama', 'vllm'],
-  'summary.model': getAllModelValues(),
-  'summary.max_tokens': null,
   'translate.provider': ['anthropic', 'gemini', 'openai', 'claude-code', 'ollama', 'vllm', 'google-translate', 'deepl'],
   'translate.model': getAllModelValues(),
   'translate.max_tokens': null,
@@ -97,8 +85,6 @@ const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
 }
 
 const PROVIDER_MODEL_PAIRS: Array<{ providerKey: PrefKey; modelKey: PrefKey }> = [
-  { providerKey: 'chat.provider', modelKey: 'chat.model' },
-  { providerKey: 'summary.provider', modelKey: 'summary.model' },
   { providerKey: 'translate.provider', modelKey: 'translate.model' },
 ]
 
@@ -247,7 +233,7 @@ export async function settingsRoutes(api: FastifyInstance): Promise<void> {
         }
       }
       // Validate AI max tokens: must be a positive integer
-      if (key === 'summary.max_tokens' || key === 'translate.max_tokens') {
+      if (key === 'translate.max_tokens') {
         const parsed = z.coerce.number().int().min(1).max(200000).safeParse(value)
         if (!parsed.success) {
           reply.status(400).send({ error: `${key} must be a positive integer (1-200000)` })
@@ -610,6 +596,29 @@ export async function settingsRoutes(api: FastifyInstance): Promise<void> {
 
   api.get('/api/settings/deepl/usage', async (_request, reply) => {
     reply.send(getDeeplMonthlyUsage())
+  })
+
+  // --- Claude Code endpoint ---
+
+  // Whether the `claude` CLI is installed and signed in (used by the Claude Code provider)
+  api.get('/api/settings/claude-code/status', async (_request, reply) => {
+    try {
+      const { execFile } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execFileAsync = promisify(execFile)
+      const { stdout } = await execFileAsync('claude', ['auth', 'status', '--json'], {
+        timeout: 5000,
+        env: { ...process.env, CLAUDECODE: '' },
+      })
+      reply.send(JSON.parse(stdout))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.includes('ENOENT') || message.includes('not found')) {
+        reply.send({ loggedIn: false, error: 'claude CLI not found' })
+      } else {
+        reply.send({ loggedIn: false, error: message })
+      }
+    }
   })
 
   // --- Ollama endpoints ---

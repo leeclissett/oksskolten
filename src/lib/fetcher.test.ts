@@ -7,7 +7,7 @@ vi.mock('./auth', () => ({
 }))
 
 import { getAuthToken, logoutClient } from './auth'
-import { authHeaders, fetcher, apiPost, apiPatch, apiDelete, streamPost, streamPostChat, ApiError } from './fetcher'
+import { authHeaders, fetcher, apiPost, apiPatch, apiDelete, streamPost, ApiError } from './fetcher'
 
 function mockFetchResponse(body: unknown, opts: { status?: number; ok?: boolean; statusText?: string; headers?: Record<string, string> } = {}) {
   const { status = 200, ok = true, statusText = 'OK', headers = { 'Content-Type': 'application/json' } } = opts
@@ -230,42 +230,6 @@ describe('fetcher module', () => {
         body: null,
       }))
       await expect(streamPost('/api/summarize', vi.fn())).rejects.toThrow('Response body is null')
-    })
-  })
-
-  describe('streamPostChat', () => {
-    it('sends body and processes SSE events', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: {"type":"conversation_id","conversation_id":"conv-1"}',
-        'data: {"type":"text_delta","text":"Hi"}',
-        'data: {"type":"done"}',
-      ]))
-      const onEvent = vi.fn()
-      await streamPostChat('/api/chat', { message: 'hello' }, onEvent)
-
-      expect(fetch).toHaveBeenCalledWith('/api/chat', expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ message: 'hello' }),
-      }))
-      expect(onEvent).toHaveBeenCalledTimes(3)
-      expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'conversation_id', conversation_id: 'conv-1' }))
-      expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', text: 'Hi' }))
-    })
-
-    it('skips malformed SSE lines', async () => {
-      vi.stubGlobal('fetch', mockSSEResponse([
-        'data: {invalid',
-        'data: {"type":"text_delta","text":"ok"}',
-      ]))
-      const onEvent = vi.fn()
-      await streamPostChat('/api/chat', { message: 'test' }, onEvent)
-      expect(onEvent).toHaveBeenCalledTimes(1)
-    })
-
-    it('calls logoutClient on 401', async () => {
-      vi.stubGlobal('fetch', mockFetchResponse({}, { status: 401, ok: false }))
-      await expect(streamPostChat('/api/chat', { message: 'test' }, vi.fn())).rejects.toThrow('Unauthorized')
-      expect(logoutClient).toHaveBeenCalled()
     })
   })
 })

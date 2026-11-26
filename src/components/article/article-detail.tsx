@@ -11,11 +11,8 @@ import { useArticleActions } from '../../hooks/use-article-actions'
 import { useI18n } from '../../lib/i18n'
 import { useRewriteInternalLinks } from '../../hooks/use-rewrite-internal-links'
 import { ImageLightbox } from '../ui/image-lightbox'
-import { ChatFab } from '../chat/chat-fab'
 import { ConfirmDialog } from '../ui/confirm-dialog'
-import { useChatInline, ChatInlinePanel } from '../chat/chat-inline'
 import { useMetrics } from '../../hooks/use-metrics'
-import { useSummarize } from '../../hooks/use-summarize'
 import { useTranslate } from '../../hooks/use-translate'
 import { formatDetailDate } from '../../lib/dateFormat'
 import { useAppLayout } from '../../app'
@@ -23,7 +20,6 @@ import { Skeleton } from '../ui/skeleton'
 import { Callout } from '../ui/callout'
 import { ArticleZapNavigation } from './article-zap-navigation'
 import { ArticleToolbar } from './article-toolbar'
-import { ArticleSummarySection } from './article-summary-section'
 import { ArticleTranslationBanner } from './article-translation-banner'
 import { ArticleContentBody } from './article-content-body'
 import { ArticleSimilarBanner } from './article-similar-banner'
@@ -35,7 +31,7 @@ interface ArticleDetailProps {
 }
 
 export function ArticleDetail({ articleUrl, enableZapNavigation = false }: ArticleDetailProps) {
-  const { settings: { internalLinks, chatPosition, translateTargetLang } } = useAppLayout()
+  const { settings: { internalLinks, translateTargetLang } } = useAppLayout()
   const navigate = useNavigate()
   const { t, tError, isKeyNotSetError, locale } = useI18n()
   const articleKey = `/api/articles/by-url?url=${encodeURIComponent(articleUrl)}`
@@ -49,7 +45,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
   const articleRef = useRef<HTMLElement>(null)
 
   const metrics = useMetrics()
-  const { summary, summarizing, streamingText, handleSummarize, summaryHtml, streamingHtml, error: summarizeError } = useSummarize(article, metrics)
   // Only pass translation to the hook if it matches the current locale; stale translations are treated as absent
   const isTranslationCurrent = article?.translated_lang === (translateTargetLang || locale)
   const translateInput = useMemo(() =>
@@ -61,20 +56,13 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
     isBookmarked, isLiked, archivingImages, deleteConfirmOpen, setDeleteConfirmOpen,
     toggleBookmark, toggleLike, handleArchiveImages, handleDelete,
   } = useArticleActions(article, articleKey)
-  const chat = useChatInline(article?.id ?? 0)
 
-  // Sync translation/summary back into SWR cache so it persists across navigations
+  // Sync translation back into SWR cache so it persists across navigations
   useEffect(() => {
     if (fullTextTranslated && article && article.full_text_translated !== fullTextTranslated) {
       void mutate({ ...article, full_text_translated: fullTextTranslated, translated_lang: translateTargetLang || locale }, false)
     }
   }, [fullTextTranslated]) // eslint-disable-line react-hooks/exhaustive-deps -- only sync when translated text changes; article/mutate are refs to current data
-
-  useEffect(() => {
-    if (summary && article && article.summary !== summary) {
-      void mutate({ ...article, summary }, false)
-    }
-  }, [summary]) // eslint-disable-line react-hooks/exhaustive-deps -- only sync when summary changes; article/mutate are refs to current data
 
   // Record article read on mount
   const viewedRef = useRef<number | null>(null)
@@ -204,15 +192,9 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       {/* Toolbar */}
       <ArticleToolbar
         article={article}
-        chatPosition={chatPosition}
-        chatOpen={chat.open}
-        onChatToggle={chat.toggle}
         hasTranslation={hasTranslation}
         translating={translating}
         onTranslate={handleTranslate}
-        summary={summary}
-        summarizing={summarizing}
-        onSummarize={handleSummarize}
         isBookmarked={!!isBookmarked}
         isLiked={isLiked}
         archivingImages={archivingImages}
@@ -233,22 +215,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
           <p className="text-sm text-error">{t('article.automaticTranslationFailed')}</p>
         </Callout>
       )}
-
-      {/* Inline Chat Panel */}
-      {chatPosition === 'inline' && chat.open && (
-        <ChatInlinePanel articleId={article.id} onClose={chat.close} />
-      )}
-
-      {/* Summary */}
-      <ArticleSummarySection
-        summary={summary}
-        summarizing={summarizing}
-        streamingText={streamingText}
-        summaryHtml={summaryHtml}
-        streamingHtml={streamingHtml}
-        summarizeError={summarizeError}
-        metricsText={metrics.metrics && !translating ? metrics.formatMetrics() : null}
-      />
 
       {/* Similar articles */}
       {article.similar_count != null && article.similar_count > 0 && (
@@ -271,7 +237,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       )}
 
       {/* Translation metrics */}
-      {metrics.metrics && !summarizing && !translating && hasTranslation && (
+      {metrics.metrics && !translating && hasTranslation && (
         <p className="text-xs text-muted mb-4">
           {metrics.formatMetrics()}
         </p>
@@ -294,7 +260,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       />
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </article>
-    {chatPosition === 'fab' && article && <ChatFab key={article.id} articleId={article.id} />}
     {deleteConfirmOpen && (
       <ConfirmDialog
         title={t('article.delete')}

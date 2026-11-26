@@ -24,8 +24,6 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: vi.fn(),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: null, title: null }),
-    summarizeArticle: vi.fn(),
-    streamSummarizeArticle: vi.fn(),
     translateArticle: vi.fn(),
     streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),

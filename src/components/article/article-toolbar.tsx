@@ -1,21 +1,14 @@
 import { useNavigate } from 'react-router-dom'
 import { ActionChip } from '../ui/action-chip'
-import { ChatInlineTrigger } from '../chat/chat-inline'
-import { Bookmark, ThumbsUp, CloudUpload, CloudCheck, Trash2, Languages, Sparkles } from 'lucide-react'
+import { Bookmark, ThumbsUp, CloudUpload, CloudCheck, Trash2, Languages } from 'lucide-react'
 import { useI18n } from '../../lib/i18n'
 import type { ArticleDetail } from '../../../shared/types'
 
 interface ArticleToolbarProps {
   article: ArticleDetail
-  chatPosition: string
-  chatOpen: boolean
-  onChatToggle: () => void
   hasTranslation: boolean
   translating: boolean
   onTranslate: () => void
-  summary: string | null
-  summarizing: boolean
-  onSummarize: () => void
   isBookmarked: boolean
   isLiked: boolean
   archivingImages: boolean
@@ -27,15 +20,9 @@ interface ArticleToolbarProps {
 
 export function ArticleToolbar({
   article,
-  chatPosition,
-  chatOpen,
-  onChatToggle,
   hasTranslation,
   translating,
   onTranslate,
-  summary,
-  summarizing,
-  onSummarize,
   isBookmarked,
   isLiked,
   archivingImages,
@@ -65,15 +52,6 @@ export function ArticleToolbar({
             <path d="M4 1h7v7M11 1L5 7" />
           </svg>
         </ActionChip>
-      )}
-      {summary === null && !summarizing && (
-        <ActionChip onClick={onSummarize}>
-          <Sparkles className="w-3.5 h-3.5" />
-          {t('article.summarize')}
-        </ActionChip>
-      )}
-      {chatPosition === 'inline' && (
-        <ChatInlineTrigger active={chatOpen} onToggle={onChatToggle} />
       )}
       {!hasTranslation && !translating && !automaticTranslationPending && (
         <ActionChip onClick={onTranslate}>
