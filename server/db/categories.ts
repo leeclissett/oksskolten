@@ -1,6 +1,5 @@
 import { getDb, runNamed } from './connection.js'
 import type { Category } from './types.js'
-import { syncArticleFiltersToSearch } from '../search/sync.js'
 
 export function getCategories(): Category[] {
   return getDb().prepare('SELECT * FROM categories ORDER BY sort_order ASC, name COLLATE NOCASE ASC').all() as Category[]
@@ -51,14 +50,8 @@ export function deleteCategory(id: number): boolean {
 }
 
 export function markAllSeenByCategory(categoryId: number): { updated: number } {
-  const affectedIds = (getDb().prepare(
-    'SELECT id FROM active_articles WHERE seen_at IS NULL AND category_id = ?',
-  ).all(categoryId) as { id: number }[]).map(r => r.id)
   const result = getDb().prepare(
     "UPDATE articles SET seen_at = datetime('now') WHERE seen_at IS NULL AND purged_at IS NULL AND category_id = ?",
   ).run(categoryId)
-  if (affectedIds.length > 0) {
-    syncArticleFiltersToSearch(affectedIds.map(id => ({ id, is_unread: false })))
-  }
   return { updated: result.changes }
 }

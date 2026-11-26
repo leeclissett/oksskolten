@@ -132,10 +132,6 @@ export async function demoFetcher(url: string): Promise<unknown> {
     return { avg_content_length: demoStore.getFeedAvgContentLength(metricsId) }
   }
 
-  if (path.startsWith('/api/search')) {
-    return { results: [] }
-  }
-
   // API key status: Anthropic and DeepL are "configured" in demo
   const apiKeyMatch = path.match(/^\/api\/settings\/api-keys\/(.+)$/)
   if (apiKeyMatch) {

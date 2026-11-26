@@ -22,7 +22,6 @@ import {
 } from './db.js'
 
 import { Semaphore, CONCURRENCY, errorMessage } from './fetcher/util.js'
-import { detectAndStoreSimilarArticles } from './similarity.js'
 import { type FetchProgressEvent, emitProgress, markFeedDone } from './fetcher/progress.js'
 import { fetchFullText, isBotBlockPage, isHtmlDocument, parseInlineHtml, convertHtmlToMarkdown, markdownToExcerpt, containsStyleSheetDump, MIN_EXTRACTED_LENGTH } from './fetcher/content.js'
 import { type FetchRssResult, type RssItem, fetchAndParseRss, RateLimitError } from './fetcher/rss.js'
@@ -90,8 +89,7 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
       // Couldn't improve this one (no RSS excerpt, or excerpt no longer in
       // the current feed). Record the attempt so the backoff window kicks
       // in and we don't keep bypassing the RSS HTTP cache for this feed
-      // indefinitely. Use the lightweight helper so we don't trigger a
-      // Meilisearch resync for a no-op update.
+      // indefinitely.
       markArticleRefreshAttempted(candidate.id, now)
     }
   }
@@ -334,8 +332,6 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
         last_error: content.lastError,
       })
       enqueueArticleTranslationFromFeedPolicy(articleId)
-      // Fire-and-forget: detect similar articles asynchronously
-      void detectAndStoreSimilarArticles(articleId, task.title, task.feed_id, task.published_at)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (!msg.includes('UNIQUE constraint failed')) {

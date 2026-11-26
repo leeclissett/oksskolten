@@ -51,7 +51,6 @@ export default defineConfig(({ mode }) => {
     plugins: [
       ...(mode === 'demo' ? [demoAlias({
         [path.join(libDir, 'fetcher.ts')]: path.join(libDir, 'fetcher.demo.ts'),
-        [path.join(libDir, 'search.ts')]: path.join(libDir, 'search.demo.ts'),
         [path.join(libDir, 'auth-shell.tsx')]: path.join(libDir, 'auth-shell.demo.tsx'),
       })] : []),
       react(),

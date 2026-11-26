@@ -86,8 +86,6 @@ export interface ArticleListItem {
   liked_at: string | null
   translated_lang?: string | null
   translation_status?: 'pending' | 'processing' | 'completed' | 'failed' | null
-  score?: number
-  similar_count?: number
 }
 
 export interface ArticleDetail extends ArticleListItem {

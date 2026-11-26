@@ -4,7 +4,6 @@ import {
   failTranslationJob,
   getFeedTranslationCandidates,
   updateArticleContent,
-  updateScore,
 } from './db.js'
 import { detectLanguage, translateArticleFields } from './fetcher/ai.js'
 import { markdownToExcerpt } from './fetcher/markdown-utils.js'
@@ -48,7 +47,6 @@ export async function runTranslationWorkerOnce(): Promise<boolean> {
       translation_input_tokens: translated.inputTokens,
       translation_output_tokens: translated.outputTokens,
     })
-    updateScore(job.article_id)
     log.info({ articleId: job.article_id, feedId: job.feed_id, model: translated.model }, 'automatic translation completed')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

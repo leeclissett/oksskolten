@@ -9,8 +9,6 @@ vi.mock('react-router-dom', () => ({
 import { useGlobalShortcuts } from './use-global-shortcuts'
 
 describe('useGlobalShortcuts', () => {
-  const onCommandPalette = vi.fn()
-  const onSearch = vi.fn()
   const onAddFeed = vi.fn()
 
   beforeEach(() => {
@@ -19,7 +17,7 @@ describe('useGlobalShortcuts', () => {
 
   function setup() {
     renderHook(() =>
-      useGlobalShortcuts({ onCommandPalette, onSearch, onAddFeed }),
+      useGlobalShortcuts({ onAddFeed }),
     )
   }
 
@@ -32,20 +30,6 @@ describe('useGlobalShortcuts', () => {
     })
     document.dispatchEvent(event)
   }
-
-  it('Cmd+K opens command palette', () => {
-    setup()
-    fireKey('k', { metaKey: true })
-    expect(onCommandPalette).toHaveBeenCalledTimes(1)
-    expect(onSearch).not.toHaveBeenCalled()
-  })
-
-  it('Cmd+Shift+K opens search', () => {
-    setup()
-    fireKey('k', { metaKey: true, shiftKey: true })
-    expect(onSearch).toHaveBeenCalledTimes(1)
-    expect(onCommandPalette).not.toHaveBeenCalled()
-  })
 
   it('Cmd+N opens add feed', () => {
     setup()

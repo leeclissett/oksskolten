@@ -2,14 +2,10 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 interface UseGlobalShortcutsOptions {
-  onCommandPalette: () => void
-  onSearch: () => void
   onAddFeed: () => void
 }
 
 export function useGlobalShortcuts({
-  onCommandPalette,
-  onSearch,
   onAddFeed,
 }: UseGlobalShortcutsOptions) {
   const navigate = useNavigate()
@@ -22,18 +18,6 @@ export function useGlobalShortcuts({
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(
           (e.target as HTMLElement).tagName,
         ) || (e.target as HTMLElement).isContentEditable
-
-      if (meta && e.key === 'k' && !e.shiftKey) {
-        e.preventDefault()
-        onCommandPalette()
-        return
-      }
-
-      if (meta && e.key === 'k' && e.shiftKey) {
-        e.preventDefault()
-        onSearch()
-        return
-      }
 
       if (isInput) return
 
@@ -60,5 +44,5 @@ export function useGlobalShortcuts({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onCommandPalette, onSearch, onAddFeed, navigate])
+  }, [onAddFeed, navigate])
 }

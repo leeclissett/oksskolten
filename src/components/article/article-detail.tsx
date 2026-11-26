@@ -22,7 +22,6 @@ import { ArticleZapNavigation } from './article-zap-navigation'
 import { ArticleToolbar } from './article-toolbar'
 import { ArticleTranslationBanner } from './article-translation-banner'
 import { ArticleContentBody } from './article-content-body'
-import { ArticleSimilarBanner } from './article-similar-banner'
 import type { ArticleDetail as ArticleDetailData } from '../../../shared/types'
 
 interface ArticleDetailProps {
@@ -214,11 +213,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         <Callout variant="error" className="py-3 mb-6">
           <p className="text-sm text-error">{t('article.automaticTranslationFailed')}</p>
         </Callout>
-      )}
-
-      {/* Similar articles */}
-      {article.similar_count != null && article.similar_count > 0 && (
-        <ArticleSimilarBanner articleId={article.id} similarCount={article.similar_count} />
       )}
 
       {/* Translate error */}
