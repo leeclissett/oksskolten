@@ -74,7 +74,7 @@ export async function decodeResponse(res: Response): Promise<string> {
 
 /**
  * Fetch HTML from an external URL with safeFetch (SSRF-protected) + FlareSolverr fallback.
- * For internal URLs (e.g. RSS Bridge), use plain fetch() directly instead.
+ * For internal URLs, use plain fetch() directly instead.
  */
 export async function fetchHtml(url: string, opts?: {
   timeout?: number

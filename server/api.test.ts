@@ -103,7 +103,7 @@ describe('POST /api/feeds', () => {
 
     // Verify step events are present
     const stepEvents = events.filter(e => e.type === 'step')
-    expect(stepEvents.length).toBeGreaterThanOrEqual(2)
+    expect(stepEvents.length).toBeGreaterThanOrEqual(1)
   })
 
   it('returns 400 when url is missing', async () => {

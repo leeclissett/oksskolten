@@ -12,10 +12,9 @@ import { registerSpaFallback } from '../lib/spa-fallback.js'
 
 // Subscribing discovers and fetches the feed over the network; mock both, as
 // server/routes/feeds.test.ts does.
-const { mockDiscoverRssUrl, mockFetchSingleFeed, mockQueryRssBridge } = vi.hoisted(() => ({
+const { mockDiscoverRssUrl, mockFetchSingleFeed } = vi.hoisted(() => ({
   mockDiscoverRssUrl: vi.fn(),
   mockFetchSingleFeed: vi.fn(),
-  mockQueryRssBridge: vi.fn(),
 }))
 
 vi.mock('../fetcher.js', async () => {
@@ -32,11 +31,6 @@ vi.mock('../fetcher.js', async () => {
     getFeedState: vi.fn(),
   }
 })
-
-vi.mock('../rss-bridge.js', () => ({
-  queryRssBridge: (...args: unknown[]) => mockQueryRssBridge(...args),
-  inferCssSelectorBridge: vi.fn().mockResolvedValue(null),
-}))
 
 let app: FastifyInstance
 let savedAuthDisabled: string | undefined
@@ -62,7 +56,6 @@ beforeEach(async () => {
   clientLoginAttempts.clear()
   mockDiscoverRssUrl.mockReset().mockResolvedValue({ rssUrl: null, title: null, usedFlareSolverr: false })
   mockFetchSingleFeed.mockReset().mockResolvedValue(undefined)
-  mockQueryRssBridge.mockReset().mockResolvedValue(null)
   app = await buildApp()
   // Remove AUTH_DISABLED so greader JWT auth is exercised properly
   savedAuthDisabled = process.env.AUTH_DISABLED
@@ -1653,15 +1646,6 @@ describe.each([
       const sub = (await subscriptions()).find((s) => s.title === 'Mine')!
       expect(sub).toMatchObject({ url: 'https://new.example.com/rss', categories: [{ id: 'user/-/label/News', label: 'News' }] })
       expect(mockFetchSingleFeed).toHaveBeenCalledTimes(1)
-    })
-
-    it('subscribes through the RSS-Bridge fallback when discovery finds no feed', async () => {
-      seed()
-      mockQueryRssBridge.mockResolvedValue('https://bridge.example.com/?action=display')
-      const res = await post('/subscription/edit', { ac: 'subscribe', s: 'feed/https://site.example.com' })
-      expect(res.body).toBe('OK')
-      const row = getDb().prepare("SELECT name, rss_bridge_url FROM feeds WHERE url = 'https://site.example.com'").get()
-      expect(row).toMatchObject({ name: 'site.example.com', rss_bridge_url: 'https://bridge.example.com/?action=display' })
     })
 
     it.each([

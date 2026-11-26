@@ -351,20 +351,13 @@ describe('fetchAndParseRss', () => {
     } as any)).rejects.toThrow('Could not parse RSS/Atom feed')
   })
 
-  it('uses rss_bridge_url when rss_url is absent', async () => {
-    mockSafeFetch.mockResolvedValue(mockResponse(RSS_XML))
-
-    const { items } = await fetchAndParseRss({
+  it('does not fetch a feed that only has a legacy rss_bridge_url', async () => {
+    await expect(fetchAndParseRss({
       id: 1, name: 'test', url: 'https://example.com',
       rss_bridge_url: 'https://bridge.example.com/rss',
-    } as any)
+    } as any)).rejects.toThrow('No RSS URL')
 
-    expect(items).toHaveLength(2)
-    expect(mockSafeFetch).toHaveBeenCalledWith(
-      'https://bridge.example.com/rss',
-      expect.any(Object),
-      { allowPrivateNetwork: true },
-    )
+    expect(mockSafeFetch).not.toHaveBeenCalled()
   })
 
   // -------------------------------------------------------------------------

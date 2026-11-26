@@ -60,7 +60,7 @@ Because Oksskolten always has the complete text, AI translation produces meaning
 - **Smart Fetching** — Adaptive per-feed scheduling, conditional HTTP requests (ETag/Last-Modified), content-hash deduplication, exponential backoff, and tracking parameter removal
 - **PWA** — Offline reading, background sync, and add-to-home-screen support
 - **Multi-Auth** — Password, Passkey (WebAuthn), and GitHub OAuth — each independently configurable
-- **Smart Feed Management** — Auto-discovery, CSS selector-based feeds (via RSS Bridge), bot bypass (FlareSolverr), and automatic disabling of dead feeds
+- **Smart Feed Management** — Auto-discovery, bot bypass (FlareSolverr), and automatic disabling of dead feeds
 - **Article Clipping** — Save any URL as an article, with full content extraction
 - **Theming** — 14 built-in color themes + custom theme import via JSON, 9 article fonts, 8 code highlighting styles
 - **Single Container** — API, SPA, and cron scheduler all run in one Docker container
@@ -98,7 +98,6 @@ graph TD
             fetcher --> sqlite
         end
 
-        bridge["RSS Bridge<br/>(Docker, port 80)"]
         flare["FlareSolverr<br/>(Docker, port 8191)"]
         tunnel["cloudflared<br/>(Cloudflare Tunnel)"]
     end
@@ -106,7 +105,6 @@ graph TD
     user(("User")) -- "HTTPS" --> tunnel
     tunnel --> fastify
     cron -- "HTTP fetch" --> rss(("RSS Feeds"))
-    fetcher --> bridge
     fetcher --> flare
     ai -- "API" --> llm_api(("Anthropic / Gemini<br/>/ OpenAI API"))
 ```
@@ -144,7 +142,6 @@ The feed fetcher minimizes bandwidth and adapts to each feed's behavior, inspire
 | **Full-text extraction** | Every article, by default | Opt-in per feed | Opt-in per feed | Auto (best-effort) |
 | **Extraction engine** | Readability.js + 500 patterns | Go Readability (~390 lines, ~60 rules) | Manual CSS selectors | Proprietary |
 | **JS-rendered sites** | FlareSolverr | — | — | Enterprise only |
-| **Sites without RSS** | Auto-discovery → RSS Bridge | — | — | Pro+ (25) / Enterprise (100) |
 | **AI translation** | Built-in, manual or automatic per feed (+ Google Translate, DeepL) | — | — | Enterprise only |
 | **Search** | Meilisearch (typo-tolerant) | PostgreSQL full-text | SQL LIKE | Pro+ (Power Search) |
 | **Database** | SQLite (embedded, WAL) | PostgreSQL (external) | MySQL/PG/SQLite | SaaS |
