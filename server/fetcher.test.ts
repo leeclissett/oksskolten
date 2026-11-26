@@ -1,7 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setupTestDb } from './__tests__/helpers/testDb.js'
-import { createFeed, insertArticle, getArticleByUrl, getFeedById } from './db.js'
+import { createFeed, insertArticle, getArticleByUrl, getFeedById, upsertSetting } from './db.js'
 import type { Feed } from './db.js'
+
+// --- Anthropic mock ---
+
+const mockMessagesCreate = vi.fn()
+const mockMessagesStream = vi.fn()
+
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class Anthropic {
+    messages = { create: mockMessagesCreate, stream: mockMessagesStream }
+  },
+}))
 
 // --- feedsmith mock (controllable) ---
 
@@ -36,6 +47,9 @@ const mockFetch = vi.fn()
 
 beforeEach(() => {
   setupTestDb()
+  upsertSetting('api_key.anthropic', 'test-key')
+  mockMessagesCreate.mockReset()
+  mockMessagesStream.mockReset()
   mockFetch.mockReset()
   mockFlareSolverr.mockReset()
   mockFlareSolverr.mockResolvedValue(null)
@@ -328,6 +342,69 @@ describe('discoverRssUrl', () => {
     const result = await discoverRssUrl('https://blog.example.com/')
     expect(result.rssUrl).toBeNull()
     expect(result.title).toBe('My Blog')
+  })
+})
+
+// ==========================================================================
+// translateArticle
+// ==========================================================================
+
+describe('translateArticle', () => {
+  let translateArticle: typeof import('./fetcher.js').translateArticle
+
+  beforeEach(async () => {
+    const mod = await import('./fetcher.js')
+    translateArticle = mod.translateArticle
+  })
+
+  it('returns fullTextTranslated and token usage', async () => {
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '翻訳されたテキスト' }],
+      usage: { input_tokens: 200, output_tokens: 150 },
+    })
+
+    const result = await translateArticle('English text')
+    expect(result.fullTextTranslated).toBe('翻訳されたテキスト')
+    expect(result.inputTokens).toBe(200)
+    expect(result.outputTokens).toBe(150)
+  })
+
+  it('uses sonnet model with 16384 max_tokens', async () => {
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '翻訳' }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+
+    await translateArticle('text')
+
+    expect(mockMessagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16384,
+      }),
+    )
+  })
+
+  it('includes input text in prompt', async () => {
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '翻訳' }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+
+    await translateArticle('The quick brown fox')
+
+    const call = mockMessagesCreate.mock.calls[0][0]
+    const prompt = call.messages[0].content
+    expect(prompt).toContain('The quick brown fox')
+  })
+
+  it('throws on non-text response', async () => {
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'tool_use', id: 'x', name: 'y', input: {} }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+
+    await expect(translateArticle('text')).rejects.toThrow('Unexpected response type')
   })
 })
 
@@ -635,13 +712,18 @@ describe('fetchAllFeeds', () => {
   it('refreshes stale articles when current RSS has a richer excerpt', async () => {
     const feed = seedFeed()
     // Pre-insert an article that was saved with garbage-extracted content
-    // (e.g. only the OG title from a thin SPA site like essay.ink).
+    // (e.g. only the OG title from a thin SPA site like essay.ink). Also
+    // seed derived data that was generated from the garbage body so the
+    // test can verify it's cleared.
     insertArticle({
       feed_id: feed.id,
       title: 'Stale Article',
       url: 'https://example.com/stale',
       published_at: '2024-01-01T00:00:00Z',
       full_text: 'Essay',
+      summary: 'Old summary built from garbage',
+      full_text_translated: 'Old translation built from garbage',
+      translated_lang: 'ja',
     })
 
     // Current RSS still has the same item, now with a substantial description.
@@ -659,9 +741,14 @@ describe('fetchAllFeeds', () => {
     await fetchAllFeeds()
 
     const { getDb } = await import('./db.js')
-    const row = getDb().prepare('SELECT full_text FROM articles WHERE url = ?').get('https://example.com/stale') as { full_text: string | null }
+    const row = getDb().prepare('SELECT full_text, summary, full_text_translated, translated_lang FROM articles WHERE url = ?').get('https://example.com/stale') as { full_text: string | null; summary: string | null; full_text_translated: string | null; translated_lang: string | null }
     expect(row.full_text).toContain('proper article body')
     expect(row.full_text).not.toBe('Essay')
+    // Derived data built from the old garbage body must be cleared so the
+    // UI and chat tools regenerate from the repaired body.
+    expect(row.summary).toBeNull()
+    expect(row.full_text_translated).toBeNull()
+    expect(row.translated_lang).toBeNull()
   })
 
   it('matches RSS items to stale articles across URL encoding differences', async () => {
@@ -2204,6 +2291,69 @@ describe('FlareSolverr — fetchFullText', () => {
 
     await expect(fetchFullText('https://cf-blog.example.com/post-1'))
       .rejects.toThrow('HTTP 403')
+  })
+})
+
+// ==========================================================================
+// streamTranslateArticle
+// ==========================================================================
+
+describe('streamTranslateArticle', () => {
+  let streamTranslateArticle: typeof import('./fetcher.js').streamTranslateArticle
+
+  beforeEach(async () => {
+    const mod = await import('./fetcher.js')
+    streamTranslateArticle = mod.streamTranslateArticle
+  })
+
+  it('streams text deltas and returns translated text', async () => {
+    const textHandler = vi.fn()
+
+    const handlers: Record<string, ((...args: unknown[]) => void)[]> = {}
+    const mockStream = {
+      on: (event: string, cb: (...args: unknown[]) => void) => {
+        if (!handlers[event]) handlers[event] = []
+        handlers[event].push(cb)
+        return mockStream
+      },
+      finalMessage: () => Promise.resolve({
+        content: [{ type: 'text', text: '翻訳テキスト' }],
+        usage: { input_tokens: 200, output_tokens: 150 },
+      }),
+    }
+    mockMessagesStream.mockReturnValue(mockStream)
+
+    const result = await streamTranslateArticle('English text', textHandler)
+
+    expect(result.fullTextTranslated).toBe('翻訳テキスト')
+    expect(result.inputTokens).toBe(200)
+    expect(result.outputTokens).toBe(150)
+
+    // Verify correct model is used
+    expect(mockMessagesStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16384,
+      }),
+    )
+  })
+
+  it('throws on non-text response', async () => {
+    const handlers: Record<string, ((...args: unknown[]) => void)[]> = {}
+    const mockStream = {
+      on: (event: string, cb: (...args: unknown[]) => void) => {
+        if (!handlers[event]) handlers[event] = []
+        handlers[event].push(cb)
+        return mockStream
+      },
+      finalMessage: () => Promise.resolve({
+        content: [{ type: 'tool_use', id: 'x', name: 'y', input: {} }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    }
+    mockMessagesStream.mockReturnValue(mockStream)
+
+    await expect(streamTranslateArticle('text', vi.fn())).rejects.toThrow('Unexpected response type')
   })
 })
 

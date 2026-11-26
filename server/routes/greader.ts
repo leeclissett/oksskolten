@@ -278,12 +278,14 @@ interface ArticleRow {
   feed_id: number
   feed_name: string
   title: string
+  title_translated: string | null
   feed_url: string
   article_url: string
   source_url: string | null
   created_at: string | null
   published_at: string | null
   lang: string | null
+  summary: string | null
   excerpt: string | null
   og_image: string | null
   seen_at: string | null
@@ -292,6 +294,9 @@ interface ArticleRow {
   liked_at: string | null
   score?: number
   full_text?: string | null
+  full_text_translated: string | null
+  translated_lang: string | null
+  auto_translate_target: string | null
   rss_url?: string | null
   category_name?: string | null
 }
@@ -375,7 +380,15 @@ function articleToGReaderItem(a: ArticleRow, origin: string, feedSites: Map<numb
   if (a.category_name) categories.push(`user/-/label/${a.category_name}`)
 
   const feedUrl = a.rss_url ?? a.feed_url
-  const content = a.full_text ?? a.excerpt ?? ''
+  const translatedContent = (
+    a.auto_translate_target
+    && a.translated_lang === a.auto_translate_target
+    && a.full_text_translated?.trim()
+  ) ? a.full_text_translated : null
+  const title = translatedContent && a.title_translated?.trim()
+    ? a.title_translated
+    : a.title
+  const content = translatedContent ?? a.full_text ?? a.summary ?? a.excerpt ?? ''
   const link = articleLink(a, origin)
 
   // No `author`: Oksskolten does not store an article's author, and FreshRSS
@@ -386,7 +399,7 @@ function articleToGReaderItem(a: ArticleRow, origin: string, feedSites: Map<numb
     timestampUsec: String(arrivalMs * 1000),
     published: publishedSec,
     updated: publishedSec,
-    title: a.title ?? '(no title)',
+    title: title ?? '(no title)',
     canonical: [{ href: link }],
     alternate: [{ href: link, type: 'text/html' }],
     summary: { direction: 'ltr', content: markdownToHtml(content) },
@@ -409,10 +422,11 @@ function getEnrichedArticles(ids: number[]): ArticleRow[] {
     const orderCase = batchIds.map((id, j) => `WHEN ${id} THEN ${i + j}`).join(' ')
     const rows = getDb().prepare(`
       SELECT a.id, a.feed_id, f.name AS feed_name, f.rss_url, f.url AS feed_url,
-             a.title, a.url AS article_url, a.source_url,
-             a.created_at, a.published_at, a.lang,
+             f.auto_translate_target,
+             a.title, a.title_translated, a.url AS article_url, a.source_url,
+             a.created_at, a.published_at, a.lang, a.summary,
              a.excerpt, a.og_image,
-             a.full_text,
+             a.full_text, a.full_text_translated, a.translated_lang,
              a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
              c.name AS category_name
       FROM active_articles a

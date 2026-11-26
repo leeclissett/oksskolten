@@ -10,6 +10,8 @@ vi.mock('./fetcher.js', async () => {
     fetchAllFeeds: vi.fn().mockResolvedValue(undefined),
     fetchSingleFeed: vi.fn().mockResolvedValue(undefined),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: 'https://example.com/rss', title: 'Example' }),
+    translateArticle: vi.fn().mockResolvedValue({ fullTextTranslated: '翻訳テキスト', inputTokens: 10, outputTokens: 5 }),
+    streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
     getFeedState: vi.fn().mockReturnValue(null),
   }
@@ -670,6 +672,10 @@ describe('POST /api/articles/batch-seen', () => {
   })
 })
 
+// ==========================================================================
+// Categories
+// ==========================================================================
+
 describe('GET /api/categories', () => {
   it('returns empty list when no categories', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/categories' })
@@ -891,6 +897,17 @@ describe('PATCH /api/settings/preferences', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json()['reading.date_mode']).toBe('absolute')
+  })
+
+  it('updates translate.target_lang to zh', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/preferences',
+      headers: json,
+      payload: { 'translate.target_lang': 'zh' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()['translate.target_lang']).toBe('zh')
   })
 
   it('returns 400 for invalid enum value', async () => {

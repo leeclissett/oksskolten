@@ -9,6 +9,7 @@ import {
   getRetryArticles,
   getRetryStats,
   insertArticle,
+  enqueueArticleTranslationFromFeedPolicy,
   markArticleRefreshAttempted,
   normalizeUrl,
   updateArticleContent,
@@ -26,7 +27,7 @@ import { type FetchProgressEvent, emitProgress, markFeedDone } from './fetcher/p
 import { fetchFullText, isBotBlockPage, isHtmlDocument, parseInlineHtml, convertHtmlToMarkdown, markdownToExcerpt, containsStyleSheetDump, MIN_EXTRACTED_LENGTH } from './fetcher/content.js'
 import { type FetchRssResult, type RssItem, fetchAndParseRss, RateLimitError } from './fetcher/rss.js'
 import { computeInterval, computeEmpiricalInterval, sqliteFuture, DEFAULT_INTERVAL } from './fetcher/schedule.js'
-import { detectLanguage } from './fetcher/language.js'
+import { detectLanguage } from './fetcher/ai.js'
 import { extractEmailSourceUrl } from './lib/cleaner/email.js'
 import { logger } from './logger.js'
 
@@ -36,7 +37,8 @@ const log = logger.child('fetcher')
 export { normalizeDate } from './fetcher/util.js'
 export { type FetchProgressEvent, fetchProgress, getFeedState } from './fetcher/progress.js'
 export { discoverRssUrl } from './fetcher/rss.js'
-export { detectLanguage } from './fetcher/language.js'
+export { detectLanguage, translateArticle, streamTranslateArticle, translateArticleFields } from './fetcher/ai.js'
+export type { AiTextResult, AiBillingMode } from './fetcher/ai.js'
 
 /**
  * Replace garbage-extracted articles with the RSS excerpt when one is now
@@ -74,8 +76,15 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
         full_text: md,
         excerpt: markdownToExcerpt(md),
         lang: detectLanguage(md, rssItem?.lang),
+        // The old full_text was garbage, so any derived summary or
+        // translation produced from it is also garbage. Clear them so
+        // the UI / chat tools regenerate on next access.
+        summary: null,
+        full_text_translated: null,
+        translated_lang: null,
         last_refresh_attempt_at: now,
       })
+      enqueueArticleTranslationFromFeedPolicy(candidate.id)
       log.info({ url: candidate.url, prevLen: currentLen, newLen: mdLen }, 'refreshed stale article with RSS excerpt')
     } else {
       // Couldn't improve this one (no RSS excerpt, or excerpt no longer in
@@ -118,7 +127,12 @@ async function repairRawDocumentArticles(feedId: number, rssItems: RssItem[]): P
         full_text: repaired.fullText,
         excerpt: repaired.excerpt,
         lang: detectLanguage(repaired.fullText, rssItem?.lang),
+        // Summary and translation were generated from the dump.
+        summary: null,
+        full_text_translated: null,
+        translated_lang: null,
       })
+      enqueueArticleTranslationFromFeedPolicy(candidate.id)
       log.info({ url: candidate.url, prevLen: candidate.full_text.length, newLen: repaired.fullText.length }, 'repaired raw HTML document article')
     } catch (err) {
       log.warn({ url: candidate.url, err: errorMessage(err) }, 'raw HTML document article repair failed')
@@ -312,11 +326,14 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
         published_at: task.published_at,
         lang: effectiveLang,
         full_text: content.fullText,
+        full_text_translated: null,
+        summary: null,
         excerpt: content.excerpt,
         og_image: content.ogImage,
         source_url: content.sourceUrl,
         last_error: content.lastError,
       })
+      enqueueArticleTranslationFromFeedPolicy(articleId)
       // Fire-and-forget: detect similar articles asynchronously
       void detectAndStoreSimilarArticles(articleId, task.title, task.feed_id, task.published_at)
     } catch (err) {
@@ -333,6 +350,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
       og_image: content.ogImage,
       last_error: content.lastError,
     })
+    if (!content.lastError) enqueueArticleTranslationFromFeedPolicy(task.article.id)
   }
   return !!content.lastError
 }

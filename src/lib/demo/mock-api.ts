@@ -119,6 +119,10 @@ export async function demoFetcher(url: string): Promise<unknown> {
   if (path === '/api/settings/preferences') {
     return {
       'reading.auto_mark_read': 'on',
+      'translate.provider': 'deepl',
+      'translate.model': '',
+      'translate.max_tokens': null,
+      'translate.target_lang': null,
     }
   }
 
@@ -130,6 +134,27 @@ export async function demoFetcher(url: string): Promise<unknown> {
 
   if (path.startsWith('/api/search')) {
     return { results: [] }
+  }
+
+  // API key status: Anthropic and DeepL are "configured" in demo
+  const apiKeyMatch = path.match(/^\/api\/settings\/api-keys\/(.+)$/)
+  if (apiKeyMatch) {
+    const provider = apiKeyMatch[1]
+    const configured = provider !== 'claude-code'
+    return { configured }
+  }
+
+  // Claude Code status: not installed in demo
+  if (path === '/api/settings/claude-code/status') {
+    return { loggedIn: false, error: 'not found' }
+  }
+
+  // Translation service usage stats
+  if (path === '/api/settings/deepl/usage') {
+    return { monthlyChars: 128400, freeTierRemaining: 371600 }
+  }
+  if (path === '/api/settings/google-translate/usage') {
+    return { monthlyChars: 0, freeTierRemaining: 500000 }
   }
 
   if (path.startsWith('/api/settings')) {
@@ -181,8 +206,18 @@ export async function demoApiPost(url: string, body?: unknown): Promise<unknown>
     return demoStore.batchSeen(ids)
   }
 
+  // Translation — return demo message (actual streaming happens via streamPost)
+  if (path.match(/^\/api\/articles\/\d+\/translate/)) {
+    return { text: dt('demo.translateReply'), cached: true }
+  }
+
   // Feed fetch — no-op in demo
   if (path.match(/^\/api\/feeds\/\d+\/fetch$/)) {
+    return { success: true }
+  }
+
+  // API key save — no-op in demo
+  if (path.match(/^\/api\/settings\/api-keys\//)) {
     return { success: true }
   }
 
@@ -254,4 +289,19 @@ export async function demoApiDelete(url: string): Promise<unknown> {
   }
 
   return {}
+}
+
+// --- streamPost stub (translate) ---
+export async function demoStreamPost(
+  url: string,
+  onDelta: (text: string) => void,
+): Promise<{ usage: { input_tokens: number; output_tokens: number; billing_mode?: 'anthropic' | 'gemini' | 'openai' | 'claude-code' | 'google-translate'; model?: string } }> {
+  const id = extractId(url, /\/api\/articles\/(\d+)\/translate/)
+  const text = (id != null ? demoStore.getArticleTranslation(id) : null) ?? dt('demo.translateReply')
+  const inputTokens = id != null ? demoStore.getArticleFullTextLength(id) : text.length
+  if (id != null) demoStore.markTranslated(id)
+  // Simulate translation API latency (0.5–1.5s) then return all at once
+  await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000))
+  onDelta(text)
+  return { usage: { input_tokens: inputTokens, output_tokens: text.length, billing_mode: 'anthropic', model: 'demo' } }
 }
