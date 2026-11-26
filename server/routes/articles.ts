@@ -28,7 +28,7 @@ import type { MeiliArticleDoc } from '../search/client.js'
 import { buildMeiliFilter, meiliSearch } from '../search/client.js'
 import { isSearchReady, syncArticleToSearch } from '../search/sync.js'
 import { requireJson } from '../auth.js'
-import { summarizeArticle, translateArticle, streamSummarizeArticle, streamTranslateArticle, fetchArticleContent } from '../fetcher.js'
+import { translateArticle, streamTranslateArticle, fetchArticleContent } from '../fetcher.js'
 import type { AiTextResult } from '../fetcher.js'
 import { archiveArticleImages, isImageArchivingEnabled, deleteArticleImages } from '../fetcher/article-images.js'
 import { getSetting } from '../db/settings.js'
@@ -117,7 +117,6 @@ const KNOWN_ERROR_CODES = new Set([
   'OPENAI_KEY_NOT_SET',
   'GOOGLE_TRANSLATE_KEY_NOT_SET',
   'DEEPL_KEY_NOT_SET',
-  'SUMMARIZATION_FAILED',
   'TRANSLATION_FAILED',
 ])
 
@@ -130,7 +129,7 @@ function extractKnownErrorCode(err: unknown): string | null {
   return null
 }
 
-// --- Shared AI handler for summarize/translate ---
+// --- AI handler for translate ---
 
 interface AiHandlerConfig {
   getCached: (article: ArticleDetail) => string | null
@@ -448,27 +447,6 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       }
       reply.send(result)
     },
-  )
-
-  api.post(
-    '/api/articles/:id/summarize',
-    { preHandler: [requireJson] },
-    createAiHandler({
-      getCached: (article) => article.summary,
-      streamFn: async (fullText, onDelta) => {
-        const r = await streamSummarizeArticle(fullText, onDelta)
-        return { text: r.summary, ...r }
-      },
-      nonStreamFn: async (fullText) => {
-        const r = await summarizeArticle(fullText)
-        return { text: r.summary, ...r }
-      },
-      applyResult: (articleId, text) => {
-        updateArticleContent(articleId, { summary: text })
-      },
-      errorMessage: 'Summarization failed',
-      errorCode: 'SUMMARIZATION_FAILED',
-    }),
   )
 
   api.post(

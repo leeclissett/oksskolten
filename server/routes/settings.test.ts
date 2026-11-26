@@ -14,8 +14,6 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: vi.fn(),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: null, title: null }),
-    summarizeArticle: vi.fn(),
-    streamSummarizeArticle: vi.fn(),
     translateArticle: vi.fn(),
     streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
@@ -50,13 +48,13 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'anthropic',
-        'chat.model': 'claude-haiku-4-5-20251001',
+        'translate.provider': 'anthropic',
+        'translate.model': 'claude-haiku-4-5-20251001',
       },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json()['chat.provider']).toBe('anthropic')
-    expect(res.json()['chat.model']).toBe('claude-haiku-4-5-20251001')
+    expect(res.json()['translate.provider']).toBe('anthropic')
+    expect(res.json()['translate.model']).toBe('claude-haiku-4-5-20251001')
   })
 
   it('accepts valid gemini provider and model', async () => {
@@ -65,12 +63,12 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'gemini',
-        'chat.model': 'gemini-2.5-flash',
+        'translate.provider': 'gemini',
+        'translate.model': 'gemini-2.5-flash',
       },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json()['chat.provider']).toBe('gemini')
+    expect(res.json()['translate.provider']).toBe('gemini')
   })
 
   it('accepts valid openai provider and model', async () => {
@@ -79,8 +77,8 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'summary.provider': 'openai',
-        'summary.model': 'gpt-4.1-mini',
+        'translate.provider': 'openai',
+        'translate.model': 'gpt-4.1-mini',
       },
     })
     expect(res.statusCode).toBe(200)
@@ -92,8 +90,8 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'anthropic',
-        'chat.model': 'gpt-4o',  // OpenAI model, not valid for anthropic
+        'translate.provider': 'anthropic',
+        'translate.model': 'gpt-4o',  // OpenAI model, not valid for anthropic
       },
     })
     expect(res.statusCode).toBe(400)
@@ -116,14 +114,14 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
 
   it('validates against existing provider when only model is sent', async () => {
     // Set up: anthropic provider already saved
-    upsertSetting('chat.provider', 'anthropic')
+    upsertSetting('translate.provider', 'anthropic')
 
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.model': 'gpt-4o',  // Doesn't match existing provider
+        'translate.model': 'gpt-4o',  // Doesn't match existing provider
       },
     })
     expect(res.statusCode).toBe(400)
@@ -132,14 +130,14 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
 
   it('validates against existing model when only provider is sent', async () => {
     // Set up: openai model already saved
-    upsertSetting('chat.model', 'gpt-4o')
+    upsertSetting('translate.model', 'gpt-4o')
 
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'anthropic',  // Doesn't match existing model
+        'translate.provider': 'anthropic',  // Doesn't match existing model
       },
     })
     expect(res.statusCode).toBe(400)
@@ -152,12 +150,12 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'claude-code',
-        'chat.model': 'claude-haiku-4-5-20251001',
+        'translate.provider': 'claude-code',
+        'translate.model': 'claude-haiku-4-5-20251001',
       },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json()['chat.provider']).toBe('claude-code')
+    expect(res.json()['translate.provider']).toBe('claude-code')
   })
 
   it('claude-code provider rejects non-anthropic model', async () => {
@@ -166,25 +164,8 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'claude-code',
-        'chat.model': 'gpt-4o',
-      },
-    })
-    expect(res.statusCode).toBe(400)
-    expect(res.json().error).toMatch(/not valid for provider/)
-  })
-
-  it('validates all three provider-model pairs independently', async () => {
-    // Valid chat pair, invalid summary pair
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/api/settings/preferences',
-      headers: json,
-      payload: {
-        'chat.provider': 'anthropic',
-        'chat.model': 'claude-haiku-4-5-20251001',
-        'summary.provider': 'gemini',
-        'summary.model': 'gpt-4o',  // Wrong: openai model with gemini provider
+        'translate.provider': 'claude-code',
+        'translate.model': 'gpt-4o',
       },
     })
     expect(res.statusCode).toBe(400)
@@ -198,7 +179,7 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'gemini',
+        'translate.provider': 'gemini',
       },
     })
     expect(res.statusCode).toBe(200)
@@ -215,31 +196,31 @@ describe('PATCH /api/settings/preferences — AI provider/model enums', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'chat.provider': 'llama' },
+      payload: { 'translate.provider': 'llama' },
     })
     expect(res.statusCode).toBe(400)
-    expect(res.json().error).toMatch(/chat\.provider/)
+    expect(res.json().error).toMatch(/translate\.provider/)
   })
 
   it('rejects invalid model value when provider is set', async () => {
-    upsertSetting('chat.provider', 'anthropic')
+    upsertSetting('translate.provider', 'anthropic')
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'chat.model': 'nonexistent-model-9000' },
+      payload: { 'translate.model': 'nonexistent-model-9000' },
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/not valid for provider/)
   })
 
-  it('accepts all four valid provider values for chat', async () => {
+  it('accepts all four LLM provider values for translate', async () => {
     for (const provider of ['anthropic', 'gemini', 'openai', 'claude-code']) {
       const res = await app.inject({
         method: 'PATCH',
         url: '/api/settings/preferences',
         headers: json,
-        payload: { 'chat.provider': provider },
+        payload: { 'translate.provider': provider },
       })
       expect(res.statusCode).toBe(200)
     }
@@ -255,18 +236,6 @@ describe('PATCH /api/settings/preferences — AI provider/model enums', () => {
       })
       expect(res.statusCode).toBe(200)
       expect(res.json()['translate.provider']).toBe(provider)
-    }
-  })
-
-  it('rejects translate-only providers for chat/summary', async () => {
-    for (const provider of ['google-translate', 'deepl']) {
-      const res = await app.inject({
-        method: 'PATCH',
-        url: '/api/settings/preferences',
-        headers: json,
-        payload: { 'chat.provider': provider },
-      })
-      expect(res.statusCode).toBe(400)
     }
   })
 
@@ -309,8 +278,8 @@ describe('POST /api/settings/preferences', () => {
       url: '/api/settings/preferences',
       headers: json,
       payload: {
-        'chat.provider': 'gemini',
-        'chat.model': 'claude-haiku-4-5-20251001',  // Wrong provider
+        'translate.provider': 'gemini',
+        'translate.model': 'claude-haiku-4-5-20251001',  // Wrong provider
       },
     })
     expect(res.statusCode).toBe(400)
@@ -694,10 +663,9 @@ describe('PATCH /api/settings/preferences — AI max tokens validation', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'summary.max_tokens': '512', 'translate.max_tokens': '4096' },
+      payload: { 'translate.max_tokens': '4096' },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json()['summary.max_tokens']).toBe('512')
     expect(res.json()['translate.max_tokens']).toBe('4096')
   })
 
@@ -706,16 +674,16 @@ describe('PATCH /api/settings/preferences — AI max tokens validation', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'summary.max_tokens': '512' },
+      payload: { 'translate.max_tokens': '512' },
     })
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'summary.max_tokens': '' },
+      payload: { 'translate.max_tokens': '' },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json()['summary.max_tokens']).toBeNull()
+    expect(res.json()['translate.max_tokens']).toBeNull()
   })
 
   it('rejects non-integer max tokens', async () => {
@@ -723,7 +691,7 @@ describe('PATCH /api/settings/preferences — AI max tokens validation', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'summary.max_tokens': '2.5' },
+      payload: { 'translate.max_tokens': '2.5' },
     })
     expect(res.statusCode).toBe(400)
   })
@@ -743,7 +711,7 @@ describe('PATCH /api/settings/preferences — AI max tokens validation', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'summary.max_tokens': '-100' },
+      payload: { 'translate.max_tokens': '-100' },
     })
     expect(res.statusCode).toBe(400)
   })
@@ -763,7 +731,7 @@ describe('PATCH /api/settings/preferences — AI max tokens validation', () => {
       method: 'PATCH',
       url: '/api/settings/preferences',
       headers: json,
-      payload: { 'summary.max_tokens': '200001' },
+      payload: { 'translate.max_tokens': '200001' },
     })
     expect(res.statusCode).toBe(400)
   })

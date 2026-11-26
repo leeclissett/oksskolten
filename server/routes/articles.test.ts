@@ -8,8 +8,7 @@ import type { FastifyInstance } from 'fastify'
 // Mocks
 // ---------------------------------------------------------------------------
 
-const { mockStreamSummarize, mockStreamTranslate } = vi.hoisted(() => ({
-  mockStreamSummarize: vi.fn(),
+const { mockStreamTranslate } = vi.hoisted(() => ({
   mockStreamTranslate: vi.fn(),
 }))
 
@@ -19,8 +18,6 @@ vi.mock('../fetcher.js', async () => {
     fetchAllFeeds: vi.fn(),
     fetchSingleFeed: vi.fn(),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: null, title: null }),
-    summarizeArticle: vi.fn().mockResolvedValue({ summary: 'summary text', inputTokens: 10, outputTokens: 5, billingMode: 'standard', model: 'haiku' }),
-    streamSummarizeArticle: (...args: unknown[]) => mockStreamSummarize(...args),
     translateArticle: vi.fn().mockResolvedValue({ fullTextTranslated: '翻訳テキスト', inputTokens: 10, outputTokens: 5, billingMode: 'standard', model: 'sonnet' }),
     streamTranslateArticle: (...args: unknown[]) => mockStreamTranslate(...args),
     fetchProgress: new EventEmitter(),
@@ -56,93 +53,12 @@ function seedArticle(feedId: number, overrides: Partial<Parameters<typeof insert
 beforeEach(async () => {
   setupTestDb()
   app = await buildApp()
-  mockStreamSummarize.mockReset()
   mockStreamTranslate.mockReset()
 })
 
 // ---------------------------------------------------------------------------
 // Streaming summarize
 // ---------------------------------------------------------------------------
-
-describe('POST /api/articles/:id/summarize?stream=1', () => {
-  it('returns SSE stream with delta and done events', async () => {
-    const feed = seedFeed()
-    const artId = seedArticle(feed.id, { full_text: 'Long article content here' })
-
-    mockStreamSummarize.mockImplementation(async (_text: string, onDelta: (d: string) => void) => {
-      onDelta('sum')
-      onDelta('mary')
-      return { summary: 'summary', inputTokens: 10, outputTokens: 5, billingMode: 'standard', model: 'haiku' }
-    })
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/articles/${artId}/summarize?stream=1`,
-      headers: json,
-      payload: {},
-    })
-
-    expect(res.statusCode).toBe(200)
-    expect(res.headers['content-type']).toBe('text/event-stream')
-
-    const events = res.body
-      .split('\n')
-      .filter((l: string) => l.startsWith('data: '))
-      .map((l: string) => JSON.parse(l.slice(6)))
-
-    const deltas = events.filter((e: any) => e.type === 'delta')
-    expect(deltas).toHaveLength(2)
-    expect(deltas[0].text).toBe('sum')
-    expect(deltas[1].text).toBe('mary')
-
-    const done = events.find((e: any) => e.type === 'done')
-    expect(done).toBeDefined()
-    expect(done.usage.input_tokens).toBe(10)
-  })
-
-  it('returns cached summary even when stream=1', async () => {
-    const feed = seedFeed()
-    const artId = seedArticle(feed.id, { full_text: 'text', summary: 'Cached' })
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/articles/${artId}/summarize?stream=1`,
-      headers: json,
-      payload: {},
-    })
-
-    expect(res.statusCode).toBe(200)
-    expect(res.json().text).toBe('Cached')
-    expect(res.json().cached).toBe(true)
-  })
-
-  it('handles streaming error after headers sent', async () => {
-    const feed = seedFeed()
-    const artId = seedArticle(feed.id, { full_text: 'Long content' })
-
-    mockStreamSummarize.mockRejectedValue(new Error('API timeout'))
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/articles/${artId}/summarize?stream=1`,
-      headers: json,
-      payload: {},
-    })
-
-    // The SSE stream should contain an error event
-    expect(res.statusCode).toBe(200)
-    expect(res.headers['content-type']).toBe('text/event-stream')
-
-    const events = res.body
-      .split('\n')
-      .filter((l: string) => l.startsWith('data: '))
-      .map((l: string) => JSON.parse(l.slice(6)))
-
-    const errorEvent = events.find((e: any) => e.type === 'error')
-    expect(errorEvent).toBeDefined()
-    expect(errorEvent.error).toBe('SUMMARIZATION_FAILED')
-  })
-})
 
 // ---------------------------------------------------------------------------
 // Translate edge cases

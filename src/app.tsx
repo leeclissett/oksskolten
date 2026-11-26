@@ -16,8 +16,6 @@ import { ArticleRawPage } from './components/article/article-raw-page'
 import { PageLayout } from './components/layout/page-layout'
 import { KeyboardNavigationProvider, useKeyboardNavigationContext } from './contexts/keyboard-navigation-context'
 const SettingsPage = lazy(() => import('./pages/settings-page').then(m => ({ default: m.SettingsPage })))
-const ChatPage = lazy(() => import('./pages/chat-page').then(m => ({ default: m.ChatPage })))
-const HomePage = lazy(() => import('./pages/home-page').then(m => ({ default: m.HomePage })))
 import { AuthShell } from './lib/auth-shell'
 import { ErrorBoundary } from './components/auth/error-boundary'
 import { HintBanner } from './components/ui/hint-banner'
@@ -179,42 +177,6 @@ function SettingsPageWrapper() {
   )
 }
 
-function ChatPageWrapper() {
-  const { t } = useI18n()
-  const { conversationId } = useParams<{ conversationId?: string }>()
-  const navigate = useNavigate()
-
-  const { data: convData } = useSWR<{ conversations: Array<{ id: string; title: string | null }> }>(
-    conversationId ? '/api/chat/conversations' : null,
-    fetcher,
-    { revalidateOnFocus: false },
-  )
-  const conversationTitle = convData?.conversations?.find(c => c.id === conversationId)?.title ?? null
-
-  return (
-    <PageLayout
-      mode={conversationId ? 'detail' : 'list'}
-      feedName={conversationId ? undefined : t('chat.title')}
-      detailTitle={conversationTitle}
-      onBack={() => navigate('/chat')}
-    >
-      <Suspense>
-        <ChatPage />
-      </Suspense>
-    </PageLayout>
-  )
-}
-
-function HomePageWrapper() {
-  return (
-    <PageLayout>
-      <Suspense>
-        <HomePage />
-      </Suspense>
-    </PageLayout>
-  )
-}
-
 function ArticleDetailPage() {
   const { '*': splat } = useParams()
   const { lastListUrl } = useKeyboardNavigationContext()
@@ -241,7 +203,7 @@ function ArticleDetailPage() {
 
 // Determine the "page type" for animation decisions
 function getPageType(pathname: string): 'detail' | 'list' {
-  if (pathname === '/' || pathname === '/inbox' || pathname === '/bookmarks' || pathname === '/likes' || pathname === '/history' || pathname === '/clips' || pathname.startsWith('/feeds/') || pathname.startsWith('/categories/') || pathname.startsWith('/settings') || pathname.startsWith('/chat')) {
+  if (pathname === '/' || pathname === '/inbox' || pathname === '/bookmarks' || pathname === '/likes' || pathname === '/history' || pathname === '/clips' || pathname.startsWith('/feeds/') || pathname.startsWith('/categories/') || pathname.startsWith('/settings')) {
     return 'list'
   }
   return 'detail'
@@ -312,7 +274,7 @@ function AnimatedRoutes() {
         <ScrollRestore pathname={location.pathname} pageType={pageType} />
         <Routes location={location}>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<HomePageWrapper />} />
+            <Route path="/" element={<Navigate to="/inbox" replace />} />
             <Route path="/inbox" element={<ArticleListPage />} />
             <Route path="/bookmarks" element={<ArticleListPage />} />
             <Route path="/likes" element={<ArticleListPage />} />
@@ -322,8 +284,6 @@ function AnimatedRoutes() {
             <Route path="/categories/:categoryId" element={<ArticleListPage />} />
             <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
             <Route path="/settings/:tab" element={<SettingsPageWrapper />} />
-            <Route path="/chat" element={<ChatPageWrapper />} />
-            <Route path="/chat/:conversationId" element={<ChatPageWrapper />} />
             <Route path="/*" element={<ArticleDetailPage />} />
           </Route>
         </Routes>

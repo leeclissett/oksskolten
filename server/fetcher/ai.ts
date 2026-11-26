@@ -60,26 +60,6 @@ export function detectLanguage(fullText: string, languageHint?: string | null): 
 }
 
 
-function buildSummarizePrompt(fullText: string): string {
-  const lang = getSetting('general.language') || DEFAULT_LANGUAGE
-  return `Summarize the following article in ${languageName(lang)}. Follow the format strictly.
-
-## Format
-Line 1: A concise 1-2 sentence summary of the article's main point (what the article is about and the author's key argument or conclusion)
-Line 2: Empty line
-Line 3+: Key points as bullet points. Each item should follow the format "**Point title** — supplementary explanation" (only the title in bold)
-
-## Rules
-- Each bullet point must faithfully reflect the article's arguments, claims, or facts
-- Maintain the order of the article's flow
-- Minimize the number of points (3-4 is ideal). Only add more if the content is truly wide-ranging, but never exceed 7
-- Output in Markdown (bullet points start with "- ")
-- Do not include any text other than the summary (no headings, preambles, or notes)
-
---- Article body ---
-${fullText}`
-}
-
 const TITLE_MARKER = 'OKSSKOLTEN_TRANSLATED_TITLE_7F3A'
 const BODY_MARKER = 'OKSSKOLTEN_TRANSLATED_BODY_7F3A'
 
@@ -125,7 +105,7 @@ async function runAiTask(
   onText?: (delta: string) => void,
   explicitTargetLang?: string,
 ): Promise<{ text: string } & AiTextResult> {
-  const providerName = getSetting(config.providerKey) || TASK_DEFAULTS.summarize.provider
+  const providerName = getSetting(config.providerKey) || TASK_DEFAULTS.translate.provider
   const model = getSetting(config.modelKey) || config.defaultModel
   const provider = getProvider(providerName)
   provider.requireKey()
@@ -150,17 +130,7 @@ async function runAiTask(
   }
 }
 
-const SUMMARIZE_MAX_TOKENS = 2048
 const TRANSLATE_MAX_TOKENS = 16384
-
-const summarizeConfig: AiTaskConfig = {
-  providerKey: 'summary.provider',
-  modelKey: 'summary.model',
-  defaultModel: TASK_DEFAULTS.summarize.model,
-  maxTokensKey: 'summary.max_tokens',
-  defaultMaxTokens: SUMMARIZE_MAX_TOKENS,
-  buildPrompt: buildSummarizePrompt,
-}
 
 const translateConfig: AiTaskConfig = {
   providerKey: 'translate.provider',
@@ -169,19 +139,6 @@ const translateConfig: AiTaskConfig = {
   maxTokensKey: 'translate.max_tokens',
   defaultMaxTokens: TRANSLATE_MAX_TOKENS,
   buildPrompt: buildTranslatePrompt,
-}
-
-export async function summarizeArticle(fullText: string): Promise<{ summary: string } & AiTextResult> {
-  const r = await runAiTask(summarizeConfig, fullText)
-  return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
-}
-
-export async function streamSummarizeArticle(
-  fullText: string,
-  onText: (delta: string) => void,
-): Promise<{ summary: string } & AiTextResult> {
-  const r = await runAiTask(summarizeConfig, fullText, onText)
-  return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
 }
 
 export async function translateArticle(fullText: string, targetLang?: string): Promise<{ fullTextTranslated: string } & AiTextResult> {

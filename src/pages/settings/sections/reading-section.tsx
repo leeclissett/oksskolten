@@ -17,7 +17,6 @@ export function ReadingSection() {
     categoryUnreadOnly, setCategoryUnreadOnly,
     showThumbnails, setShowThumbnails,
     showFeedActivity, setShowFeedActivity,
-    chatPosition, setChatPosition,
     articleOpenMode, setArticleOpenMode,
     dateMode, setDateMode,
   } = settings
@@ -201,68 +200,6 @@ export function ReadingSection() {
                   </div>
                 ))}
               </div>
-            </PreviewCard>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-6">
-        <p className="text-sm text-text mb-1">{t('settings.chatPosition')}</p>
-        <p className="text-xs text-muted mb-3">{t('settings.chatPositionDesc')}</p>
-        <div className="flex gap-3">
-          {([
-            { value: 'fab' as const, label: t('settings.chatPositionFab') },
-            { value: 'inline' as const, label: t('settings.chatPositionInline') },
-          ]).map(option => (
-            <PreviewCard
-              key={option.value}
-              selected={chatPosition === option.value}
-              onClick={() => setChatPosition(option.value)}
-              label={option.label}
-              sizeClass="w-full md:w-[160px] h-[112px]"
-              className="flex-1 md:flex-none"
-            >
-              {option.value === 'fab' ? (
-                <div className="w-full h-full bg-bg-card py-2.5 flex flex-col items-center relative">
-                  <div className="w-3/5 flex-1 space-y-1.5">
-                    <div className="w-full h-1.5 rounded-full bg-muted opacity-30" />
-                    <div className="w-11/12 h-1.5 rounded-full bg-muted opacity-30" />
-                    <div className="w-full h-1.5 rounded-full bg-muted opacity-30" />
-                    <div className="w-5/6 h-1.5 rounded-full bg-muted opacity-30" />
-                    <div className="w-full h-1.5 rounded-full bg-muted opacity-30" />
-                    <div className="w-2/3 h-1.5 rounded-full bg-muted opacity-30" />
-                  </div>
-                  <div className="absolute bottom-2 right-3 w-7 h-7 rounded-full bg-accent flex items-center justify-center shadow-sm">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z" />
-                      <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
-                    </svg>
-                  </div>
-                </div>
-              ) : (
-                <div className="w-full h-full bg-bg-card pt-4 pb-3 flex flex-col items-center gap-3">
-                  <div className="w-1/2 h-2.5 rounded-full bg-muted opacity-50" />
-                  <div className="flex items-center">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-5 h-5 rounded bg-border flex items-center justify-center">
-                        <div className="w-2.5 h-2.5 rounded-sm bg-muted opacity-40" />
-                      </div>
-                      <div className="w-5 h-5 rounded bg-border flex items-center justify-center">
-                        <div className="w-2.5 h-2.5 rounded-sm bg-muted opacity-40" />
-                      </div>
-                      <div className="w-5 h-5 rounded bg-accent/30 flex items-center justify-center">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
-                          <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z" />
-                          <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
-                        </svg>
-                      </div>
-                      <div className="w-5 h-5 rounded bg-border flex items-center justify-center">
-                        <div className="w-2.5 h-2.5 rounded-sm bg-muted opacity-40" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </PreviewCard>
           ))}
         </div>

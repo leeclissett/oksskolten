@@ -10,8 +10,6 @@ vi.mock('./fetcher.js', async () => {
     fetchAllFeeds: vi.fn().mockResolvedValue(undefined),
     fetchSingleFeed: vi.fn().mockResolvedValue(undefined),
     discoverRssUrl: vi.fn().mockResolvedValue({ rssUrl: 'https://example.com/rss', title: 'Example' }),
-    summarizeArticle: vi.fn().mockResolvedValue({ summary: 'summary text', inputTokens: 10, outputTokens: 5 }),
-    streamSummarizeArticle: vi.fn(),
     translateArticle: vi.fn().mockResolvedValue({ fullTextTranslated: '翻訳テキスト', inputTokens: 10, outputTokens: 5 }),
     streamTranslateArticle: vi.fn(),
     fetchProgress: new EventEmitter(),
@@ -105,7 +103,7 @@ describe('POST /api/feeds', () => {
 
     // Verify step events are present
     const stepEvents = events.filter(e => e.type === 'step')
-    expect(stepEvents.length).toBeGreaterThanOrEqual(3)
+    expect(stepEvents.length).toBeGreaterThanOrEqual(2)
   })
 
   it('returns 400 when url is missing', async () => {
@@ -671,64 +669,6 @@ describe('POST /api/articles/batch-seen', () => {
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/100/)
-  })
-})
-
-describe('POST /api/articles/:id/summarize', () => {
-  it('returns cached summary when available', async () => {
-    const feed = seedFeed()
-    const artId = seedArticle(feed.id, {
-      full_text: 'Some article text',
-      summary: 'Cached summary',
-    })
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/articles/${artId}/summarize`,
-      headers: json,
-      payload: {},
-    })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().text).toBe('Cached summary')
-    expect(res.json().cached).toBe(true)
-  })
-
-  it('returns 400 when no full_text', async () => {
-    const feed = seedFeed()
-    const artId = seedArticle(feed.id, { full_text: null })
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/articles/${artId}/summarize`,
-      headers: json,
-      payload: {},
-    })
-    expect(res.statusCode).toBe(400)
-    expect(res.json().error).toMatch(/full text/i)
-  })
-
-  it('returns 404 for non-existent article', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/articles/9999/summarize',
-      headers: json,
-      payload: {},
-    })
-    expect(res.statusCode).toBe(404)
-  })
-
-  it('generates summary via AI when not cached', async () => {
-    const feed = seedFeed()
-    const artId = seedArticle(feed.id, { full_text: 'Long article content' })
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/articles/${artId}/summarize`,
-      headers: json,
-      payload: {},
-    })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().text).toBe('summary text')
   })
 })
 

@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import { fetcher } from '../../lib/fetcher'
 import { useI18n } from '../../lib/i18n'
 import { MD_BREAKPOINT } from '../../lib/breakpoints'
-import { Inbox, Plus, ChevronRight, Bookmark, ThumbsUp, Clock, Paperclip, Search, Command, ArrowBigUp, AlertTriangle, MessagesSquare, Languages } from 'lucide-react'
+import { Inbox, Plus, ChevronRight, Bookmark, ThumbsUp, Clock, Paperclip, Search, Command, ArrowBigUp, AlertTriangle, Languages } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { useFetchProgressContext } from '../../contexts/fetch-progress-context'
@@ -70,7 +70,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
   const isLikes = location.pathname === '/likes'
   const isHistory = location.pathname === '/history'
   const isClips = location.pathname === '/clips'
-  const isChat = location.pathname.startsWith('/chat')
   const selectedFeedId = feedId ? Number(feedId) : null
   const selectedCategoryId = categoryId ? Number(categoryId) : null
   const { progress, startFeedFetch, subscribeFeedFetch } = useFetchProgressContext()
@@ -492,8 +491,6 @@ export function FeedList({ isOpen, onClose, onBackdropClose, onCollapse, onMarkA
           )}
 
           <SidebarNavItem icon={Clock} label={t('feeds.history')} selected={isHistory} onClick={() => { void navigate('/history'); onClose() }} />
-
-          <SidebarNavItem icon={MessagesSquare} label={t('chat.title')} selected={isChat} onClick={() => { void navigate('/chat'); onClose() }} />
 
           <SidebarNavItem icon={Plus} label={t('modal.addNew')} onClick={() => setFeedModalOpen(true)} className="text-muted hover:text-text" />
 

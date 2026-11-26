@@ -38,18 +38,6 @@ vi.mock('../../hooks/use-metrics', () => ({
   useMetrics: () => ({ metrics: null, report: vi.fn(), reset: vi.fn(), formatMetrics: vi.fn(() => null) }),
 }))
 
-vi.mock('../../hooks/use-summarize', () => ({
-  useSummarize: () => ({
-    summary: null,
-    summarizing: false,
-    streamingText: '',
-    handleSummarize: vi.fn(),
-    summaryHtml: '',
-    streamingHtml: '',
-    error: null,
-  }),
-}))
-
 const mockUseTranslate = vi.fn((_article?: { id: number; full_text_translated: string | null }, _metrics?: unknown) => ({
   viewMode: 'original' as const,
   setViewMode: vi.fn(),
@@ -67,10 +55,6 @@ vi.mock('../../hooks/use-translate', () => ({
 
 vi.mock('../ui/ImageLightbox', () => ({
   ImageLightbox: () => null,
-}))
-
-vi.mock('../chat/chat-fab', () => ({
-  ChatFab: () => null,
 }))
 
 import { ArticleDetail } from './article-detail'

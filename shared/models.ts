@@ -80,8 +80,6 @@ export const DEFAULT_MODELS: Record<string, string> = {
 }
 
 export const TASK_DEFAULTS = {
-  chat:      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
-  summarize: { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
   translate: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
 } as const
 
@@ -103,16 +101,6 @@ export const PROVIDER_LABELS: Record<string, 'provider.anthropic' | 'provider.ge
   vllm: 'provider.vllm',
   'google-translate': 'provider.googleTranslate',
   deepl: 'provider.deepl',
-}
-
-/** Cheapest model per provider, used for lightweight sub-agent tasks (e.g. title generation) */
-export const SUB_AGENT_MODELS: Record<string, string> = {
-  anthropic: 'claude-haiku-4-5-20251001',
-  gemini: 'gemini-2.5-flash',
-  openai: 'gpt-5-nano',
-  'claude-code': 'claude-haiku-4-5-20251001',
-  ollama: '',
-  vllm: '',
 }
 
 /** Get flat array of model value strings for a given provider */
